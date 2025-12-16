@@ -1,61 +1,34 @@
-# ShinkaEvolve to Optimize Transportation Decisions
+### Define System
 
-## TO DO LIST 
+##### Infrastructure Data
+Model as directed graph `G = (V, E)`:
+Nodes (V):
+- stations
+- junctions
+- entry/exit points
 
-### Build Simulation
+Edges (E):
+- length
+- direction (single vs double)
+- capacity (usually 1)
+- travel time distribution
 
-(1) create ideal data types and fake data (this will be used for testing)
-(2) replace fake data with real data
-
-Input Data (from MTA datasets)
-
-**Network structure**
-- Stations (nodes)
-  - Passenger arrival rates (by time bucket)
-  - Platform capacity (e.g., maximum waiting passengers)
-- Track connections (edges)
-  - Average travel time between stations
-  - Reliability or delay penalty (optional)
-
-**Passenger demand**
-- Origin–Destination (OD) demand between stations  
-  - Aggregated by time bucket (e.g., AM peak, PM peak)
-
-**Train characteristics**
-- Average capacity per train
-- Fleet size constraints (maximum trains per line)
-- Average dwell time assumptions
-
----
-
-Decision Variables (Strategy)
-
-(1) create simple `initial.py` file
-(2) link file with `fitness.py`
-(3) test if it evolves over time
-
-**Service-level decisions**
-- Train frequency per line per time bucket  
-  - Expressed as trains per hour
-- High-level fleet allocation  
-  - Number of trains assigned to each line
-
----
-
-Simulation Outputs (Evaluation Metrics)
-
-(1) define `fitness.py` file
-(2) define single objective
-(3) explore multi-objective
-
-**Passenger performance**
-- Average passenger travel time
-- Average waiting time at stations
-- Crowding level (load factor)
-
-**Operational performance**
-- Total operating cost  
-  - Proportional to total train-hours operated
-- Capacity utilization
+##### Constraints
+- each block has (entry time, exit time) and only one train can occupy this
+\[
+    [t_i^{in}, t_i^{out}) \cap [t_j^{in}, t_j^{out})
+\]
+- trains must be seperated in time
+\[
+    t_j^{in} \geq t_i^{out} + h
+\]
+- train must traverse connected edges, respect directionality, not teleport or skip blocks
+- no overtaking (for sake of this simulation)
+- arrival time is always greater than departure time
 
 
+##### Station and Platforms
+For each station:
+- number of platforms
+- platform track comptability
+- min/max dwell times
