@@ -11,12 +11,38 @@ import copy
 # =============================================================================
 
 TIME_HORIZON = 24
-ENERGY_PRICE = {
-    0: 8, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8,          # off-peak
-    6: 18, 7: 18, 8: 18, 9: 18,                  # morning peak
-    10: 12, 11: 12, 12: 12, 13: 12, 14: 12, 15: 12, 16: 12,
-    17: 22, 18: 22, 19: 22, 20: 22, 21: 22,      # evening peak
-    22: 10, 23: 10                               # late night
+
+# Direct server cost per hour (¥/hour) - like on-demand compute pricing
+# Cost varies by time slot (demand-based pricing)
+SERVER_COST = {
+    "S1": {  # CPU Server 1
+        0: 16, 1: 16, 2: 16, 3: 16, 4: 16, 5: 16,      # off-peak (cheap)
+        6: 36, 7: 36, 8: 36, 9: 36,                    # morning peak
+        10: 24, 11: 24, 12: 24, 13: 24, 14: 24, 15: 24, 16: 24,  # midday
+        17: 44, 18: 44, 19: 44, 20: 44, 21: 44,        # evening peak (expensive)
+        22: 20, 23: 20                                  # late night
+    },
+    "S2": {  # CPU Server 2 (same as S1)
+        0: 16, 1: 16, 2: 16, 3: 16, 4: 16, 5: 16,
+        6: 36, 7: 36, 8: 36, 9: 36,
+        10: 24, 11: 24, 12: 24, 13: 24, 14: 24, 15: 24, 16: 24,
+        17: 44, 18: 44, 19: 44, 20: 44, 21: 44,
+        22: 20, 23: 20
+    },
+    "S3": {  # GPU Server (more expensive)
+        0: 36, 1: 36, 2: 36, 3: 36, 4: 36, 5: 36,
+        6: 81, 7: 81, 8: 81, 9: 81,
+        10: 54, 11: 54, 12: 54, 13: 54, 14: 54, 15: 54, 16: 54,
+        17: 99, 18: 99, 19: 99, 20: 99, 21: 99,
+        22: 45, 23: 45
+    },
+    "S4": {  # Storage Server (cheapest)
+        0: 10, 1: 10, 2: 10, 3: 10, 4: 10, 5: 10,
+        6: 22, 7: 22, 8: 22, 9: 22,
+        10: 14, 11: 14, 12: 14, 13: 14, 14: 14, 15: 14, 16: 14,
+        17: 26, 18: 26, 19: 26, 20: 26, 21: 26,
+        22: 12, 23: 12
+    },
 }
 
 
@@ -24,7 +50,6 @@ ENERGY_PRICE = {
 class Server:
     id: str
     server_type: str
-    power_kw: float
 
 
 @dataclass
@@ -47,7 +72,7 @@ class Job:
 class Instance:
     servers: Dict[str, Server]
     jobs: Dict[str, Job]
-    energy_price: Dict[int, float]
+    server_cost: Dict[str, Dict[int, float]]  # server_id -> {hour: cost}
     time_horizon: int
     weights: Dict[str, float]
 
@@ -58,10 +83,10 @@ Schedule = Dict[str, List[Dict[str, Any]]]
 def create_instance() -> Instance:
     """Create the problem instance."""
     servers = {
-        "S1": Server("S1", "CPU", 2.0),
-        "S2": Server("S2", "CPU", 2.0),
-        "S3": Server("S3", "GPU", 4.5),
-        "S4": Server("S4", "Storage", 1.2),
+        "S1": Server("S1", "CPU"),
+        "S2": Server("S2", "CPU"),
+        "S3": Server("S3", "GPU"),
+        "S4": Server("S4", "Storage"),
     }
     jobs = {
         "J1": Job("J1", "Emergency response analytics", "HIGH", 8, 10.0, [
@@ -83,8 +108,8 @@ def create_instance() -> Instance:
             Operation("Storage", 2), Operation("CPU", 2)
         ]),
     }
-    return Instance(servers, jobs, ENERGY_PRICE, TIME_HORIZON,
-                   {"energy_cost": 1.0, "delay_penalty": 5.0})
+    return Instance(servers, jobs, SERVER_COST, TIME_HORIZON,
+                   {"compute_cost": 1.0, "delay_penalty": 5.0})
 
 
 # =============================================================================
@@ -94,7 +119,7 @@ def create_instance() -> Instance:
 @dataclass
 class Fitness:
     score: float
-    energy_cost: float
+    compute_cost: float
     delay_penalty: float
     violations: List[str]
     job_completion_times: Dict[str, int]
@@ -107,7 +132,7 @@ def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
     """Evaluate a schedule and return fitness."""
     server_usage = {s: [] for s in inst.servers}
     job_completion_times = {}
-    total_energy_cost = 0.0
+    total_compute_cost = 0.0
     total_delay_penalty = 0.0
     violations = []
 
@@ -134,9 +159,10 @@ def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
                 violations.append(f"{job_id}: op {idx} requires {required_type}, got {actual_type}")
 
             server_usage[server_id].append((start, end, job_id, idx))
-            power = inst.servers[server_id].power_kw
+            
+            # Direct cost lookup
             for t in range(start, end):
-                total_energy_cost += power * inst.energy_price[t % inst.time_horizon]
+                total_compute_cost += inst.server_cost[server_id][t % inst.time_horizon]
 
         completion = prev_end if prev_end else 0
         job_completion_times[job_id] = completion
@@ -151,11 +177,11 @@ def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
             if start2 < end1:
                 violations.append(f"{server_id}: overlap between {job1} and {job2}")
 
-    score = (inst.weights["energy_cost"] * total_energy_cost +
+    score = (inst.weights["compute_cost"] * total_compute_cost +
              inst.weights["delay_penalty"] * total_delay_penalty +
              len(violations) * 10000)
 
-    return Fitness(round(score, 2), round(total_energy_cost, 2),
+    return Fitness(round(score, 2), round(total_compute_cost, 2),
                    round(total_delay_penalty, 2), violations, job_completion_times)
 
 
@@ -169,7 +195,7 @@ def construct_schedule(inst: Instance) -> Schedule:
     This function is evolved by ShinkaEvolve/AlphaEvolve.
 
     Args:
-        inst: Problem instance with servers, jobs, energy prices
+        inst: Problem instance with servers, jobs, server costs
 
     Returns:
         Schedule: Dict mapping job_id -> list of {"server": str, "start": int}
@@ -177,12 +203,12 @@ def construct_schedule(inst: Instance) -> Schedule:
     def get_servers_by_type(server_type: str) -> List[str]:
         return [s.id for s in inst.servers.values() if s.server_type == server_type]
 
-    def op_energy_cost(server_id: str, start: int, duration: int) -> float:
-        power = inst.servers[server_id].power_kw
-        return sum(power * inst.energy_price[t % inst.time_horizon]
+    def op_cost(server_id: str, start: int, duration: int) -> float:
+        """Compute cost of running operation on server at given time."""
+        return sum(inst.server_cost[server_id][t % inst.time_horizon]
                    for t in range(start, start + duration))
 
-    # --- Initial solution: Priority-based with energy awareness ---
+    # --- Initial solution: Priority-based with cost awareness ---
     priority_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     sorted_jobs = sorted(inst.jobs.keys(),
                         key=lambda j: (priority_order[inst.jobs[j].priority],
@@ -203,12 +229,12 @@ def construct_schedule(inst: Instance) -> Schedule:
             for server_id in compatible:
                 earliest = max(job_available[job_id], server_available[server_id])
 
-                # Try a few start times to find energy-efficient slot
+                # Try a few start times to find cost-efficient slot
                 for start in range(earliest, min(earliest + 6, inst.time_horizon - op.duration + 1)):
-                    energy = op_energy_cost(server_id, start, op.duration)
-                    # Balance energy cost with completion time
+                    cost = op_cost(server_id, start, op.duration)
+                    # Balance compute cost with completion time
                     delay_risk = max(0, start + op.duration - job.deadline) * job.delay_weight
-                    score = energy + delay_risk * 2
+                    score = cost + delay_risk * 2
 
                     if score < best_score:
                         best_score = score

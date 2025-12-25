@@ -1,5 +1,5 @@
 """
-Evaluator for energy-aware job-shop scheduling with improved timeout handling
+Evaluator for cost-aware job-shop scheduling with improved timeout handling
 """
 
 import os
@@ -146,7 +146,7 @@ def aggregate_scheduling_metrics(
     }
     private_metrics = {
         "score": float(reported_score),
-        "energy_cost": float(fitness.energy_cost),
+        "compute_cost": float(fitness.compute_cost),
         "delay_penalty": float(fitness.delay_penalty),
         "num_violations": len(fitness.violations),
     }
@@ -161,7 +161,7 @@ def aggregate_scheduling_metrics(
         extra_data = {
             "schedule": schedule,
             "score": reported_score,
-            "energy_cost": fitness.energy_cost,
+            "compute_cost": fitness.compute_cost,
             "delay_penalty": fitness.delay_penalty,
             "violations": fitness.violations,
             "job_completion_times": fitness.job_completion_times,

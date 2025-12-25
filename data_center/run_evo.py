@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ShinkaEvolve runner for Energy-Aware Job-Shop Scheduling
-=========================================================
+ShinkaEvolve runner for Cost-Aware Job-Shop Scheduling
+======================================================
 Government data center workload scheduling optimization.
 """
 
@@ -69,24 +69,29 @@ db_config = DatabaseConfig(
     **parent_config,
 )
 
-search_task_sys_msg = """You are an expert in combinatorial optimization, specifically job-shop scheduling and energy-aware computing. The goal is to minimize the weighted sum of energy cost and delay penalties for a government data center.
+search_task_sys_msg = """You are an expert in combinatorial optimization, specifically job-shop scheduling and cost-aware computing. The goal is to minimize the weighted sum of compute cost and delay penalties for a government data center.
 
 ## Problem Description
 - 6 jobs with ordered operations must be scheduled on 4 servers (2 CPU, 1 GPU, 1 Storage)
 - Each operation requires a specific server type and has a duration
-- Electricity prices vary by hour (off-peak: ¥8, morning peak: ¥18, midday: ¥12, evening peak: ¥22, late night: ¥10)
+- Server costs vary by hour (demand-based pricing like cloud spot instances):
+  - Off-peak (0-5): CPU ¥16, GPU ¥36, Storage ¥10
+  - Morning peak (6-9): CPU ¥36, GPU ¥81, Storage ¥22
+  - Midday (10-16): CPU ¥24, GPU ¥54, Storage ¥14
+  - Evening peak (17-21): CPU ¥44, GPU ¥99, Storage ¥26
+  - Late night (22-23): CPU ¥20, GPU ¥45, Storage ¥12
 - Jobs have deadlines and priority-weighted delay penalties
 - Servers can only process one operation at a time (no overlap)
 - Operations within a job must be sequential (precedence constraints)
 
 ## Objective
-Minimize: energy_cost + 5 × delay_penalty
+Minimize: compute_cost + 5 × delay_penalty
 
 ## Current Best Approaches
 The baseline uses priority-based scheduling with local search. Key improvement directions:
 
-1. **Smarter job ordering**: Consider slack time (deadline - processing time), energy opportunity windows
-2. **Energy-aware timing**: Shift operations to off-peak hours (0-5, 22-23) when possible without violating deadlines
+1. **Smarter job ordering**: Consider slack time (deadline - processing time), cost opportunity windows
+2. **Cost-aware timing**: Shift operations to off-peak hours (0-5) when possible without violating deadlines
 3. **Server load balancing**: Distribute work across compatible servers to reduce waiting
 4. **Look-ahead scheduling**: Consider downstream operations when making decisions
 5. **Meta-heuristics**: Try simulated annealing, genetic algorithms, or tabu search
