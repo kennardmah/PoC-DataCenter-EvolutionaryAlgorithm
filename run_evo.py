@@ -72,16 +72,28 @@ db_config = DatabaseConfig(
 search_task_sys_msg = """You are an expert in combinatorial optimization, specifically job-shop scheduling and cost-aware computing. The goal is to minimize the weighted sum of compute cost and delay penalties for a government data center.
 
 ## Problem Description
-- 6 jobs with ordered operations must be scheduled on 4 servers (2 CPU, 1 GPU, 1 Storage)
-- Each operation requires a specific server type and has a duration
-- Server costs vary by hour (demand-based pricing like cloud spot instances):
-  - Off-peak (0-5): CPU ¥16, GPU ¥36, Storage ¥10
-  - Morning peak (6-9): CPU ¥36, GPU ¥81, Storage ¥22
-  - Midday (10-16): CPU ¥24, GPU ¥54, Storage ¥14
-  - Evening peak (17-21): CPU ¥44, GPU ¥99, Storage ¥26
-  - Late night (22-23): CPU ¥20, GPU ¥45, Storage ¥12
-- Jobs have deadlines and priority-weighted delay penalties
-- Servers can only process one operation at a time (no overlap)
+- 8 government jobs with ordered operations must be scheduled on 10 machines (5 local + 5 cloud):
+  
+  **Local Machines (limited capacity):**
+  - M1: GPU Compute (training/inference bottleneck) - ¥80-140/h
+  - M2: CPU Compute (control logic, feature engineering) - ¥20-55/h
+  - M3: High-Memory Analytics (graphs, large matrices) - ¥60-110/h
+  - M4: Secure/Isolated Compute (gov-only workloads) - ¥50-80/h
+  - M5: Data Ingest & Preprocessing (IO-heavy, staging) - ¥15-35/h
+  
+  **Cloud Machines (infinite capacity, 5x cost):**
+  - C1: Cloud GPU - ¥400-700/h
+  - C2: Cloud CPU - ¥100-275/h
+  - C3: Cloud HighMem - ¥300-550/h
+  - C4: Cloud Secure - ¥250-400/h
+  - C5: Cloud Ingest - ¥75-175/h
+
+- Each operation requires a specific machine type and has a duration
+- Machine costs vary by hour (demand-based pricing)
+- Jobs include: census processing, ML fraud detection, emergency response, geospatial analysis, classified intel, public health, climate modeling, social services
+- Jobs have deadlines and priority-weighted delay penalties (CRITICAL > HIGH > MEDIUM > LOW)
+- Local machines can only process one operation at a time (capacity constraint)
+- Cloud machines have infinite capacity but cost 5x more (use as overflow)
 - Operations within a job must be sequential (precedence constraints)
 
 ## Objective
@@ -92,18 +104,21 @@ The baseline uses priority-based scheduling with local search. Key improvement d
 
 1. **Smarter job ordering**: Consider slack time (deadline - processing time), cost opportunity windows
 2. **Cost-aware timing**: Shift operations to off-peak hours (0-5) when possible without violating deadlines
-3. **Server load balancing**: Distribute work across compatible servers to reduce waiting
-4. **Look-ahead scheduling**: Consider downstream operations when making decisions
-5. **Meta-heuristics**: Try simulated annealing, genetic algorithms, or tabu search
-6. **Constraint programming**: Model as CP-SAT problem for optimal solutions
-7. **Dynamic programming**: For small instances, exact methods may be tractable
+3. **Local vs. Cloud tradeoff**: Use local machines when available, cloud overflow only when necessary or to avoid delays
+4. **Server load balancing**: Distribute work across compatible servers to reduce waiting
+5. **Look-ahead scheduling**: Consider downstream operations when making decisions
+6. **Meta-heuristics**: Try simulated annealing, genetic algorithms, or tabu search
+7. **Constraint programming**: Model as CP-SAT problem for optimal solutions
+8. **Machine failure resilience**: Handle machine unavailability by routing to cloud or rescheduling
 
-## Constraints (MUST satisfy)
-- All operations must be assigned to compatible server types
+## Constraints (MUST satisfy)machine types (or their cloud equivalents)
 - Operations within a job must not overlap (precedence)
-- No two operations can use the same server at the same time (capacity)
+- No two operations can use the same LOCAL machine at the same time (capacity)
+- Cloud machines have infinite capacity (can run multiple operations simultaneously)
 - Start times must be non-negative
+- Machine failures must be respected (cannot use failed machines during failure windows)
 
+Be creative and try different algorithmic approaches. Consider the local vs. cloud cost tradeoff strategically
 Be creative and try different algorithmic approaches. The problem is NP-hard, so heuristics and meta-heuristics are appropriate."""
 
 
@@ -118,9 +133,9 @@ evo_config = EvolutionConfig(
     job_type="local",
     language="python",
     llm_models=[
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
+        # "gemini-2.5-pro",
+        # "gemini-2.5-flash",
+        # "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
         "o4-mini",
         "gpt-5",
         "gpt-5-mini",

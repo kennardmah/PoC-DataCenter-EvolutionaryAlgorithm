@@ -1,0 +1,15 @@
+machine_id,machine_type,description,cost_offpeak,cost_morning,cost_midday,cost_evening,cost_late,is_cloud
+M1a,GPU,GPU Compute - Training/inference (Instance A),80,120,100,140,90,false
+M1b,GPU,GPU Compute - Training/inference (Instance B),80,120,100,140,90,false
+M2a,CPU,CPU Compute - Control logic (Instance A),20,45,30,55,25,false
+M2b,CPU,CPU Compute - Control logic (Instance B),20,45,30,55,25,false
+M3a,HighMem,High-Memory Analytics (Instance A),60,95,75,110,70,false
+M3b,HighMem,High-Memory Analytics (Instance B),60,95,75,110,70,false
+M4,Secure,Secure/Isolated Compute - Gov-only workloads,50,70,60,80,55,false
+M5a,Ingest,Data Ingest & Preprocessing (Instance A),15,30,22,35,18,false
+M5b,Ingest,Data Ingest & Preprocessing (Instance B),15,30,22,35,18,false
+C1,GPU,Cloud GPU - Infinite capacity (5x cost),400,600,500,700,450,true
+C2,CPU,Cloud CPU - Infinite capacity (5x cost),100,225,150,275,125,true
+C3,HighMem,Cloud HighMem - Infinite capacity (5x cost),300,475,375,550,350,true
+C4,Secure,Cloud Secure - Infinite capacity (5x cost),250,350,300,400,275,true
+C5,Ingest,Cloud Ingest - Infinite capacity (5x cost),75,150,110,175,90,true

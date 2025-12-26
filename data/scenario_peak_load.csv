@@ -1,0 +1,13 @@
+job_id,description,priority,deadline,delay_weight,operations
+J1,National census data processing,HIGH,12,10.0,"Ingest:2,HighMem:3,CPU:2"
+J2,Tax fraud detection ML model,HIGH,10,8.0,"Ingest:1,GPU:3,CPU:1"
+J3,Emergency response coordination,CRITICAL,6,15.0,"Secure:2,CPU:1,HighMem:1"
+J4,Geospatial infrastructure analysis,MEDIUM,16,5.0,"Ingest:2,HighMem:4"
+J5,Classified intelligence processing,CRITICAL,8,12.0,"Secure:3,Secure:2"
+J6,Public health data aggregation,MEDIUM,18,4.0,"Ingest:1,CPU:2,HighMem:2"
+J7,Climate model training,LOW,20,2.0,"Ingest:1,GPU:4"
+J8,Social services optimization,MEDIUM,14,6.0,"Ingest:1,CPU:2,HighMem:2"
+J9,Real-time traffic monitoring,HIGH,10,7.0,"Ingest:2,CPU:3,HighMem:2"
+J10,Financial audit quarterly batch,MEDIUM,22,3.0,"Ingest:1,CPU:3,Secure:2"
+J11,Citizen service request processing,MEDIUM,15,5.0,"Ingest:1,CPU:2,HighMem:1"
+J12,Border security analytics,CRITICAL,9,10.0,"Secure:2,GPU:2,CPU:1"

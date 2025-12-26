@@ -1,0 +1,11 @@
+job_id,description,priority,deadline,delay_weight,operations
+J1,Earthquake damage assessment,CRITICAL,4,20.0,"Ingest:1,GPU:2,HighMem:2"
+J2,Emergency shelter allocation,CRITICAL,3,25.0,"Secure:1,CPU:2,HighMem:1"
+J3,Tsunami evacuation routing,CRITICAL,2,30.0,"Ingest:1,CPU:2,HighMem:2"
+J4,Infrastructure failure prediction,CRITICAL,5,18.0,"HighMem:3,GPU:2"
+J5,Medical resource distribution,CRITICAL,4,22.0,"Secure:2,CPU:1,HighMem:1"
+J6,Communication network restoration,HIGH,8,12.0,"Ingest:1,CPU:3,Secure:1"
+J7,Casualty estimation model,HIGH,10,10.0,"GPU:3,HighMem:2"
+J8,Supply chain disruption analysis,MEDIUM,14,6.0,"Ingest:2,HighMem:3"
+J9,Power grid recovery planning,HIGH,7,15.0,"Secure:2,CPU:2,HighMem:1"
+J10,Building safety inspection prioritization,MEDIUM,12,8.0,"Ingest:1,CPU:2,HighMem:2"

@@ -1,0 +1,9 @@
+failure_scenario,machine_id,failure_start,failure_end,reason
+earthquake_moderate,M1a,8,12,Earthquake - GPU cooling system damage
+earthquake_moderate,M3a,8,14,Earthquake - Memory module damage
+tsunami_warning,M4,5,10,Tsunami evacuation - Facility access restricted
+power_outage,M2b,15,18,Rolling blackout - Circuit B offline
+power_outage,M5a,15,18,Rolling blackout - Ingest station A offline
+typhoon_severe,M2b,10,20,Typhoon - Cooling failure Building B
+typhoon_severe,M3a,12,22,Typhoon - Water damage Rack A
+nuclear_alert,M4,0,8,Nuclear alert - Security protocols require isolation
