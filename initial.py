@@ -152,7 +152,7 @@ def create_instance(
     Returns:
         Instance object with jobs, servers, and optional machine failures from CSV
     """
-    from scenario_loader import create_instance_from_csv
+    from helpers.scenario_loader import create_instance_from_csv
     return create_instance_from_csv(scenario, failure_scenario)
 
 
@@ -446,7 +446,7 @@ def run_scheduling(scenario: str = "baseline", failure_scenario: Optional[str] =
         scenario: Job scenario to load from CSV ('baseline', 'peak_load', 'emergency', 'light_load')
         failure_scenario: Machine failure scenario from CSV or None
     """
-    from scenario_loader import create_instance_from_csv
+    from helpers.scenario_loader import create_instance_from_csv
     inst = create_instance_from_csv(scenario=scenario, failure_scenario=failure_scenario)
     schedule = construct_schedule(inst)
     fitness = evaluate(inst, schedule)

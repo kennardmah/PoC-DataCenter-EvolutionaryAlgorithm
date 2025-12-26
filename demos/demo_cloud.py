@@ -6,7 +6,7 @@ Shows how cloud machines provide infinite capacity at 5x cost
 
 import sys
 import os
-from scenario_loader import create_instance_from_csv
+from helpers.scenario_loader import create_instance_from_csv
 from initial import construct_schedule, evaluate
 
 def demo_cloud_overflow():

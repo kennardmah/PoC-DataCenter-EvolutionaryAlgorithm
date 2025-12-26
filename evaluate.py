@@ -3,9 +3,13 @@ Evaluator for cost-aware job-shop scheduling with improved timeout handling
 """
 
 import os
+import sys
 import json
 import argparse
 from typing import Tuple, Optional, List, Dict, Any
+
+# Add helpers to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'helpers'))
 
 from shinka.core import run_shinka_eval
 
@@ -27,20 +31,50 @@ def validate_schedule(
 ) -> Tuple[bool, Optional[str]]:
     """
     Validates schedule results based on the output of 'run_scheduling'.
+    
+    For multi-scenario runs, run_output is actually a dict with scenario results.
+    For single scenario runs, it's the standard tuple format.
 
     Args:
-        run_output: Tuple (schedule, fitness, reported_score) from run_scheduling.
+        run_output: Either Tuple (schedule, fitness, reported_score) from run_scheduling
+                    or Dict with scenario results for multi-scenario evaluation
         atol: Absolute tolerance for numerical checks.
 
     Returns:
         (is_valid: bool, error_message: Optional[str])
     """
-    schedule, fitness, reported_score = run_output
+    # Check if this is a multi-scenario result (dict) or single scenario (tuple)
+    if isinstance(run_output, dict) and "scenarios" in run_output:
+        # Multi-scenario validation: all scenarios must be valid
+        for scenario_name, result in run_output["scenarios"].items():
+            schedule, fitness, reported_score = result
+            is_valid, msg = _validate_single_schedule(
+                schedule, fitness, reported_score, scenario_name, atol
+            )
+            if not is_valid:
+                return False, f"[{scenario_name}] {msg}"
+        return True, "All scenarios valid. All constraints satisfied."
+    else:
+        # Single scenario validation
+        schedule, fitness, reported_score = run_output
+        return _validate_single_schedule(
+            schedule, fitness, reported_score, "baseline", atol
+        )
+
+
+def _validate_single_schedule(
+    schedule: Dict,
+    fitness: Any,
+    reported_score: float,
+    scenario: str,
+    atol: float = 1e-6,
+) -> Tuple[bool, Optional[str]]:
+    """Validates a single scenario schedule."""
     msg = "The schedule is valid. All constraints satisfied."
 
     # Import instance for validation
     from initial import create_instance
-    inst = create_instance(scenario="baseline", failure_scenario=None)
+    inst = create_instance(scenario=scenario, failure_scenario=None)
 
     # Check all jobs are scheduled
     if set(schedule.keys()) != set(inst.jobs.keys()):
@@ -118,46 +152,87 @@ def validate_schedule(
 
 
 def get_scheduling_kwargs(run_index: int) -> Dict[str, Any]:
-    """Provides keyword arguments for scheduling runs (none needed)."""
-    return {}
+    """Provides keyword arguments for multi-scenario scheduling runs."""
+    return {
+        "multi_scenario": True,
+        "scenarios": ["normal", "earthquake"],
+        "scenario_weights": {"normal": 0.8, "earthquake": 0.2},
+        "failure_scenarios": {"earthquake": "earthquake_moderate"}
+    }
 
 
 def aggregate_scheduling_metrics(
     results: List[Tuple[Dict, Any, float]], results_dir: str
 ) -> Dict[str, Any]:
     """
-    Aggregates metrics for scheduling. Assumes num_runs=1.
+    Aggregates metrics for scheduling. Handles both single and multi-scenario results.
     Saves extra.json with detailed scheduling information.
     """
     if not results:
         return {"combined_score": float("inf"), "error": "No results to aggregate"}
 
-    schedule, fitness, reported_score = results[0]
+    result = results[0]
+    
+    # Check if this is multi-scenario result
+    if isinstance(result, dict) and "scenarios" in result:
+        # Multi-scenario aggregation
+        weighted_score = result["weighted_score"]
+        combined_score = -weighted_score  # Negative because lower is better
+        
+        public_metrics = {
+            "multi_scenario": True,
+            "weighted_score": float(weighted_score),
+            "scenarios": {}
+        }
+        private_metrics = {
+            "scenarios": {}
+        }
+        
+        for scenario_name, (schedule, fitness, score) in result["scenarios"].items():
+            public_metrics["scenarios"][scenario_name] = {
+                "schedule_str": format_schedule_string(schedule, fitness),
+                "num_jobs": len(schedule),
+                "is_valid": fitness.is_valid(),
+            }
+            private_metrics["scenarios"][scenario_name] = {
+                "score": float(score),
+                "compute_cost": float(fitness.compute_cost),
+                "delay_penalty": float(fitness.delay_penalty),
+                "num_violations": len(fitness.violations),
+            }
+        
+        extra_data = {
+            "multi_scenario": True,
+            "weighted_score": weighted_score,
+            "scenario_weights": result.get("weights", {}),
+            "scenarios": {}
+        }
+        for scenario_name, (schedule, fitness, score) in result["scenarios"].items():
+            extra_data["scenarios"][scenario_name] = {
+                "schedule": schedule,
+                "score": score,
+                "compute_cost": fitness.compute_cost,
+                "delay_penalty": fitness.delay_penalty,
+                "violations": fitness.violations,
+                "job_completion_times": fitness.job_completion_times,
+            }
+    else:
+        # Single scenario aggregation (backward compatibility)
+        schedule, fitness, reported_score = result
+        combined_score = -reported_score  # Negative because lower is better
 
-    # For scheduling, lower score is better, but we want to maximize combined_score
-    # So we use negative score (or 1/score) for the evolutionary search
-    # Actually, shinka typically maximizes, so we negate the score
-    combined_score = -reported_score  # Negative because lower is better
-
-    public_metrics = {
-        "schedule_str": format_schedule_string(schedule, fitness),
-        "num_jobs": len(schedule),
-        "is_valid": fitness.is_valid(),
-    }
-    private_metrics = {
-        "score": float(reported_score),
-        "compute_cost": float(fitness.compute_cost),
-        "delay_penalty": float(fitness.delay_penalty),
-        "num_violations": len(fitness.violations),
-    }
-    metrics = {
-        "combined_score": float(combined_score),
-        "public": public_metrics,
-        "private": private_metrics,
-    }
-
-    extra_file = os.path.join(results_dir, "extra.json")
-    try:
+        public_metrics = {
+            "multi_scenario": False,
+            "schedule_str": format_schedule_string(schedule, fitness),
+            "num_jobs": len(schedule),
+            "is_valid": fitness.is_valid(),
+        }
+        private_metrics = {
+            "score": float(reported_score),
+            "compute_cost": float(fitness.compute_cost),
+            "delay_penalty": float(fitness.delay_penalty),
+            "num_violations": len(fitness.violations),
+        }
         extra_data = {
             "schedule": schedule,
             "score": reported_score,
@@ -166,6 +241,15 @@ def aggregate_scheduling_metrics(
             "violations": fitness.violations,
             "job_completion_times": fitness.job_completion_times,
         }
+    
+    metrics = {
+        "combined_score": float(combined_score),
+        "public": public_metrics,
+        "private": private_metrics,
+    }
+
+    extra_file = os.path.join(results_dir, "extra.json")
+    try:
         with open(extra_file, "w") as f:
             json.dump(extra_data, f, indent=2)
         print(f"Detailed scheduling data saved to {extra_file}")

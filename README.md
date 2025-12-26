@@ -16,37 +16,33 @@ The goal is to minimize total cost = compute cost + delay penalties.
 
 ### 1. **Scenario Selection**
 
-Four pre-configured scenarios test different workload conditions:
+Two primary scenarios test the scheduler under different conditions:
 
-- **Baseline** (8 jobs, normal workday)
-  - Jobs arrive during morning hours (6-10am)
-  - Mix of priorities: 2 CRITICAL, 2 HIGH, 3 MEDIUM, 1 LOW
-  - Standard deadlines (6-12 hours from arrival)
+- **Normal Day** (16 jobs, 24-hour realistic workload)
+  - **Overnight batch** (t=0-6): Census ETL, climate training, historical data, performance analytics
+  - **Morning** (t=6-9): Tax fraud detection, health dashboards
+  - **Business hours** (t=8-14): Emergency coord, classified intel, traffic monitoring
+  - **Afternoon/Evening** (t=14-24): Audits, citizen services, border security
+  - **Late night** (t=20-24): Database backups, log archival
+  - Mix of priorities: 2 CRITICAL, 3 HIGH, 6 MEDIUM, 5 LOW
+  - **80% evaluation weight** - optimizes for daily operations
   
-- **Peak Load** (12 jobs, rush hours)
-  - Jobs flood in during rush period (8am-1pm)
-  - Heavy concurrent demand tests resource contention
-  - 3 CRITICAL, 3 HIGH, 5 MEDIUM, 1 LOW
-  
-- **Emergency** (10 jobs, disaster response)
-  - **Earthquake strikes at t=10** (10am)
-  - Critical jobs flood in immediately (t=10-13)
-  - 5 CRITICAL jobs with tight 2-4 hour deadlines
-  - Tasks: damage assessment, evacuation, medical distribution
-  
-- **Light Load** (5 jobs, overnight batch)
-  - Jobs arrive spread out (t=0-10, overnight/early morning)
-  - Minimal resource competition
-  - Low priority maintenance tasks
+- **Earthquake Emergency** (26 jobs = normal + disaster)
+  - **All 16 normal day jobs continue running**
+  - **Earthquake strikes at t=10** - 10 emergency jobs flood in (t=10-13)
+  - Emergency jobs: 5 CRITICAL, 4 HIGH, 1 MEDIUM (damage assessment, evacuation, medical)
+  - Machine failures: M1 capacity -10, M3 capacity -5 (earthquake_moderate)
+  - Tests: "What if earthquake happens during normal workday?"
+  - **20% evaluation weight** - ensures disaster resilience
 
-**Important:** Scenarios are **predetermined**, loaded from CSV files in `data/`. The earthquake doesn't happen randomly—it's a scripted scenario that always occurs at t=10 in the emergency scenario.
+**Important:** Scenarios are **predetermined**, loaded from CSV files in `data/`. The earthquake doesn't happen randomly—it's a scripted scenario that always occurs at t=10 in the earthquake scenario.
 
 ### 2. **Job Arrival Process**
 
 Jobs **do NOT all arrive at once**. Each job has an `arrival_time`:
 
 ```
-Emergency Scenario Example:
+Earthquake Scenario Example:
 t=10: Earthquake strikes! → J1, J2, J3 arrive (damage assessment, shelters, evacuation)
 t=11: → J4, J5, J9 arrive (infrastructure, medical, power grid)
 t=12: → J6, J7 arrive (communications, casualty estimates)
@@ -212,21 +208,28 @@ total_score = 1.0 × compute_cost + 5.0 × delay_penalty
 - Invalid schedules get +10,000 per violation
 - This forces the evolutionary algorithm to find valid solutions
 
-### 9. **Multiple Scenario Testing**
+### 9. **Multi-Scenario Weighted Evaluation**
 
-Currently, evaluation runs **one scenario at a time** (baseline by default).
+The algorithm is tested on **two scenarios simultaneously** with weighted scoring:
 
-To test all scenarios, you would run:
-```bash
-python evaluate.py --scenario baseline
-python evaluate.py --scenario peak_load
-python evaluate.py --scenario emergency --failures earthquake_moderate
-python evaluate.py --scenario light_load
+**Scenarios:**
+- **Normal Day (80% weight)**: 12 jobs spread across 24 hours, realistic daily operations
+- **Earthquake Emergency (20% weight)**: 10 CRITICAL/HIGH priority jobs + earthquake_moderate failures
+
+**Weighted Fitness Function:**
+```python
+total_score = 0.8 × normal_score + 0.2 × earthquake_score
+
+where each scenario_score = compute_cost × weight + delay_penalty × weight + violations × 10000
 ```
 
-The evolutionary algorithm (`run_evo.py`) evolves schedulers that work well across multiple runs, but each generation is currently tested on the same scenario.
+**Why weighted?**
+✅ Ensures good performance on typical workloads (80% focus)  
+✅ Still handles disaster scenarios gracefully (20% focus)  
+✅ Prevents over-optimization for rare emergencies  
+✅ More realistic evaluation than single-scenario testing
 
-**Future enhancement:** Could test each evolved scheduler on all 4 scenarios and average the scores for more robust evolution.
+The evolutionary algorithm evolves schedulers that balance both scenarios.
 
 ---
 

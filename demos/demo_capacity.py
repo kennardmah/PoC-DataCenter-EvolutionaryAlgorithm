@@ -4,7 +4,7 @@ Demo: Capacity-based scheduling with exponential failure/recovery
 Shows how machines degrade and recover gradually during disasters
 """
 
-from scenario_loader import create_instance_from_csv
+from helpers.scenario_loader import create_instance_from_csv
 from initial import construct_schedule, evaluate
 import math
 

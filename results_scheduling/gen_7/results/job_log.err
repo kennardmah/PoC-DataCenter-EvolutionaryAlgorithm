@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/Users/kennardmah/Documents/GitHub/PoC-JPNGOV-DataCenter/evaluate.py", line 10, in <module>
-    from shinka.core import run_shinka_eval
-ModuleNotFoundError: No module named 'shinka'

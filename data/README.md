@@ -22,26 +22,26 @@ This directory contains CSV-based scenario definitions for testing the schedulin
 
 ### Job Scenarios
 
-- **scenario_baseline.csv**: Standard workload (8 jobs)
-  - Mix of CRITICAL, HIGH, MEDIUM, and LOW priority jobs
-  - Realistic government data processing tasks
-  - Moderate resource utilization
+**Primary Scenarios (used in evaluation):**
 
-- **scenario_peak_load.csv**: Heavy workload (12 jobs)
-  - Additional jobs for traffic monitoring, financial audit, border security
-  - Tests algorithm under resource contention
-  - More CRITICAL and HIGH priority jobs
+- **scenario_normal.csv**: Realistic 24-hour workload (16 jobs)
+  - Overnight batch: Data ETL, climate training, historical data, performance analytics (t=0-6)
+  - Morning: Tax fraud detection, health dashboards (t=6-9)
+  - Business hours: Emergency coord, classified intel, traffic monitoring (t=8-14)
+  - Afternoon/Evening: Audits, citizen services, border security (t=14-24)
+  - Late night: Database backups, log archival (t=20-24)
+  - Mix of all priority levels: CRITICAL(2), HIGH(3), MEDIUM(6), LOW(5)
+  - Tests realistic daily operations with time-varying workload
+  - **80% weight** in multi-scenario evaluation
 
-- **scenario_emergency.csv**: Disaster response (10 jobs)
-  - Japan earthquake/tsunami scenario
-  - All CRITICAL/HIGH priority jobs with tight deadlines
-  - Heavy use of GPU and HighMem for damage assessment and modeling
-  - Tests deadline-driven scheduling under pressure
-
-- **scenario_light_load.csv**: Maintenance period (5 jobs)
-  - Low priority batch jobs
-  - Relaxed deadlines
-  - Opportunity to test off-peak cost optimization
+- **scenario_earthquake.csv**: Normal day + disaster response (26 jobs)
+  - **All 16 normal jobs** from scenario_normal.csv (J1-J16)
+  - **+ 10 earthquake emergency jobs** at t=10-13 (E1-E10)
+  - Emergency jobs: 5 CRITICAL, 4 HIGH, 1 MEDIUM (damage assessment, evacuation, medical)
+  - Combined with `earthquake_moderate` failure scenario (M1 -10 capacity, M3 -5 capacity)
+  - Tests: "What if earthquake strikes during normal workday?"
+  - Heavy resource contention: 26 concurrent jobs + reduced machine capacity
+  - **20% weight** in multi-scenario evaluation
 
 ### Machine Failure Scenarios
 
@@ -75,50 +75,56 @@ from scenario_loader import create_instance_from_csv, get_available_scenarios
 scenarios = get_available_scenarios()
 print(scenarios)  # {'jobs': [...], 'failures': [...]}
 
-# Load baseline scenario (no failures)
-inst = create_instance_from_csv("baseline")
+# Load normal day scenario (no failures)
+inst = create_instance_from_csv(scenario="normal")
 
-# Load emergency scenario with earthquake
-inst = create_instance_from_csv("emergency", "earthquake_moderate")
+# Load earthquake scenario with failures
+inst = create_instance_from_csv(scenario="earthquake", failure_scenario="earthquake_moderate")
 
-# Load peak load with power outage
-inst = create_instance_from_csv("peak_load", "power_outage")
+# Multi-scenario evaluation (automatic in evaluate.py)
+from initial import run_scheduling
+result = run_scheduling(
+    multi_scenario=True,
+    scenarios=["normal", "earthquake"],
+    scenario_weights={"normal": 0.8, "earthquake": 0.2},
+    failure_scenarios={"earthquake": "earthquake_moderate"}
+)
+print(f"Weighted score: {result['weighted_score']}")
 ```
 
 ### Evaluation Script
 ```bash
-# Test baseline scenario
-python evaluate.py --scenario baseline
+# Multi-scenario evaluation (default - tests both normal + earthquake)
+python evaluate.py --program_path initial.py --results_dir results
 
-# Test with failures
-python evaluate.py --scenario emergency --failures earthquake_moderate
+# Results include weighted aggregate of both scenarios
+# - Normal day: 80% weight
+# - Earthquake: 20% weight
 ```
 
 ## Scenario Characteristics
 
-| Scenario      | Jobs | CRITICAL | HIGH | MEDIUM | LOW | Avg Deadline |
-|---------------|------|----------|------|--------|-----|--------------|
-| baseline      | 8    | 2        | 2    | 3      | 1   | 13.0         |
-| peak_load     | 12   | 3        | 3    | 5      | 1   | 14.5         |
-| emergency     | 10   | 5        | 4    | 1      | 0   | 6.7          |
-| light_load    | 5    | 0        | 0    | 1      | 4   | 21.4         |
+| Scenario      | Jobs | CRITICAL | HIGH | MEDIUM | LOW | Arrival Times | Eval Weight |
+|---------------|------|----------|------|--------|-----|---------------|-------------|
+| normal        | 16   | 2        | 3    | 6      | 5   | t=0-21        | **80%**     |
+| earthquake    | 26   | 7        | 7    | 7      | 5   | t=0-21 + disaster t=10-13 | **20%** |
 
 ## Adding New Scenarios
 
 1. Create a new CSV file: `scenario_<name>.csv`
 2. Follow the format:
    ```csv
-   job_id,description,priority,deadline,delay_weight,operations
-   J1,Job description,CRITICAL,6,15.0,"Ingest:1,GPU:2,CPU:1"
+   job_id,description,priority,deadline,delay_weight,arrival_time,operations
+   J1,Job description,CRITICAL,6,15.0,0,"Ingest:1:5,GPU:2:8,CPU:1:3"
    ```
-3. Operations format: `"<Type>:<Duration>,<Type>:<Duration>,..."`
+3. Operations format: `"<Type>:<Duration>:<Capacity>,<Type>:<Duration>:<Capacity>,..."`
 4. Valid types: GPU, CPU, HighMem, Secure, Ingest
 5. Valid priorities: CRITICAL, HIGH, MEDIUM, LOW
 
 ## Testing Recommendations
 
-1. **Algorithm Development**: Start with `baseline` scenario
-2. **Robustness Testing**: Test all job scenarios without failures
-3. **Failure Resilience**: Add failure scenarios incrementally
+1. **Multi-Scenario Evaluation**: Default evaluation tests both scenarios with weighted scoring
+2. **Weighted Optimization**: Scheduler must balance cost-efficiency (normal) + disaster response (earthquake)
+3. **Individual Testing**: Use scenario_loader to test specific scenarios manually
 4. **Stress Testing**: `emergency` + `earthquake_moderate` is the hardest combination
 5. **Cost Optimization**: `light_load` is best for testing off-peak scheduling

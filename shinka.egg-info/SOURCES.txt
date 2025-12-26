@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-../ShinkaEvolve/shinka/shinka_launch
-../ShinkaEvolve/shinka/shinka_visualize
-shinka.egg-info/PKG-INFO
-shinka.egg-info/SOURCES.txt
-shinka.egg-info/dependency_links.txt
-shinka.egg-info/requires.txt
-shinka.egg-info/top_level.txt
