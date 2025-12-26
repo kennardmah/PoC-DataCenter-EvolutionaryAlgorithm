@@ -69,9 +69,10 @@ def load_machines(csv_path: str = "data/machines.csv") -> Tuple[Dict[str, Server
         for row in reader:
             machine_id = row['machine_id']
             machine_type = row['machine_type']
+            capacity = int(row['capacity'])
             is_cloud = row.get('is_cloud', 'false').lower() == 'true'
             
-            servers[machine_id] = Server(machine_id, machine_type, is_cloud)
+            servers[machine_id] = Server(machine_id, machine_type, capacity, is_cloud)
             
             # Build hourly cost structure
             cost_offpeak = int(row['cost_offpeak'])
@@ -120,11 +121,14 @@ def load_jobs(csv_path: str) -> Dict[str, Job]:
             deadline = int(row['deadline'])
             delay_weight = float(row['delay_weight'])
             
-            # Parse operations: "Ingest:2,CPU:3,GPU:1"
+            # Parse operations: "Ingest:2:5,CPU:3:4,GPU:1:8" (Type:Duration:Capacity)
             operations = []
             for op_str in row['operations'].split(','):
-                op_type, duration = op_str.split(':')
-                operations.append(Operation(op_type, int(duration)))
+                parts = op_str.split(':')
+                op_type = parts[0]
+                duration = int(parts[1])
+                capacity = int(parts[2]) if len(parts) > 2 else 1  # Default capacity = 1
+                operations.append(Operation(op_type, duration, capacity))
             
             jobs[job_id] = Job(job_id, description, priority, deadline, delay_weight, operations)
     
@@ -142,7 +146,7 @@ def load_machine_failures(csv_path: str = "data/machine_failures.csv",
                  If None, no failures are loaded
     
     Returns:
-        List of MachineFailure objects with performance degradation
+        List of MachineFailure objects with capacity reduction and gradual failure/recovery rates
     """
     if scenario is None:
         return []
@@ -157,7 +161,10 @@ def load_machine_failures(csv_path: str = "data/machine_failures.csv",
                     machine_id=row['machine_id'],
                     failure_start=int(row['failure_start']),
                     failure_end=int(row['failure_end']),
-                    reason=row['reason']
+                    capacity_reduction=int(row['capacity_reduction']),
+                    failure_rate=float(row.get('failure_rate', 1.0)),
+                    recovery_rate=float(row.get('recovery_rate', 1.0)),
+                    reason=row.get('reason', '')
                 ))
     
     return failures
