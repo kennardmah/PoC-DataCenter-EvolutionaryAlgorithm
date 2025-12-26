@@ -1,0 +1,79 @@
+<NAME>
+job_sort_by_slack
+</NAME>
+
+<DESCRIPTION>
+Enhance job ordering by computing slack (deadline minus total processing time of operations) and sorting jobs by priority, then ascending slack, then deadline. This ensures jobs with tighter schedules are considered earlier, reducing delay penalties.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    sorted_jobs = sorted(inst.jobs.keys(),
+                        key=lambda j: (priority_order[inst.jobs[j].priority],
+                                      inst.jobs[j].deadline, j))
+=======
+    sorted_jobs = sorted(inst.jobs.keys(),
+                        key=lambda j: (priority_order[inst.jobs[j].priority],
+                                      (inst.jobs[j].deadline - sum(op.duration for op in inst.jobs[j].operations)),
+                                      inst.jobs[j].deadline, j))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+cost_aware_local_scheduling
+</NAME>
+
+<DESCRIPTION>
+Replace the greedy first-fit local scheduling with a cost-aware window search that evaluates all feasible start times across local servers and picks the combination minimizing compute cost for the operation, while still respecting capacity and precedence constraints.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Try to schedule on local machines first
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, try local first
+
+                # Find earliest time this operation can start on this server
+                for start_time in range(earliest_start, inst.time_horizon):
+                    if start_time + op.duration > inst.time_horizon:
+                        break
+
+                    # Check if server has capacity
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        # Reserve capacity
+                        for t in range(start_time, start_time + op.duration):
+                            if t not in capacity_usage[server_id]:
+                                capacity_usage[server_id][t] = 0
+                            capacity_usage[server_id][t] += op.capacity_required
+
+                        schedule[job_id].append({"server": server_id, "start": start_time})
+                        job_available_time[job_id] = start_time + op.duration
+                        scheduled = True
+                        break
+
+                if scheduled:
+                    break
+=======
+            # Cost-aware scheduling on local machines: pick window minimizing compute cost
+            best_alloc = None  # (cost, start_time, server_id)
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud
+                for start_time in range(earliest_start, inst.time_horizon - op.duration + 1):
+                    if not has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        continue
+                    cost = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                               for t in range(start_time, start_time + op.duration))
+                    alloc = (cost, start_time, server_id)
+                    if best_alloc is None or alloc < best_alloc:
+                        best_alloc = alloc
+            if best_alloc:
+                cost, start_time, server_id = best_alloc
+                for t in range(start_time, start_time + op.duration):
+                    capacity_usage[server_id][t] = capacity_usage[server_id].get(t, 0) + op.capacity_required
+                schedule[job_id].append({"server": server_id, "start": start_time})
+                job_available_time[job_id] = start_time + op.duration
+                scheduled = True
+>>>>>>> REPLACE
+</DIFF>

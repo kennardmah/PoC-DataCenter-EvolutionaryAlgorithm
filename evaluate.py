@@ -40,7 +40,7 @@ def validate_schedule(
 
     # Import instance for validation
     from initial import create_instance
-    inst = create_instance()
+    inst = create_instance(scenario="baseline", failure_scenario=None)
 
     # Check all jobs are scheduled
     if set(schedule.keys()) != set(inst.jobs.keys()):

@@ -1,0 +1,269 @@
+2025-12-26 17:21:47 - shinka.core.runner - INFO - ================================================================================
+2025-12-26 17:21:47 - shinka.core.runner - INFO - Evolution run started at 2025-12-26 17:21:47
+2025-12-26 17:21:47 - shinka.core.runner - INFO - Results directory: results_scheduling
+2025-12-26 17:21:47 - shinka.core.runner - INFO - Log file: results_scheduling/evolution_run.log
+2025-12-26 17:21:47 - shinka.core.runner - INFO - ================================================================================
+2025-12-26 17:25:28 - shinka.core.runner - INFO - ================================================================================
+2025-12-26 17:25:28 - shinka.core.runner - INFO - Evolution run started at 2025-12-26 17:25:28
+2025-12-26 17:25:28 - shinka.core.runner - INFO - Results directory: results_scheduling
+2025-12-26 17:25:28 - shinka.core.runner - INFO - Log file: results_scheduling/evolution_run.log
+2025-12-26 17:25:28 - shinka.core.runner - INFO - ================================================================================
+2025-12-26 17:25:28 - shinka.core.runner - INFO - Experiment configuration saved to results_scheduling/experiment_config.yaml
+2025-12-26 17:25:28 - shinka.core.runner - INFO - Starting evolution with 5 parallel jobs, target: 400 generations
+2025-12-26 17:25:28 - shinka.core.runner - INFO - Running generation 0 sequentially to initialize database...
+2025-12-26 17:25:28 - shinka.core.runner - INFO - Copying initial program from initial.py
+2025-12-26 17:25:28 - shinka.launch.local - INFO - Submitted local process with PID: 81175
+2025-12-26 17:25:28 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_0/main.py --results_dir results_scheduling/gen_0/results
+2025-12-26 17:25:52 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:25:52 - shinka.database.dbase - INFO - Program 01198080-4562-4c64-be93-ff482a445620 added to DB - score: 0.0.
+2025-12-26 17:25:52 - shinka.database.dbase - INFO - Not enough programs with embeddings (1) to perform clustering. Need at least 4.
+2025-12-26 17:25:52 - shinka.database.dbase - INFO - Creating copies of initial program 01198080-4562-4c64-be93-ff482a445620 for all islands
+2025-12-26 17:25:52 - shinka.database.islands - INFO - Created copy 5f164054... of program 01198080... for island 1
+2025-12-26 17:25:52 - shinka.database.islands - INFO - Created 1 copies of program 01198080... for islands 1-1
+2025-12-26 17:25:52 - shinka.database.dbase - INFO - Database state committed. Last iteration: 0. Best: None
+2025-12-26 17:25:52 - shinka.core.summarizer - INFO - Added program 01198080-4562-4c64-be93-ff482a445620 to meta memory tracking (correct=False, total: 1)
+2025-12-26 17:25:52 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 1 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:25:52 - shinka.core.runner - INFO - Completed generation 0, total: 1/400
+2025-12-26 17:25:52 - shinka.core.runner - INFO - Starting parallel execution for remaining generations...
+2025-12-26 17:25:52 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:25:53 - shinka.core.runner - INFO - Edit Cycle 1 -> 2, Max Patch Attempts: 3
+2025-12-26 17:25:53 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.2500
+  gpt-5                            0.2500
+  gpt-5-mini                       0.2500
+  gpt-5-nano                       0.2500
+2025-12-26 17:25:53 - shinka.llm.llm - INFO - ==> QUERYING: ['o4-mini', 1.0, 32768, {'effort': 'medium'}]
+2025-12-26 17:26:24 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:26:25 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0302
+2025-12-26 17:26:25 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_1/main.py, Patches Applied: 2.
+2025-12-26 17:26:26 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:26:26 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:26:26 - shinka.launch.local - INFO - Submitted local process with PID: 82866
+2025-12-26 17:26:26 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_1/main.py --results_dir results_scheduling/gen_1/results
+2025-12-26 17:26:26 - shinka.core.runner - INFO - Submitted job for generation 1, queue size: 1
+2025-12-26 17:26:28 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:26:28 - shinka.core.runner - INFO - Edit Cycle 2 -> 3, Max Patch Attempts: 3
+2025-12-26 17:26:28 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.0000
+  gpt-5                            0.3333
+  gpt-5-mini                       0.3333
+  gpt-5-nano                       0.3333
+2025-12-26 17:26:28 - shinka.llm.llm - INFO - ==> QUERYING: ['gpt-5', 1.0, 32768]
+2025-12-26 17:28:56 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:28:56 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0824
+2025-12-26 17:28:56 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_2/main.py, Patches Applied: 1.
+2025-12-26 17:28:57 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:28:57 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:28:57 - shinka.launch.local - INFO - Submitted local process with PID: 83368
+2025-12-26 17:28:57 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_2/main.py --results_dir results_scheduling/gen_2/results
+2025-12-26 17:28:57 - shinka.core.runner - INFO - Submitted job for generation 2, queue size: 2
+2025-12-26 17:28:59 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 82866) completed!
+2025-12-26 17:28:59 - shinka.launch.local - INFO - Monitoring local process with PID: 82866...
+2025-12-26 17:28:59 - shinka.launch.local - INFO - Process 82866 completed with return code: 0
+2025-12-26 17:29:00 - shinka.database.dbase - INFO - Program d4d76ac2-84fa-4860-8dee-a2abf8cbd4e0 added to DB - score: 0.0.
+2025-12-26 17:29:00 - shinka.database.dbase - INFO - Not enough programs with embeddings (3) to perform clustering. Need at least 4.
+2025-12-26 17:29:00 - shinka.core.summarizer - INFO - Added program d4d76ac2-84fa-4860-8dee-a2abf8cbd4e0 to meta memory tracking (correct=False, total: 2)
+2025-12-26 17:29:00 - shinka.database.dbase - INFO - Database state committed. Last iteration: 1. Best: None
+2025-12-26 17:29:00 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 2 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:29:00 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 2/400
+2025-12-26 17:29:00 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:29:00 - shinka.core.runner - INFO - Edit Cycle 3 -> 4, Max Patch Attempts: 3
+2025-12-26 17:29:00 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.0000
+  gpt-5                            0.0000
+  gpt-5-mini                       0.5000
+  gpt-5-nano                       0.5000
+2025-12-26 17:29:00 - shinka.llm.llm - INFO - ==> QUERYING: ['gpt-5-nano', 1.0, 32768]
+2025-12-26 17:29:52 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:29:52 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0032
+2025-12-26 17:29:52 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_3/main.py, Patches Applied: 2.
+2025-12-26 17:29:54 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:29:54 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:29:54 - shinka.launch.local - INFO - Submitted local process with PID: 83590
+2025-12-26 17:29:54 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_3/main.py --results_dir results_scheduling/gen_3/results
+2025-12-26 17:29:54 - shinka.core.runner - INFO - Submitted job for generation 3, queue size: 2
+2025-12-26 17:29:56 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 83368) completed!
+2025-12-26 17:29:56 - shinka.launch.local - INFO - Monitoring local process with PID: 83368...
+2025-12-26 17:29:56 - shinka.launch.local - INFO - Process 83368 completed with return code: 0
+2025-12-26 17:29:56 - shinka.database.dbase - INFO - Program 4e6cc115-bbe8-47a0-84c2-e4511241bdf8 added to DB - score: 0.0.
+2025-12-26 17:29:56 - shinka.database.dbase - INFO - Recomputing PCA-reduced embedding features for 4 programs.
+2025-12-26 17:31:09 - shinka.database.dbase - INFO - Successfully updated embedding features for 4 programs.
+2025-12-26 17:31:09 - shinka.core.summarizer - INFO - Added program 4e6cc115-bbe8-47a0-84c2-e4511241bdf8 to meta memory tracking (correct=False, total: 3)
+2025-12-26 17:31:09 - shinka.database.dbase - INFO - Database state committed. Last iteration: 2. Best: None
+2025-12-26 17:31:09 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 3 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:31:09 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 3/400
+2025-12-26 17:31:09 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:31:09 - shinka.core.runner - INFO - Edit Cycle 4 -> 5, Max Patch Attempts: 3
+2025-12-26 17:31:09 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.0000
+  gpt-5                            0.0000
+  gpt-5-mini                       1.0000
+  gpt-5-nano                       0.0000
+2025-12-26 17:31:09 - shinka.llm.llm - INFO - ==> QUERYING: ['gpt-5-mini', 1.0, 32768, {'effort': 'low'}]
+2025-12-26 17:41:09 - openai._base_client - INFO - Retrying request to /responses in 0.489687 seconds
+2025-12-26 17:42:51 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:42:51 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0138
+2025-12-26 17:42:51 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_4/main.py, Patches Applied: 1.
+2025-12-26 17:42:53 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:42:53 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:42:53 - shinka.launch.local - INFO - Submitted local process with PID: 86357
+2025-12-26 17:42:53 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_4/main.py --results_dir results_scheduling/gen_4/results
+2025-12-26 17:42:53 - shinka.core.runner - INFO - Submitted job for generation 4, queue size: 2
+2025-12-26 17:42:55 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 83590) completed!
+2025-12-26 17:42:55 - shinka.launch.local - INFO - Monitoring local process with PID: 83590...
+2025-12-26 17:42:55 - shinka.launch.local - INFO - Process 83590 completed with return code: 0
+2025-12-26 17:42:55 - shinka.database.dbase - INFO - Program e2ae6489-1ed2-4f31-a4f7-277122660464 added to DB - score: 0.0.
+2025-12-26 17:42:55 - shinka.database.dbase - INFO - Recomputing PCA-reduced embedding features for 5 programs.
+2025-12-26 17:42:57 - shinka.database.dbase - INFO - Successfully updated embedding features for 5 programs.
+2025-12-26 17:42:57 - shinka.core.summarizer - INFO - Added program e2ae6489-1ed2-4f31-a4f7-277122660464 to meta memory tracking (correct=False, total: 4)
+2025-12-26 17:42:57 - shinka.database.dbase - INFO - Database state committed. Last iteration: 3. Best: None
+2025-12-26 17:42:57 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 4 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:42:57 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 4/400
+2025-12-26 17:42:57 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:42:57 - shinka.core.runner - INFO - Edit Cycle 5 -> 6, Max Patch Attempts: 3
+2025-12-26 17:42:57 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.2500
+  gpt-5                            0.2500
+  gpt-5-mini                       0.2500
+  gpt-5-nano                       0.2500
+2025-12-26 17:42:57 - shinka.llm.llm - INFO - ==> QUERYING: ['gpt-5', 1.0, 32768, {'effort': 'low'}]
+2025-12-26 17:44:05 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:44:05 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0506
+2025-12-26 17:44:05 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_5/main.py, Patches Applied: 1.
+2025-12-26 17:44:06 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:44:06 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:44:06 - shinka.launch.local - INFO - Submitted local process with PID: 86627
+2025-12-26 17:44:06 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_5/main.py --results_dir results_scheduling/gen_5/results
+2025-12-26 17:44:06 - shinka.core.runner - INFO - Submitted job for generation 5, queue size: 2
+2025-12-26 17:44:08 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 86357) completed!
+2025-12-26 17:44:08 - shinka.launch.local - INFO - Monitoring local process with PID: 86357...
+2025-12-26 17:44:08 - shinka.launch.local - INFO - Process 86357 completed with return code: 0
+2025-12-26 17:44:08 - shinka.database.dbase - INFO - Program 9d64e739-0f85-4433-b519-d5ab8e05c1b5 added to DB - score: 0.0.
+2025-12-26 17:44:08 - shinka.database.dbase - INFO - Recomputing PCA-reduced embedding features for 6 programs.
+2025-12-26 17:44:09 - shinka.database.dbase - INFO - Successfully updated embedding features for 6 programs.
+2025-12-26 17:44:09 - shinka.core.summarizer - INFO - Added program 9d64e739-0f85-4433-b519-d5ab8e05c1b5 to meta memory tracking (correct=False, total: 5)
+2025-12-26 17:44:10 - shinka.database.dbase - INFO - Database state committed. Last iteration: 4. Best: None
+2025-12-26 17:44:10 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 5 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:44:10 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 5/400
+2025-12-26 17:44:10 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:44:10 - shinka.core.runner - INFO - Edit Cycle 6 -> 7, Max Patch Attempts: 3
+2025-12-26 17:44:10 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.2667
+  gpt-5                            0.2000
+  gpt-5-mini                       0.2667
+  gpt-5-nano                       0.2667
+2025-12-26 17:44:10 - shinka.llm.llm - INFO - ==> QUERYING: ['gpt-5-nano', 1.0, 32768, {'effort': 'high'}]
+2025-12-26 17:47:10 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:47:10 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0106
+2025-12-26 17:47:10 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_6/main.py, Patches Applied: 1.
+2025-12-26 17:47:11 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:47:11 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:47:11 - shinka.launch.local - INFO - Submitted local process with PID: 87304
+2025-12-26 17:47:11 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_6/main.py --results_dir results_scheduling/gen_6/results
+2025-12-26 17:47:11 - shinka.core.runner - INFO - Submitted job for generation 6, queue size: 2
+2025-12-26 17:47:14 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 86627) completed!
+2025-12-26 17:47:14 - shinka.launch.local - INFO - Monitoring local process with PID: 86627...
+2025-12-26 17:47:14 - shinka.launch.local - INFO - Process 86627 completed with return code: 0
+2025-12-26 17:47:14 - shinka.database.dbase - INFO - Program c0a1bb62-02d6-4b9f-8bb7-ed8f5df4eda5 added to DB - score: 0.0.
+2025-12-26 17:47:14 - shinka.database.dbase - INFO - Recomputing PCA-reduced embedding features for 7 programs.
+2025-12-26 17:47:15 - shinka.database.dbase - INFO - Successfully updated embedding features for 7 programs.
+2025-12-26 17:47:15 - shinka.core.summarizer - INFO - Added program c0a1bb62-02d6-4b9f-8bb7-ed8f5df4eda5 to meta memory tracking (correct=False, total: 6)
+2025-12-26 17:47:15 - shinka.database.dbase - INFO - Database state committed. Last iteration: 5. Best: None
+2025-12-26 17:47:15 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 6 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:47:15 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 6/400
+2025-12-26 17:47:15 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:47:16 - shinka.core.runner - INFO - Edit Cycle 7 -> 8, Max Patch Attempts: 3
+2025-12-26 17:47:16 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.4000
+  gpt-5                            0.1000
+  gpt-5-mini                       0.4000
+  gpt-5-nano                       0.1000
+2025-12-26 17:47:16 - shinka.llm.llm - INFO - ==> QUERYING: ['gpt-5', 1.0, 32768, {'effort': 'high'}]
+2025-12-26 17:51:03 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:51:03 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.1305
+2025-12-26 17:51:03 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_7/main.py, Patches Applied: 1.
+2025-12-26 17:51:04 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:51:04 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:51:04 - shinka.launch.local - INFO - Submitted local process with PID: 88094
+2025-12-26 17:51:04 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_7/main.py --results_dir results_scheduling/gen_7/results
+2025-12-26 17:51:04 - shinka.core.runner - INFO - Submitted job for generation 7, queue size: 2
+2025-12-26 17:51:06 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 87304) completed!
+2025-12-26 17:51:06 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 88094) completed!
+2025-12-26 17:51:06 - shinka.launch.local - INFO - Monitoring local process with PID: 87304...
+2025-12-26 17:51:06 - shinka.launch.local - INFO - Process 87304 completed with return code: 0
+2025-12-26 17:51:06 - shinka.database.dbase - INFO - Program f70901b1-3b03-42f6-9742-cabacd1bb63e added to DB - score: 0.0.
+2025-12-26 17:51:06 - shinka.database.dbase - INFO - Recomputing PCA-reduced embedding features for 8 programs.
+2025-12-26 17:51:08 - shinka.database.dbase - INFO - Successfully updated embedding features for 8 programs.
+2025-12-26 17:51:08 - shinka.core.summarizer - INFO - Added program f70901b1-3b03-42f6-9742-cabacd1bb63e to meta memory tracking (correct=False, total: 7)
+2025-12-26 17:51:08 - shinka.database.dbase - INFO - Database state committed. Last iteration: 6. Best: None
+2025-12-26 17:51:08 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 7 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:51:08 - shinka.launch.local - INFO - Monitoring local process with PID: 88094...
+2025-12-26 17:51:08 - shinka.launch.local - INFO - Process 88094 completed with return code: 1
+2025-12-26 17:51:08 - shinka.utils.general - WARNING - Metrics file not found at results_scheduling/gen_7/results/metrics.json
+2025-12-26 17:51:08 - shinka.database.dbase - INFO - Program cc0ebf27-968b-4f3b-bf97-e98d286445c8 added to DB - score: 0.0.
+2025-12-26 17:51:08 - shinka.database.dbase - INFO - Recomputing PCA-reduced embedding features for 9 programs.
+2025-12-26 17:51:10 - shinka.database.dbase - INFO - Successfully updated embedding features for 9 programs.
+2025-12-26 17:51:10 - shinka.core.summarizer - INFO - Added program cc0ebf27-968b-4f3b-bf97-e98d286445c8 to meta memory tracking (correct=False, total: 8)
+2025-12-26 17:51:10 - shinka.database.dbase - INFO - Database state committed. Last iteration: 7. Best: None
+2025-12-26 17:51:10 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 8 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:51:10 - shinka.core.runner - INFO - Processed 2 jobs. Total completed generations: 8/400
+2025-12-26 17:51:10 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:51:10 - shinka.core.runner - INFO - Edit Cycle 8 -> 9, Max Patch Attempts: 3
+2025-12-26 17:51:10 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.4000
+  gpt-5                            0.1000
+  gpt-5-mini                       0.4000
+  gpt-5-nano                       0.1000
+2025-12-26 17:51:10 - shinka.llm.llm - INFO - ==> QUERYING: ['gpt-5-mini', 1.0, 32768, {'effort': 'medium'}]
+2025-12-26 17:52:40 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:52:40 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0120
+2025-12-26 17:52:40 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_8/main.py, Patches Applied: 1.
+2025-12-26 17:52:41 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:52:41 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:52:41 - shinka.launch.local - INFO - Submitted local process with PID: 88424
+2025-12-26 17:52:41 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_8/main.py --results_dir results_scheduling/gen_8/results
+2025-12-26 17:52:41 - shinka.core.runner - INFO - Submitted job for generation 8, queue size: 1
+2025-12-26 17:52:43 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 88424) completed!
+2025-12-26 17:52:43 - shinka.launch.local - INFO - Monitoring local process with PID: 88424...
+2025-12-26 17:52:43 - shinka.launch.local - INFO - Process 88424 completed with return code: 1
+2025-12-26 17:52:43 - shinka.utils.general - WARNING - Metrics file not found at results_scheduling/gen_8/results/metrics.json
+2025-12-26 17:52:43 - shinka.database.dbase - INFO - Program 4056373f-526c-4bfd-bfc4-f2c37f70d017 added to DB - score: 0.0.
+2025-12-26 17:52:43 - shinka.database.dbase - INFO - Recomputing PCA-reduced embedding features for 10 programs.
+2025-12-26 17:52:45 - shinka.database.dbase - INFO - Successfully updated embedding features for 10 programs.
+2025-12-26 17:52:45 - shinka.core.summarizer - INFO - Added program 4056373f-526c-4bfd-bfc4-f2c37f70d017 to meta memory tracking (correct=False, total: 9)
+2025-12-26 17:52:45 - shinka.database.dbase - INFO - Database state committed. Last iteration: 8. Best: None
+2025-12-26 17:52:45 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling/meta_memory.json: 9 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-26 17:52:45 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 9/400
+2025-12-26 17:52:45 - shinka.database.dbase - INFO - Not all islands initialized. Using initial program 01198080-4562-4c64-be93-ff482a445620 without inspirations.
+2025-12-26 17:52:45 - shinka.core.runner - INFO - Edit Cycle 9 -> 10, Max Patch Attempts: 3
+2025-12-26 17:52:45 - shinka.llm.llm - INFO - ==> SAMPLING:
+  o4-mini                          0.8000
+  gpt-5                            0.0667
+  gpt-5-mini                       0.0667
+  gpt-5-nano                       0.0667
+2025-12-26 17:52:45 - shinka.llm.llm - INFO - ==> QUERYING: ['o4-mini', 1.0, 32768]
+2025-12-26 17:53:14 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"
+2025-12-26 17:53:14 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0243
+2025-12-26 17:53:14 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/3 SUCCESS. Output: results_scheduling/gen_9/main.py, Patches Applied: 1.
+2025-12-26 17:53:16 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-26 17:53:16 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - not all islands initialized yet
+2025-12-26 17:53:16 - shinka.launch.local - INFO - Submitted local process with PID: 88582
+2025-12-26 17:53:16 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling/gen_9/main.py --results_dir results_scheduling/gen_9/results
+2025-12-26 17:53:16 - shinka.core.runner - INFO - Submitted job for generation 9, queue size: 1
+2025-12-26 17:53:18 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 88582) completed!
+2025-12-26 17:53:18 - shinka.launch.local - INFO - Monitoring local process with PID: 88582...
+2025-12-26 17:53:18 - shinka.launch.local - INFO - Process 88582 completed with return code: 1
+2025-12-26 17:53:18 - shinka.utils.general - WARNING - Metrics file not found at results_scheduling/gen_9/results/metrics.json
+2025-12-26 17:53:18 - shinka.database.dbase - INFO - Program 858282f0-6f4b-43a3-8b82-065d2e91f253 added to DB - score: 0.0.
+2025-12-26 17:53:18 - shinka.database.dbase - INFO - Recomputing PCA-reduced embedding features for 11 programs.
+2025-12-26 17:53:20 - shinka.database.dbase - INFO - Successfully updated embedding features for 11 programs.
+2025-12-26 17:53:20 - shinka.core.summarizer - INFO - Added program 858282f0-6f4b-43a3-8b82-065d2e91f253 to meta memory tracking (correct=False, total: 10)
+2025-12-26 17:53:20 - shinka.core.runner - INFO - Updating meta memory after processing 10 programs...
+2025-12-26 17:53:20 - shinka.core.summarizer - INFO - ==> Step 1 - Processing 10 programs with batch query
+2025-12-26 17:53:20 - shinka.llm.llm - INFO - ==> SAMPLING 10 SAMPLES:
+  gpt-5-nano                       1.0000
+2025-12-27 03:11:12 - shinka.core.runner - INFO - ================================================================================
+2025-12-27 03:11:12 - shinka.core.runner - INFO - Evolution run started at 2025-12-27 03:11:12
+2025-12-27 03:11:12 - shinka.core.runner - INFO - Results directory: results_scheduling
+2025-12-27 03:11:12 - shinka.core.runner - INFO - Log file: results_scheduling/evolution_run.log
+2025-12-27 03:11:12 - shinka.core.runner - INFO - ================================================================================

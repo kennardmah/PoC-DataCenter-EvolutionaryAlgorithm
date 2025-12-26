@@ -1,0 +1,119 @@
+database_config:
+  archive_size: 40
+  db_path: results_scheduling/evolution_db.sqlite
+  elite_selection_ratio: 0.3
+  embedding_model: text-embedding-3-small
+  enforce_island_separation: true
+  exploitation_alpha: 1.0
+  exploitation_ratio: 0.2
+  island_elitism: true
+  migration_interval: 10
+  migration_rate: 0.1
+  num_archive_inspirations: 4
+  num_beams: 5
+  num_islands: 2
+  num_top_k_inspirations: 2
+  parent_selection_lambda: 10.0
+  parent_selection_strategy: weighted
+evolution_config:
+  code_embed_sim_threshold: 0.995
+  embedding_model: text-embedding-3-small
+  init_program_path: initial.py
+  job_type: local
+  language: python
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.0
+  llm_kwargs:
+    max_tokens: 32768
+    reasoning_efforts:
+    - auto
+    - low
+    - medium
+    - high
+    temperatures:
+    - 0.0
+    - 0.5
+    - 1.0
+  llm_models:
+  - o4-mini
+  - gpt-5
+  - gpt-5-mini
+  - gpt-5-nano
+  max_novelty_attempts: 3
+  max_parallel_jobs: 5
+  max_patch_attempts: 3
+  max_patch_resamples: 3
+  meta_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0.0
+  meta_llm_models:
+  - gpt-5-nano
+  meta_max_recommendations: 5
+  meta_rec_interval: 10
+  novelty_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0.0
+  novelty_llm_models:
+  - gpt-5-nano
+  num_generations: 400
+  patch_type_probs:
+  - 0.6
+  - 0.3
+  - 0.1
+  patch_types:
+  - diff
+  - full
+  - cross
+  results_dir: results_scheduling
+  task_sys_msg: "You are an expert in combinatorial optimization, specifically job-shop\
+    \ scheduling and cost-aware computing. The goal is to minimize the weighted sum\
+    \ of compute cost and delay penalties for a government data center.\n\n## Problem\
+    \ Description\n- 8 government jobs with ordered operations must be scheduled on\
+    \ 10 machines (5 local + 5 cloud):\n  \n  **Local Machines (limited capacity):**\n\
+    \  - M1: GPU Compute (training/inference bottleneck) - \xA580-140/h\n  - M2: CPU\
+    \ Compute (control logic, feature engineering) - \xA520-55/h\n  - M3: High-Memory\
+    \ Analytics (graphs, large matrices) - \xA560-110/h\n  - M4: Secure/Isolated Compute\
+    \ (gov-only workloads) - \xA550-80/h\n  - M5: Data Ingest & Preprocessing (IO-heavy,\
+    \ staging) - \xA515-35/h\n  \n  **Cloud Machines (infinite capacity, 5x cost):**\n\
+    \  - C1: Cloud GPU - \xA5400-700/h\n  - C2: Cloud CPU - \xA5100-275/h\n  - C3:\
+    \ Cloud HighMem - \xA5300-550/h\n  - C4: Cloud Secure - \xA5250-400/h\n  - C5:\
+    \ Cloud Ingest - \xA575-175/h\n\n- Each operation requires a specific machine\
+    \ type and has a duration\n- Machine costs vary by hour (demand-based pricing)\n\
+    - Jobs include: census processing, ML fraud detection, emergency response, geospatial\
+    \ analysis, classified intel, public health, climate modeling, social services\n\
+    - Jobs have deadlines and priority-weighted delay penalties (CRITICAL > HIGH >\
+    \ MEDIUM > LOW)\n- Local machines can only process one operation at a time (capacity\
+    \ constraint)\n- Cloud machines have infinite capacity but cost 5x more (use as\
+    \ overflow)\n- Operations within a job must be sequential (precedence constraints)\n\
+    \n## Objective\nMinimize: compute_cost + 5 \xD7 delay_penalty\n\n## Current Best\
+    \ Approaches\nThe baseline uses priority-based scheduling with local search. Key\
+    \ improvement directions:\n\n1. **Smarter job ordering**: Consider slack time\
+    \ (deadline - processing time), cost opportunity windows\n2. **Cost-aware timing**:\
+    \ Shift operations to off-peak hours (0-5) when possible without violating deadlines\n\
+    3. **Local vs. Cloud tradeoff**: Use local machines when available, cloud overflow\
+    \ only when necessary or to avoid delays\n4. **Server load balancing**: Distribute\
+    \ work across compatible servers to reduce waiting\n5. **Look-ahead scheduling**:\
+    \ Consider downstream operations when making decisions\n6. **Meta-heuristics**:\
+    \ Try simulated annealing, genetic algorithms, or tabu search\n7. **Constraint\
+    \ programming**: Model as CP-SAT problem for optimal solutions\n8. **Machine failure\
+    \ resilience**: Handle machine unavailability by routing to cloud or rescheduling\n\
+    \n## Constraints (MUST satisfy)machine types (or their cloud equivalents)\n- Operations\
+    \ within a job must not overlap (precedence)\n- No two operations can use the\
+    \ same LOCAL machine at the same time (capacity)\n- Cloud machines have infinite\
+    \ capacity (can run multiple operations simultaneously)\n- Start times must be\
+    \ non-negative\n- Machine failures must be respected (cannot use failed machines\
+    \ during failure windows)\n\nBe creative and try different algorithmic approaches.\
+    \ Consider the local vs. cloud cost tradeoff strategically\nBe creative and try\
+    \ different algorithmic approaches. The problem is NP-hard, so heuristics and\
+    \ meta-heuristics are appropriate."
+  use_text_feedback: false
+job_config:
+  conda_env: null
+  eval_program_path: evaluate.py
+  extra_cmd_args: {}
+  time: null
+results_directory: results_scheduling
+timestamp: '2025-12-26T17:25:28.739371'

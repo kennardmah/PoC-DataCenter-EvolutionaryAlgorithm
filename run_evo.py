@@ -5,6 +5,25 @@ ShinkaEvolve runner for Cost-Aware Job-Shop Scheduling
 Government data center workload scheduling optimization.
 """
 
+import multiprocessing
+import sys
+
+# Set multiprocessing start method to 'fork' on macOS to preserve environment
+if sys.platform == 'darwin' and __name__ == '__main__':
+    try:
+        multiprocessing.set_start_method('fork', force=True)
+    except RuntimeError:
+        pass  # Already set
+
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Load environment variables from .env file
+
+# Verify Google API key is loaded
+if not os.getenv('GOOGLE_API_KEY'):
+    raise ValueError("GOOGLE_API_KEY not found in environment. Please add it to your .env file.")
+
 from shinka.core import EvolutionRunner, EvolutionConfig
 from shinka.database import DatabaseConfig
 from shinka.launch import LocalJobConfig
@@ -133,26 +152,21 @@ evo_config = EvolutionConfig(
     job_type="local",
     language="python",
     llm_models=[
-        # "gemini-2.5-pro",
-        # "gemini-2.5-flash",
-        # "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
-        "o4-mini",
-        "gpt-5",
-        "gpt-5-mini",
-        "gpt-5-nano",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
     ],
     llm_kwargs=dict(
-        temperatures=[0.0, 0.5, 1.0],
-        reasoning_efforts=["auto", "low", "medium", "high"],
-        max_tokens=32768,
+        temperatures=[0.0, 0.7, 1.0],
+        max_tokens=8192,
     ),
     meta_rec_interval=10,
-    meta_llm_models=["gpt-5-nano"],
-    meta_llm_kwargs=dict(temperatures=[0.0], max_tokens=16384),
-    embedding_model="text-embedding-3-small",
+    meta_llm_models=["gemini-1.5-flash"],
+    meta_llm_kwargs=dict(temperatures=[0.0], max_tokens=8192),
+    embedding_model="text-embedding-004",
     code_embed_sim_threshold=0.995,
-    novelty_llm_models=["gpt-5-nano"],
-    novelty_llm_kwargs=dict(temperatures=[0.0], max_tokens=16384),
+    novelty_llm_models=["gemini-1.5-flash"],
+    novelty_llm_kwargs=dict(temperatures=[0.0], max_tokens=8192),
     llm_dynamic_selection="ucb1",
     llm_dynamic_selection_kwargs=dict(exploration_coef=1.0),
     init_program_path="initial.py",

@@ -1,0 +1,21 @@
+{
+    "combined_score": -2040.0,
+    "public": {
+        "schedule_str": "  J1: M5@t=0 \u2192 M3@t=2 \u2192 M2@t=5 (done: t=7)\n  J2: M5@t=0 \u2192 M1@t=1 \u2192 M2@t=4 (done: t=5)\n  J3: M4@t=0 \u2192 M2@t=2 \u2192 M3@t=3 (done: t=4)\n  J4: M5@t=0 \u2192 M3@t=5 (done: t=9)\n  J5: M4@t=0 \u2192 M4@t=3 (done: t=5)\n  J6: M5@t=0 \u2192 M2@t=1 \u2192 M3@t=4 (done: t=6)\n  J7: M5@t=0 \u2192 M1@t=1 (done: t=5)\n  J8: M5@t=0 \u2192 M2@t=1 \u2192 M3@t=3 (done: t=5)",
+        "num_jobs": 8,
+        "is_valid": true
+    },
+    "private": {
+        "score": 2040.0,
+        "compute_cost": 2040.0,
+        "delay_penalty": 0.0,
+        "num_violations": 0
+    },
+    "execution_time_mean": 0.0005848570003763598,
+    "execution_time_std": 0.0,
+    "num_valid_runs": 0,
+    "num_invalid_runs": 1,
+    "all_validation_errors": [
+        "M1: overlap between J2 (ends 4) and J7 (starts 1)"
+    ]
+}

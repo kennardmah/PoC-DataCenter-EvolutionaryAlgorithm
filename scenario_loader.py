@@ -31,6 +31,7 @@ class Job:
     deadline: int
     delay_weight: float
     operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
 
 
 @dataclass
@@ -120,6 +121,7 @@ def load_jobs(csv_path: str) -> Dict[str, Job]:
             priority = row['priority']
             deadline = int(row['deadline'])
             delay_weight = float(row['delay_weight'])
+            arrival_time = int(row.get('arrival_time', 0))  # Default to 0 if not specified
             
             # Parse operations: "Ingest:2:5,CPU:3:4,GPU:1:8" (Type:Duration:Capacity)
             operations = []
@@ -130,7 +132,7 @@ def load_jobs(csv_path: str) -> Dict[str, Job]:
                 capacity = int(parts[2]) if len(parts) > 2 else 1  # Default capacity = 1
                 operations.append(Operation(op_type, duration, capacity))
             
-            jobs[job_id] = Job(job_id, description, priority, deadline, delay_weight, operations)
+            jobs[job_id] = Job(job_id, description, priority, deadline, delay_weight, operations, arrival_time)
     
     return jobs
 

@@ -113,6 +113,7 @@ class Job:
     deadline: int
     delay_weight: float
     operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
 
 
 @dataclass
@@ -137,72 +138,22 @@ class Instance:
 
 
 def create_instance(
-    scenario: str = "default",
+    scenario: str = "baseline",
     failure_scenario: Optional[str] = None
 ) -> Instance:
     """
-    Create the problem instance.
+    Create the problem instance from CSV files.
     
     Args:
-        scenario: Job scenario to load ('baseline', 'peak_load', 'emergency', 'light_load')
-                 or 'default' to use hardcoded baseline
+        scenario: Job scenario to load from CSV ('baseline', 'peak_load', 'emergency', 'light_load')
         failure_scenario: Machine failure scenario ('earthquake_moderate', 'tsunami_warning', etc.)
                          or None for no failures
     
     Returns:
-        Instance object with jobs, servers, and optional machine failures
+        Instance object with jobs, servers, and optional machine failures from CSV
     """
-    # Try to load from CSV if available
-    if scenario != "default":
-        try:
-            from scenario_loader import create_instance_from_csv
-            return create_instance_from_csv(scenario, failure_scenario)
-        except (ImportError, FileNotFoundError) as e:
-            print(f"Warning: Could not load scenario from CSV ({e}). Using default hardcoded instance.")
-    
-    # Fallback to hardcoded baseline (same as before)
-    servers = {
-        # Local machines with capacity
-        "M1": Server("M1", "GPU", capacity=20, is_cloud=False),
-        "M2": Server("M2", "CPU", capacity=40, is_cloud=False),
-        "M3": Server("M3", "HighMem", capacity=10, is_cloud=False),
-        "M4": Server("M4", "Secure", capacity=5, is_cloud=False),
-        "M5": Server("M5", "Ingest", capacity=30, is_cloud=False),
-        # Cloud overflow machines (infinite capacity, 5x cost)
-        "C1": Server("C1", "GPU", capacity=999999, is_cloud=True),
-        "C2": Server("C2", "CPU", capacity=999999, is_cloud=True),
-        "C3": Server("C3", "HighMem", capacity=999999, is_cloud=True),
-        "C4": Server("C4", "Secure", capacity=999999, is_cloud=True),
-        "C5": Server("C5", "Ingest", capacity=999999, is_cloud=True),
-    }
-    jobs = {
-        "J1": Job("J1", "National census data processing", "HIGH", 12, 10.0, [
-            Operation("Ingest", 2, 5), Operation("HighMem", 3, 3), Operation("CPU", 2, 4)
-        ]),
-        "J2": Job("J2", "Tax fraud detection ML model", "HIGH", 10, 8.0, [
-            Operation("Ingest", 1, 3), Operation("GPU", 3, 8), Operation("CPU", 1, 2)
-        ]),
-        "J3": Job("J3", "Emergency response coordination", "CRITICAL", 6, 15.0, [
-            Operation("Secure", 2, 2), Operation("CPU", 1, 3), Operation("HighMem", 1, 2)
-        ]),
-        "J4": Job("J4", "Geospatial infrastructure analysis", "MEDIUM", 16, 5.0, [
-            Operation("Ingest", 2, 4), Operation("HighMem", 4, 5)
-        ]),
-        "J5": Job("J5", "Classified intelligence processing", "CRITICAL", 8, 12.0, [
-            Operation("Secure", 3, 3), Operation("Secure", 2, 2)
-        ]),
-        "J6": Job("J6", "Public health data aggregation", "MEDIUM", 18, 4.0, [
-            Operation("Ingest", 1, 2), Operation("CPU", 2, 5), Operation("HighMem", 2, 3)
-        ]),
-        "J7": Job("J7", "Climate model training", "LOW", 20, 2.0, [
-            Operation("Ingest", 1, 3), Operation("GPU", 4, 10)
-        ]),
-        "J8": Job("J8", "Social services optimization", "MEDIUM", 14, 6.0, [
-            Operation("Ingest", 1, 3), Operation("CPU", 2, 6), Operation("HighMem", 2, 4)
-        ]),
-    }
-    return Instance(servers, jobs, SERVER_COST, TIME_HORIZON,
-                   {"compute_cost": 1.0, "delay_penalty": 5.0}, machine_failures=None)
+    from scenario_loader import create_instance_from_csv
+    return create_instance_from_csv(scenario, failure_scenario)
 
 
 # =============================================================================
@@ -210,15 +161,23 @@ def create_instance(
 # =============================================================================
 
 Schedule = Dict[str, List[Dict[str, Any]]]  # job_id -> [{server, start}, ...]
-Fitness = Any  # namedtuple with score, compute_cost, delay_penalty, violations
+
+
+@dataclass
+class Fitness:
+    score: float
+    compute_cost: float
+    delay_penalty: float
+    violations: List[str]
+    job_completion_times: Dict[str, int]
+    
+    def is_valid(self) -> bool:
+        return len(self.violations) == 0
 
 
 def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
     """Evaluate a schedule with capacity constraints and exponential failure model."""
-    from collections import namedtuple
     import math
-    
-    FitnessTuple = namedtuple('Fitness', ['score', 'compute_cost', 'delay_penalty', 'violations', 'job_completion_times'])
     
     violations = []
     total_compute_cost = 0
@@ -271,6 +230,10 @@ def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
             violations.append(f"{job_id}: wrong number of operations")
             continue
 
+        # Check first operation doesn't start before arrival
+        if ops and ops[0]["start"] < job.arrival_time:
+            violations.append(f"{job_id}: starts at {ops[0]['start']} before arrival at {job.arrival_time}")
+
         prev_end = None
         for idx, op in enumerate(ops):
             server_id = op["server"]
@@ -317,7 +280,7 @@ def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
              inst.weights["delay_penalty"] * total_delay_penalty +
              len(violations) * 10000)
 
-    return FitnessTuple(round(score, 2), round(total_compute_cost, 2),
+    return Fitness(round(score, 2), round(total_compute_cost, 2),
                    round(total_delay_penalty, 2), violations, job_completion_times)
 
 
@@ -393,8 +356,8 @@ def construct_schedule(inst: Instance) -> Schedule:
     # Track capacity usage per machine per timestep
     capacity_usage = {s: {} for s in inst.servers}
     
-    # Track when each job can start (after its previous operation finishes)
-    job_available_time = {j: 0 for j in inst.jobs}
+    # Track when each job can start (max of arrival time and previous operation finish time)
+    job_available_time = {j: inst.jobs[j].arrival_time for j in inst.jobs}
     
     schedule = {}
     
@@ -475,9 +438,16 @@ def construct_schedule(inst: Instance) -> Schedule:
 
 
 # This part remains fixed (not evolved)
-def run_scheduling():
-    """Run the schedule constructor and return results."""
-    inst = create_instance()
+def run_scheduling(scenario: str = "baseline", failure_scenario: Optional[str] = None):
+    """
+    Run the schedule constructor and return results.
+    
+    Args:
+        scenario: Job scenario to load from CSV ('baseline', 'peak_load', 'emergency', 'light_load')
+        failure_scenario: Machine failure scenario from CSV or None
+    """
+    from scenario_loader import create_instance_from_csv
+    inst = create_instance_from_csv(scenario=scenario, failure_scenario=failure_scenario)
     schedule = construct_schedule(inst)
     fitness = evaluate(inst, schedule)
     return schedule, fitness, float(fitness.score)

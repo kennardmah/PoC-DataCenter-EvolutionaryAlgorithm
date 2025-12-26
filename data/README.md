@@ -5,20 +5,20 @@ This directory contains CSV-based scenario definitions for testing the schedulin
 ## File Structure
 
 ### Machine Configuration
-- **machines.csv**: Defines 14 machine instances (9 local + 5 cloud) with cost profiles
+- **machines.csv**: Defines 10 machines (5 local + 5 cloud) with capacity and cost profiles
   
-  **Local Machines (capacity = 1 each):**
-  - M1a, M1b: GPU Compute - 2 instances (training/inference)
-  - M2a, M2b: CPU Compute - 2 instances (control logic, feature engineering)
-  - M3a, M3b: High-Memory Analytics - 2 instances (graphs, large matrices)
-  - M4: Secure/Isolated Compute - 1 instance (gov-only workloads)
-  - M5a, M5b: Data Ingest & Preprocessing - 2 instances (IO-heavy staging)
+  **Local Machines (limited capacity):**
+  - M1: GPU Compute - capacity=20 (training/inference)
+  - M2: CPU Compute - capacity=40 (control logic, feature engineering)
+  - M3: High-Memory Analytics - capacity=10 (graphs, large matrices)
+  - M4: Secure/Isolated Compute - capacity=5 (gov-only workloads)
+  - M5: Data Ingest & Preprocessing - capacity=30 (IO-heavy staging)
   
   **Cloud Machines (infinite capacity, 5x cost):**
   - C1-C5: Cloud equivalents of each type
-  - No capacity constraints (can run unlimited parallel operations)
+  - capacity=999999 (effectively unlimited parallel operations)
   - 5x the cost of local machines
-  - Use for overflow when local machines are busy or during failures
+  - Use for overflow when local machines are at capacity or during failures
 
 ### Job Scenarios
 
@@ -45,21 +45,24 @@ This directory contains CSV-based scenario definitions for testing the schedulin
 
 ### Machine Failure Scenarios
 
-- **machine_failures.csv**: Realistic failure events (Japan context) with **performance degradation**
-  - Machines don't go completely offline - they slow down instead
-  - `performance_degradation`: 1.0 = normal, 1.5 = 50% slower, 2.0 = twice as slow
-  - Operations take longer during failures, reducing effective capacity
+- **machine_failures.csv**: Realistic failure events (Japan context) with **capacity reduction**
+  - Machines don't go completely offline - they lose some capacity instead
+  - `capacity_reduction`: Amount of capacity lost during failure (e.g., M1 normally has 20, loses 10 → effective capacity of 10)
+  - Failures use exponential degradation/recovery model with configurable rates
+  - `failure_rate`: Speed of capacity degradation (higher = faster degradation)
+  - `recovery_rate`: Speed of capacity restoration (higher = faster recovery)
   
   **Failure scenarios:**
-  - **earthquake_moderate**: M1 (2x slower), M3 (1.5x slower) - cooling/memory issues
-  - **tsunami_warning**: M4 (1.8x slower) - reduced secure access during evacuation
-  - **power_outage**: M2 (1.5x slower), M5 (2x slower) - emergency power mode
-  - **typhoon_severe**: M1 (2.5x slower), M3 (2x slower) - major cooling/water damage
-  - **nuclear_alert**: M4 (1.5x slower) - security protocol overhead
+  - **earthquake_moderate**: M1 (capacity -10), M3 (capacity -5) - cooling/memory damage
+  - **tsunami_warning**: M4 (capacity -3) - facility access restricted during evacuation
+  - **power_outage**: M2 (capacity -20), M5 (capacity -15) - rolling blackout
+  - **typhoon_severe**: M2 (capacity -25), M3 (capacity -7) - major cooling failure, water damage
+  - **nuclear_alert**: M4 (capacity -2) - security protocol overhead
   
   **Impact:**
-  - Operations scheduled during failures take longer to complete
-  - Increases job completion times and potential deadline violations
+  - Machines have reduced capacity during failures (e.g., M1: 20→10 during earthquake)
+  - Gradual degradation/recovery using exponential model (not instant on/off)
+  - Increases resource contention and potential deadline violations
   - Encourages use of cloud overflow (expensive but reliable)
 
 ## Usage

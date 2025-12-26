@@ -1,6 +1,6 @@
-job_id,description,priority,deadline,delay_weight,operations
-J1,Weekly report generation,LOW,20,1.0,"Ingest:1,CPU:2"
-J2,Archive maintenance,LOW,22,0.5,"Ingest:2,HighMem:1"
-J3,Database backup verification,MEDIUM,18,3.0,"Ingest:1,CPU:1,Secure:1"
-J4,Statistical summary batch,LOW,24,1.5,"CPU:2,HighMem:2"
-J5,Log file consolidation,LOW,23,0.8,"Ingest:2,CPU:1"
+job_id,description,priority,deadline,delay_weight,arrival_time,operations
+J1,Weekly report generation,LOW,20,1.0,0,"Ingest:1,CPU:2"
+J2,Archive maintenance,LOW,22,0.5,3,"Ingest:2,HighMem:1"
+J3,Database backup verification,MEDIUM,18,3.0,5,"Ingest:1,CPU:1,Secure:1"
+J4,Statistical summary batch,LOW,24,1.5,7,"CPU:2,HighMem:2"
+J5,Log file consolidation,LOW,23,0.8,10,"Ingest:2,CPU:1"

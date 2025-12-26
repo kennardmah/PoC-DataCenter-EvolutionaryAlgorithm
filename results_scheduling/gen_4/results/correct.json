@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "'Fitness' object has no attribute 'is_valid'"
+}
