@@ -1,0 +1,127 @@
+<precompute_capacity_cache_constants>
+This edit moves the `MAX_LOCAL_SEARCH_WINDOW` constants to the top of the `construct_schedule` function, making them accessible to other helper functions and the caching logic. It also introduces the capacity pre-computation and caching mechanism. Before the main job scheduling loop, it iterates through all local servers and relevant time steps (determined by `MAX_LOOKAHEAD_TIME`), calculating and storing the available capacity. This significantly reduces redundant exponential calculations during scheduling.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Define a reasonable search window for local machines to find cheaper slots
+    MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER = 2 # Search up to 2 full time horizons (e.g., 48 hours) for local slots
+    MAX_LOCAL_SEARCH_WINDOW_ADD = 10 # Small buffer for local scheduling slightly past horizon if needed
+
+    for job_id in sorted_jobs:
+        job = inst.jobs[job_id]
+        schedule[job_id] = []
+=======
+    # Define a reasonable search window for local machines to find cheaper slots
+    MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER = 2 # Search up to 2 full time horizons (e.g., 48 hours) for local slots
+    MAX_LOCAL_SEARCH_WINDOW_ADD = 10 # Small buffer for local scheduling slightly past horizon if needed
+    # MAX_LOOKAHEAD_TIME determines how far into the future we pre-compute capacities.
+    # It should cover the maximum possible `search_end_time` used for any operation.
+    MAX_LOOKAHEAD_TIME = inst.time_horizon * (MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER + 1) + MAX_LOCAL_SEARCH_WINDOW_ADD + 5 # Add a small buffer
+
+    # Cache for pre-calculated available capacities, considering failures
+    # cached_available_capacity[server_id][time] = available_capacity_at_that_time
+    cached_available_capacity: Dict[str, Dict[int, int]] = {s_id: {} for s_id in inst.servers}
+
+    # Pre-compute available capacities for all local servers over the lookahead horizon
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            for t in range(MAX_LOOKAHEAD_TIME):
+                base_capacity = server.capacity
+                total_reduction = 0
+                if inst.machine_failures:
+                    for failure in inst.machine_failures:
+                        if failure.machine_id != server_id:
+                            continue
+
+                        if t < failure.failure_start:
+                            continue
+                        elif t >= failure.failure_end:
+                            time_since_end = t - failure.failure_end
+                            recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                            reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                            total_reduction += reduction
+                        else:
+                            time_since_start = t - failure.failure_start
+                            failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                            reduction = failure.capacity_reduction * failure_factor
+                            total_reduction += reduction
+
+                cached_available_capacity[server_id][t] = max(0, base_capacity - int(total_reduction))
+
+    for job_id in sorted_jobs:
+        job = inst.jobs[job_id]
+        schedule[job_id] = []
+>>>>>>> REPLACE
+</DIFF>
+
+<precompute_capacity_function>
+This edit modifies the `get_available_capacity` helper function to leverage the `cached_available_capacity` dictionary created in the previous step. For local servers within the precomputed time range, it now performs an O(1) lookup, dramatically speeding up capacity checks. Cloud servers are still handled as infinite capacity, and a fallback calculation is retained for times outside the precomputed range (e.g., in `evaluate`, which may look beyond `MAX_LOOKAHEAD_TIME`).
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Helper to retrieve available capacity, considering failures
+    def get_available_capacity(server_id: str, time: int) -> int:
+        """Calculate available capacity at a specific time, considering machine failures."""
+        base_capacity = inst.servers[server_id].capacity
+        if not inst.machine_failures:
+            return base_capacity
+
+        total_reduction = 0
+        for failure in inst.machine_failures:
+            if failure.machine_id != server_id:
+                continue
+
+            if time < failure.failure_start:
+                continue
+            elif time >= failure.failure_end:
+                time_since_end = time - failure.failure_end
+                recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                total_reduction += reduction
+            else:
+                time_since_start = time - failure.failure_start
+                failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                reduction = failure.capacity_reduction * failure_factor
+                total_reduction += reduction
+
+        available = max(0, base_capacity - int(total_reduction))
+        return available
+=======
+    # Helper to retrieve available capacity, using the cache
+    def get_available_capacity(server_id: str, time: int) -> int:
+        """Calculate available capacity at a specific time, considering machine failures."""
+        if inst.servers[server_id].is_cloud:
+            return 999999 # Effectively infinite capacity for cloud servers
+
+        # Look up from cache for local servers if within precomputed range
+        if 0 <= time < MAX_LOOKAHEAD_TIME:
+            # We assume cached_available_capacity is populated for all local servers in this range.
+            return cached_available_capacity[server_id][time]
+
+        # Fallback for times outside precomputed range (e.g., evaluation looking very far into future)
+        # This path performs the full calculation, but should be rare for local machines in main scheduling.
+        base_capacity = inst.servers[server_id].capacity
+        if not inst.machine_failures:
+            return base_capacity
+
+        total_reduction = 0
+        for failure in inst.machine_failures:
+            if failure.machine_id != server_id:
+                continue
+
+            if time < failure.failure_start:
+                continue
+            elif time >= failure.failure_end:
+                time_since_end = time - failure.failure_end
+                recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                total_reduction += reduction
+            else:
+                time_since_start = time - failure.failure_start
+                failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                reduction = failure.capacity_reduction * failure_factor
+                total_reduction += reduction
+
+        return max(0, base_capacity - int(total_reduction))
+>>>>>>> REPLACE
+</DIFF>

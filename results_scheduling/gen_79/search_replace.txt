@@ -1,0 +1,126 @@
+<cost_time_window_low_priority>
+Introduce cost-time window awareness for low-priority jobs.
+
+This modification enhances the `_find_best_local_slot` logic within the `JobShopScheduler` class. For `LOW` priority jobs, the scheduler will now consider a small lookahead window (e.g., 4 hours) to find local server slots that offer lower compute costs, even if it means a slightly later start time. This is beneficial for cost efficiency without significantly impacting critical deadlines, as low-priority jobs often have more slack.
+
+For higher priority jobs, the original "earliest start first" logic is preserved to ensure minimal delays. The sorting criteria for local candidates are dynamically adjusted:
+- For `CRITICAL`/`HIGH`/`MEDIUM` jobs: prioritize the absolute earliest available start time, then lowest cost, then highest remaining capacity.
+- For `LOW` jobs: within the defined lookahead window, prioritize lowest cost, then earliest start time, then highest remaining capacity.
+
+This balances the need for speed for critical workloads with the opportunity for cost savings for less urgent tasks, leveraging the cost dynamics of the data center. A new `LOW_PRIORITY_COST_LOOKAHEAD_WINDOW` class attribute is added to control the search depth for cost optimization.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        self.same_server_bonus_cost_reduction = 10.0 # NEW: Cost reduction for chaining critical/high jobs on same local server
+        self._precompute_job_properties()
+        self._categorize_servers()
+        self.precomputed_available_capacity: Dict[str, Dict[int, int]] = self._precompute_all_capacities() # NEW: Precompute available capacities
+
+    def _precompute_job_properties(self):
+        """Pre-calculate total duration and priority scores for each job."""
+=======
+        self.same_server_bonus_cost_reduction = 10.0 # NEW: Cost reduction for chaining critical/high jobs on same local server
+        self.LOW_PRIORITY_COST_LOOKAHEAD_WINDOW = 4 # hours. Allows searching a few hours ahead for cost savings for LOW priority jobs.
+        self._precompute_job_properties()
+        self._categorize_servers()
+        self.precomputed_available_capacity: Dict[str, Dict[int, int]] = self._precompute_all_capacities() # NEW: Precompute available capacities
+
+    def _precompute_job_properties(self):
+        """Pre-calculate total duration and priority scores for each job."""
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        Finds the best local slot based on earliest start, then effective cost (including same-server bonus),
+        then remaining capacity.
+        Returns (start_time, server_id) or None.
+        """
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+
+        candidates = [] # Stores (start_time, effective_cost_for_op, -remaining_cap_sum, server_id)
+
+        for server_id in local_servers:
+            for start_time_candidate in range(earliest_start, self.inst.time_horizon):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                    effective_cost_candidate = cost_candidate
+                    # Apply same-server chaining bonus for CRITICAL/HIGH priority jobs (Recommendation 5)
+                    # Note: priority_map values are 0 (CRITICAL), 1 (HIGH), etc. Lower value means higher priority.
+                    if (job.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                        effective_cost_candidate -= self.same_server_bonus_cost_reduction
+
+                    # Calculate remaining capacity sum across the duration (Recommendation 4)
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    candidates.append((
+                        start_time_candidate,
+                        effective_cost_candidate,
+                        -remaining_capacity_sum, # Negate to sort descending (more remaining is better)
+                        server_id # Last for deterministic tie-breaking by ID
+                    ))
+                    break # Found earliest slot for THIS server, move to next server
+
+        if candidates:
+            # Sort candidates based on criteria:
+            # 1. Earliest start_time (ascending)
+            # 2. Lowest effective cost (ascending)
+            # 3. Highest remaining capacity sum (descending, hence -remaining_cap_sum ascending)
+            # 4. Server ID (ascending) for deterministic tie-breaking
+            best_candidate = sorted(candidates)[0]
+            # The server_id is now the 4th element (index 3) in the 4-tuple.
+            return (best_candidate[0], best_candidate[3]) # Return (start_time, server_id)
+        return None
+=======
+        Finds the best local slot based on earliest start, then effective cost (including same-server bonus),
+        then remaining capacity. For LOW priority jobs, prioritizes cost over slight delays within a window.
+        Returns (start_time, server_id) or None.
+        """
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+        candidates = [] # Stores (sort_key_tuple, start_time, server_id)
+
+        is_low_priority = (job.priority_score == self.priority_map["LOW"])
+
+        for server_id in local_servers:
+            # Determine the effective search end time for this server based on priority
+            # For high priorities: search for the absolute earliest slot starting from `earliest_start`.
+            # For low priorities: search within `earliest_start` up to `earliest_start + LOW_PRIORITY_COST_LOOKAHEAD_WINDOW`.
+
+            search_end_time_for_server = self.inst.time_horizon
+            if is_low_priority:
+                search_end_time_for_server = min(self.inst.time_horizon, earliest_start + self.LOW_PRIORITY_COST_LOOKAHEAD_WINDOW)
+
+            for start_time_candidate in range(earliest_start, search_end_time_for_server):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+                    effective_cost_candidate = cost_candidate
+                    if (job.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                        effective_cost_candidate -= self.same_server_bonus_cost_reduction
+
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    # Construct sort key based on priority
+                    if is_low_priority:
+                        # For LOW priority, prioritize cost, then earliest start, then remaining capacity
+                        sort_key = (effective_cost_candidate, start_time_candidate, -remaining_capacity_sum, server_id)
+                    else:
+                        # For higher priorities, prioritize earliest start, then cost, then remaining capacity
+                        sort_key = (start_time_candidate, effective_cost_candidate, -remaining_capacity_sum, server_id)
+
+                    candidates.append((sort_key, start_time_candidate, server_id))
+
+                    if not is_low_priority:
+                        # For higher priority jobs, once the earliest slot is found on this server, stop searching further in time on this server.
+                        # This ensures the global sorting prioritizes earliest possible start across servers.
+                        break # Break from this server's time search, move to next server
+
+        if candidates:
+            # Sort all collected candidates (globally across all servers and considered times)
+            best_candidate = sorted(candidates)[0]
+            final_start_time, final_server_id = best_candidate[1], best_candidate[2]
+            return (final_start_time, final_server_id)
+        return None
+>>>>>>> REPLACE
+</DIFF>

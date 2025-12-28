@@ -1,0 +1,77 @@
+<dynamic_delay_penalty_scaling>
+Enhances the `_calculate_operation_objective_value` function to implement dynamic delay weight scaling for jobs nearing or exceeding their deadlines. This modification introduces an exponential scaling factor to the job's `delay_weight` if the `projected_job_completion_time` is past its `deadline`. For CRITICAL and HIGH priority jobs, an additional multiplier is applied, making the scheduler significantly more sensitive to delays for urgent tasks. This incentivizes earlier completion of time-sensitive jobs and better aligns the local optimization with the overall `Total Cost = compute_cost + 5 × delay_penalty` objective by making future delay penalties more pronounced for late jobs.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        def _calculate_operation_objective_value(self, job: Job, op: Operation, op_idx: int,
+                                                 server_id: str, start_time: int) -> float:
+            """
+            Calculates an objective value for scheduling a specific operation on a given server at a start time.
+            This value considers the immediate compute cost and a projection of the entire job's future delay penalty.
+            """
+            # 1. Immediate Compute Cost for this operation
+            compute_cost_this_op = self._calculate_operation_compute_cost(server_id, start_time, op.duration)
+
+            # 2. Projected Job Completion Time
+            op_end_time = start_time + op.duration
+
+            # Sum durations of remaining operations for this job
+            # This is a greedy approximation, assuming remaining ops take their minimum duration.
+            remaining_operations_duration = sum(j_op.duration for i, j_op in enumerate(job.operations) if i > op_idx)
+
+            projected_job_completion_time = op_end_time + remaining_operations_duration
+
+            # 3. Projected Delay Penalty for the entire job
+            delay = max(0, projected_job_completion_time - job.deadline)
+            projected_delay_penalty = delay * job.delay_weight * self.DELAY_PENALTY_WEIGHT_IN_OBJECTIVE # Use the hardcoded penalty weight
+
+            # Combine immediate compute_cost and projected delay_penalty
+            # The weights from inst.weights are already applied in the evaluate function's score.
+            # Here, we aim to match the "Total Cost" objective = compute_cost + 5 * delay_penalty
+            overall_objective_value = compute_cost_this_op + projected_delay_penalty
+            return overall_objective_value
+=======
+        def _calculate_operation_objective_value(self, job: Job, op: Operation, op_idx: int,
+                                                 server_id: str, start_time: int) -> float:
+            """
+            Calculates an objective value for scheduling a specific operation on a given server at a start time.
+            This value considers the immediate compute cost and a projection of the entire job's future delay penalty,
+            with dynamic scaling for nearing/exceeding deadlines.
+            """
+            # 1. Immediate Compute Cost for this operation
+            compute_cost_this_op = self._calculate_operation_compute_cost(server_id, start_time, op.duration)
+
+            # 2. Projected Job Completion Time
+            op_end_time = start_time + op.duration
+
+            # Sum durations of remaining operations for this job
+            # This is a greedy approximation, assuming remaining ops take their minimum duration.
+            remaining_operations_duration = sum(j_op.duration for i, j_op in enumerate(job.operations) if i > op_idx)
+
+            projected_job_completion_time = op_end_time + remaining_operations_duration
+
+            # 3. Projected Delay Penalty for the entire job with dynamic scaling
+            delay_hours = max(0, projected_job_completion_time - job.deadline)
+
+            effective_job_delay_weight = job.delay_weight
+
+            if delay_hours > 0:
+                # Base exponential scaling for any lateness
+                # The factor (0.1) can be tuned: higher means faster escalation of penalty
+                scaling_factor = math.exp(delay_hours * 0.1)
+
+                # Further increase scaling for CRITICAL/HIGH priority jobs
+                if job.priority_score <= self.priority_map["HIGH"]: # CRITICAL (0) or HIGH (1) priority
+                    scaling_factor *= 1.5 # Additional penalty multiplier for critical tasks
+
+                effective_job_delay_weight *= scaling_factor
+
+            # Apply the problem's global delay penalty weight (5x)
+            projected_delay_penalty = delay_hours * effective_job_delay_weight * self.DELAY_PENALTY_WEIGHT_IN_OBJECTIVE
+
+            # Combine immediate compute_cost and projected delay_penalty
+            overall_objective_value = compute_cost_this_op + projected_delay_penalty
+            return overall_objective_value
+>>>>>>> REPLACE
+</DIFF>

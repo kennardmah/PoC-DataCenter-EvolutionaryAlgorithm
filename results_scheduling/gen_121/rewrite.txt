@@ -1,0 +1,19 @@
+<NAME>
+scheduler_encapsulated_precomputed_contention
+</NAME>
+<DESCRIPTION>
+This version structurally redesigns the `construct_schedule` function by encapsulating the scheduling logic within a `JobShopScheduler` class, enhancing modularity and state management.
+
+Key structural and algorithmic improvements include:
+1.  **Class Encapsulation**: All scheduling logic and shared state (capacity usage, job availability, precomputed data) are now contained within the `JobShopScheduler` class. This improves code organization, readability, and makes it easier to extend or modify specific scheduling components.
+2.  **Pre-computation of Dynamic Capacities (Recommendation 3)**: A new `_precompute_all_capacities` method is introduced to calculate and cache the effective available capacity for all local servers across the entire `time_horizon`. This significantly reduces redundant and computationally intensive `math.exp` calls within the frequently invoked `_get_available_capacity` and `_has_capacity` methods during the scheduling loop.
+3.  **Unified Candidate Evaluation and Multi-Criteria Tie-breaking (Recommendation 4 adapted)**: Instead of separate local and cloud search loops, this version collects all viable operation placements (local and cloud) into a single `candidate_placements` list. Each candidate is a tuple including its objective cost, whether it's a cloud server, its start time, the minimum remaining free capacity on the server during the operation (for local servers), and the server ID. This list is then sorted using a robust multi-criteria heuristic:
+    *   Minimize total objective cost (primary).
+    *   Prefer local servers over cloud servers (secondary).
+    *   Minimize the operation's start time (tertiary).
+    *   **Maximize the minimum free capacity during the operation** (quaternary, implemented by negating this value for ascending sort). This directly addresses Recommendation 4 by preferring more robust placements with less contention or more buffer against further unexpected capacity reductions.
+    *   Minimize server ID (for deterministic tie-breaking).
+4.  **Dedicated Helper Methods**: The class structure promotes breaking down complex logic into smaller, focused methods (e.g., `_calculate_operation_compute_cost`, `_calculate_remaining_capacity_sum`, `_reserve_capacity`), making the code easier to understand and debug.
+5.  **Input Data Immutability**: Job properties like `total_duration` and `priority_score` are now computed and stored internally within the `Scheduler` instance as dictionaries (`self.job_total_durations`, `self.job_priority_scores`) rather than modifying the input `Job` dataclass objects, preserving the integrity of the original `Instance`.
+</DESCRIPTION>
+<CODE>

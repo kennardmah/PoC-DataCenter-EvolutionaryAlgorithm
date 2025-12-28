@@ -1,0 +1,62 @@
+<add_min_free_capacity_helper>
+Adds a helper function `_calculate_min_free_capacity_during_op` to determine the resilience of a server by calculating the minimum available capacity during an operation's proposed schedule slot. This metric can be used in tie-breaking during server selection to favor more robust placements, especially in failure-prone environments.
+</add_min_free_capacity_helper>
+
+<DIFF>
+<<<<<<< SEARCH
+        return True
+
+    # Helper to get compatible servers, sorted by a heuristic preference
+    def get_servers_by_type_sorted(server_type: str, current_time: int) -> List[str]:
+=======
+        return True
+
+    def _calculate_min_free_capacity_during_op(server_id: str, start: int, duration: int, capacity_req: int, current_capacity_usage: Dict[str, Dict[int, int]]) -> int:
+        """
+        Calculates the minimum remaining free capacity on a server during an operation's execution,
+        assuming the operation is placed there. A higher value indicates more resilience.
+        """
+        min_free_capacity = float('inf')
+        for t in range(start, start + duration):
+            # Boundary check
+            if t < 0 or t >= inst.time_horizon * 2:
+                return -1 # Indicate out of bounds/invalid, effectively no free capacity
+            used_at_t = current_capacity_usage[server_id].get(t, 0)
+            available_at_t = get_available_capacity(server_id, t)
+            remaining_after_op = available_at_t - (used_at_t + capacity_req)
+            min_free_capacity = min(min_free_capacity, remaining_after_op)
+        return int(min_free_capacity)
+
+    # Helper to get compatible servers, sorted by a heuristic preference
+    def get_servers_by_type_sorted(server_type: str, current_time: int) -> List[str]:
+>>>>>>> REPLACE
+</DIFF>
+
+<unify_operation_selection>
+Refactors the operation selection logic to use a `candidate_placements` list, collecting all valid local and cloud options. This list is then sorted using a multi-criteria key:
+1. Minimize objective cost.
+2. Prefer local (False) over cloud (True) if costs are equal.
+3. Minimize start time if costs and local/cloud preference are equal.
+4. Maximize minimum free capacity during operation (for resilience) if all above are equal.
+5. Deterministic tie-breaking by server ID.
+
+This provides a more robust and consistent decision-making process for selecting the best operation placement, ensuring all relevant factors (cost, delay, machine type, start time, resilience) are considered with clear priorities. The previous iterative `if/else` logic was prone to subtle tie-breaking issues.
+</unify_operation_selection>
+
+<DIFF>
+<<<<<<< SEARCH
+            for op_idx, op in enumerate(job.operations):
+                best_overall_objective_cost = float('inf')
+                chosen_server = None
+                chosen_start = None
+
+                # Get compatible servers, sorted by capacity health and cost at current_op_start_time
+                compatible_servers_sorted = get_servers_by_type_sorted(op.server_type, current_op_start_time)
+
+                # --- Evaluate local machines ---
+                # Dynamically adjust the search window based on job priority
+                priority_factor = PRIORITY_SEARCH_WINDOW_FACTORS.get(job_priority_scores[job_id], 1.0)
+                dynamic_search_window_multiplier = BASE_LOCAL_SEARCH_WINDOW_MULTIPLIER * priority_factor
+
+                # Calculate search_end_time. Ensure it's at least current_op_start_time + op.duration
+                search_end_time = max(current_op_

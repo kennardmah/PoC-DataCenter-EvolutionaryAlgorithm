@@ -1,0 +1,101 @@
+<NAME>
+dynamic_local_cost_priority_fix
+</NAME>
+
+<DESCRIPTION>
+This edit re-attempts the previous enhancement to refine local machine selection with dynamic cost-aware scheduling. The previous attempt failed because the `SEARCH` block did not precisely match the existing code.
+
+The logic remains the same: for low-priority jobs (MEDIUM or LOW) with ample "slack" (enough time before their deadline, set by `SLACK_THRESHOLD`), the scheduler prioritizes local machine slots with the *lowest compute cost*. For high-priority jobs (CRITICAL/HIGH) or jobs with tight deadlines, the scheduler prioritizes the *earliest possible start time* to avoid delays, with cost as a secondary factor.
+
+This strategy aims to improve `compute_cost` for flexible jobs by utilizing cheaper time windows, while ensuring `delay_penalty` remains low for critical tasks.
+
+Changes include:
+- Calculating `remaining_duration_for_job` and `current_job_slack` for the current operation.
+- Dynamically determining `should_prioritize_cost` based on job priority and slack.
+- Collecting all valid local `(sort_key_primary, sort_key_secondary, server_id, actual_start_time, actual_cost)` candidates.
+- Sorting these candidates using Python's natural tuple sorting which applies the primary key first, then secondary, then server ID for deterministic tie-breaking.
+- Assigning the operation to the top-ranked local candidate.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            scheduled = False
+            best_local_start = None
+            best_local_server = None
+
+            # 1. Try to schedule on a local machine (prefer local to minimize cost)
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+            for server_id in local_servers:
+                # Find the earliest time this local server can accommodate the operation
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                        break  # Found earliest slot on this server, no need to look further for THIS server
+
+            # Schedule on best local server if found
+            if best_local_server is not None:
+                # Reserve capacity
+                for t in range(best_local_start, best_local_start + op.duration):
+                    if t not in capacity_usage[best_local_server]:
+                        capacity_usage[best_local_server][t] = 0
+                    capacity_usage[best_local_server][t] += op.capacity_required
+
+                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
+                current_op_start_time = best_local_start + op.duration
+                job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+                scheduled = True
+=======
+            scheduled = False
+
+            # Calculate remaining duration for the job from the current operation onwards
+            remaining_duration_for_job = sum(job.operations[k].duration for k in range(op_idx, len(job.operations)))
+            # Calculate slack for the current operation (deadline minus earliest possible completion time)
+            # This is an estimate of remaining time before deadline if all subsequent ops run immediately.
+            current_job_slack = job.deadline - (current_op_start_time + remaining_duration_for_job)
+
+            # Define a threshold for "ample slack". Let's use 3 hours as an example.
+            SLACK_THRESHOLD = 3
+            # Decide if cost optimization is prioritized over earliest start for local machines
+            # This applies to MEDIUM/LOW priority jobs that have ample slack.
+            should_prioritize_cost = (job.priority_score >= priority_map["MEDIUM"] and current_job_slack > SLACK_THRESHOLD)
+
+            # 1. Try to schedule on a local machine (prefer local to minimize cost/delay based on priority/slack)
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+            # Stores (primary_sort_key, secondary_sort_key, server_id_for_tiebreak, actual_start_time, actual_cost)
+            local_candidates = []
+
+            for server_id in local_servers:
+                # Find the earliest time this local server can accommodate the operation
+                for start_time_candidate in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                        cost_candidate = _calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                        if should_prioritize_cost:
+                            # Prioritize lower cost, then earliest start, then server_id for tie-breaking
+                            local_candidates.append((cost_candidate, start_time_candidate, server_id, start_time_candidate, cost_candidate))
+                        else:
+                            # Prioritize earliest start, then lower cost, then server_id for tie-breaking
+                            local_candidates.append((start_time_candidate, cost_candidate, server_id, start_time_candidate, cost_candidate))
+                        break  # Found earliest slot on this specific server, move to the next server
+
+            if local_candidates:
+                # Sort candidates based on the primary and secondary sort keys (first two elements of tuple)
+                local_candidates.sort()
+
+                # Extract the actual start time and server ID from the best candidate
+                _, _, best_local_server_id, best_local_start_time, _ = local_candidates[0]
+
+                # Reserve capacity for the chosen local slot
+                for t in range(best_local_start_time, best_local_start_time + op.duration):
+                    if t not in capacity_usage[best_local_server_id]:
+                        capacity_usage[best_local_server_id][t] = 0
+                    capacity_usage[best_local_server_id][t] += op.capacity_required
+
+                schedule[job_id].append({"server": best_local_server_id, "start": best_local_start_time})
+                current_op_start_time = best_local_start_time + op.duration
+                job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+                scheduled = True
+>>>>>>> REPLACE
+</DIFF>

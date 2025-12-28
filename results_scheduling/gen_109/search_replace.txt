@@ -1,0 +1,11 @@
+<dynamic_delay_scaling_and_local_preference>
+This edit enhances the scheduling decision process with two key improvements:
+
+1.  **Dynamic Delay Penalty Scaling**: A new mechanism within `_calculate_operation_cost` (renamed to `_calculate_operation_objective_value` for clarity) dynamically increases the effective `delay_penalty` for jobs whose projected completion time approaches or exceeds their deadline. This makes the objective function more sensitive to delays for urgent jobs, strongly incentivizing their timely completion by making late jobs significantly more "expensive" to schedule late. Tunable parameters `CRITICAL_DEADLINE_THRESHOLD` and `EXPONENTIAL_FACTOR` are introduced. The function now also considers the total cost objective, not just compute cost, to make a more holistic decision.
+
+2.  **Explicit Local Server Preference in Tie-breaking and Broader Search**: The scheduling loop is refactored to first gather all viable local and cloud candidates for an operation. It then selects the best option based on a multi-criteria sort:
+    *   Minimize the total objective cost (compute + dynamic delay penalty).
+    *   Prefer local servers over cloud servers (if costs and start times are otherwise equal).
+    *   Minimize the start time.
+    *   Maximize minimum free capacity during operation (for local servers, to improve resilience).
+    This change allows a more comprehensive search for local slots, similar to the logic in prior successful generations, balancing cost, delay, and resilience. It moves away from the purely "earliest-available" greedy approach of the baseline

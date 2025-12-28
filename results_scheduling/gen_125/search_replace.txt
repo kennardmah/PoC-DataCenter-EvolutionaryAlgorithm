@@ -1,0 +1,165 @@
+<resilience_bonus_in_objective>
+This change re-integrates a resilience bonus directly into the operation objective function. Previously, a similar concept (`min_free_capacity`) was used only for tie-breaking. By making it a direct component of the objective value, the scheduler will proactively favor local servers that maintain a higher capacity buffer during an operation's execution, thereby enhancing robustness against unexpected spikes or further degradations, especially for critical jobs. The existing contention penalty logic has been removed as this resilience bonus covers similar ground but with a more positive "reward" rather than a "penalty". The tie-breaking tuple for server selection has been simplified to remove the redundant `neg_min_free_capacity` component, as resilience is now integrated into the primary `objective_cost`.
+
+This modification directly addresses a refinement of "Recommendation 4: Integrate Operational Risk Factor into Server Selection and Objective" by explicitly valuing resilience in the primary decision metric. It aims to reduce cloud relocations and improve overall system stability in failure scenarios, while still optimizing for cost and delay.
+</resilience_bonus_in_objective>
+
+<DIFF>
+<<<<<<< SEARCH
+            self.schedule = {}
+            self.last_scheduled_local_server_per_job = {} # To track the last local server used by a job for chaining
+            self.DELAY_PENALTY_WEIGHT_IN_OBJECTIVE = 5 # As specified in problem: Total Cost = compute_cost + 5 × delay_penalty
+
+            # Class attributes for search window configuration (Re-introduced)
+            self.BASE_LOCAL_SEARCH_WINDOW_MULTIPLIER = 1.5 # Base search up to 1.5 full time horizons (e.g., 36 hours) for local slots
+            self.BASE_LOCAL_SEARCH_WINDOW_ADD = 5 # Small buffer for local scheduling slightly past deadline/horizon
+
+            # Dynamic search window factors based on priority (Re-introduced)
+            # Higher factor means wider search, suitable for low priority jobs to find cheaper slots.
+            # Lower factor means narrower search, suitable for high priority jobs to ensure early completion.
+            self.PRIORITY_SEARCH_WINDOW_FACTORS = {
+                0: 0.8,   # CRITICAL: Narrower window, prioritize immediate availability
+                1: 1.0,   # HIGH: Standard window
+                2: 1.2,   # MEDIUM: Slightly wider window
+                3: 1.5,   # LOW: Widest window, prioritize cost
+                99: 1.0   # Default/unknown (for any non-mapped priority)
+            }
+
+            # New: Capacity Contention Penalty attributes
+            self.CAPACITY_PENALTY_THRESHOLD = 5  # If remaining capacity drops below this, start penalizing
+            self.CAPACITY_PENALTY_FACTOR = 2.0   # Penalty cost per unit below threshold
+
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99) # Lower score for higher priority
+=======
+            self.schedule = {}
+            self.last_scheduled_local_server_per_job = {} # To track the last local server used by a job for chaining
+            self.DELAY_PENALTY_WEIGHT_IN_OBJECTIVE = 5 # As specified in problem: Total Cost = compute_cost + 5 × delay_penalty
+
+            # Class attributes for search window configuration (Re-introduced)
+            self.BASE_LOCAL_SEARCH_WINDOW_MULTIPLIER = 1.5 # Base search up to 1.5 full time horizons (e.g., 36 hours) for local slots
+            self.BASE_LOCAL_SEARCH_WINDOW_ADD = 5 # Small buffer for local scheduling slightly past deadline/horizon
+
+            # Dynamic search window factors based on priority (Re-introduced)
+            # Higher factor means wider search, suitable for low priority jobs to find cheaper slots.
+            # Lower factor means narrower search, suitable for high priority jobs to ensure early completion.
+            self.PRIORITY_SEARCH_WINDOW_FACTORS = {
+                0: 0.8,   # CRITICAL: Narrower window, prioritize immediate availability
+                1: 1.0,   # HIGH: Standard window
+                2: 1.2,   # MEDIUM: Slightly wider window
+                3: 1.5,   # LOW: Widest window, prioritize cost
+                99: 1.0   # Default/unknown (for any non-mapped priority)
+            }
+
+            # New: Resilience Bonus Factor for local servers (re-introduced and refined)
+            # Higher factor means greater reward for available free capacity, encouraging less congested machines.
+            self.RESILIENCE_BONUS_FACTOR = 0.5
+
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99) # Lower score for higher priority
+>>>>>>> REPLACE
+<DIFF>
+<<<<<<< SEARCH
+            # The weights from inst.weights are already applied in the evaluate function's score.
+            # Here, we aim to match the "Total Cost" objective = compute_cost + 5 * delay_penalty
+            overall_objective_value = (compute_cost_this_op * self.inst.weights['compute_cost']) + projected_delay_penalty
+
+            # 4. Capacity Contention Penalty (for local servers only)
+            contention_penalty = 0.0
+            if not self.inst.servers[server_id].is_cloud:
+                min_remaining_capacity = float('inf')
+                for t in range(start_time, start_time + op.duration):
+                    used_at_t = self._get_current_used_capacity(server_id, t)
+                    available_at_t = self._get_available_capacity(server_id, t)
+                    remaining_after_op_at_t = available_at_t - (used_at_t + op.capacity_required)
+                    min_remaining_capacity = min(min_remaining_capacity, remaining_after_op_at_t)
+
+                if min_remaining_capacity < self.CAPACITY_PENALTY_THRESHOLD:
+                    contention_penalty = (self.CAPACITY_PENALTY_THRESHOLD - min_remaining_capacity) * self.CAPACITY_PENALTY_FACTOR
+
+            overall_objective_value += contention_penalty
+            return overall_objective_value
+=======
+            # Here, we aim to match the "Total Cost" objective = compute_cost + 5 * delay_penalty
+            overall_objective_value = (compute_cost_this_op * self.inst.weights['compute_cost']) + projected_delay_penalty
+
+            # 4. Resilience Bonus (for local servers only): Reward for higher free capacity
+            if not self.inst.servers[server_id].is_cloud:
+                # Calculate minimum free capacity available *during* this operation
+                min_free_capacity = self._calculate_min_free_capacity_during_op(
+                    server_id, start_time, op.duration, op.capacity_required
+                )
+
+                # Apply a bonus (negative cost) proportional to available free capacity.
+                # Only reward positive free capacity. If it's 0 or negative, no bonus (or even implicit penalty from _has_capacity preventing it).
+                resilience_bonus = 0.0
+                if min_free_capacity > 0:
+                    resilience_bonus = self.RESILIENCE_BONUS_FACTOR * min_free_capacity
+                    # Amplify bonus for critical jobs to further encourage resilient placements
+                    if job.priority_score == self.priority_map["CRITICAL"]:
+                        resilience_bonus *= 2
+
+                overall_objective_value -= resilience_bonus # Subtract bonus to make it more attractive (lower objective value)
+
+            return overall_objective_value
+>>>>>>> REPLACE
+<DIFF>
+<<<<<<< SEARCH
+                    best_overall_objective_cost = float('inf')
+                    chosen_server = None
+                    chosen_start = None
+                    # Tie-breaking tuple: (objective_cost, start_time, is_cloud, chaining_score, neg_min_free_capacity, server_id)
+                    best_tie_breaker_tuple = (float('inf'), float('inf'), True, 1, float('inf'), '') # Initialize to worst case
+=======
+                    best_overall_objective_cost = float('inf')
+                    chosen_server = None
+                    chosen_start = None
+                    # Tie-breaking tuple: (objective_cost, start_time, is_cloud, chaining_score, server_id)
+                    # Note: neg_min_free_capacity is removed as resilience is now part of objective_cost
+                    best_tie_breaker_tuple = (float('inf'), float('inf'), True, 1, '') # Initialize to worst case
+>>>>>>> REPLACE
+<DIFF>
+<<<<<<< SEARCH
+                                current_tie_breaker_tuple = (
+                                    current_objective_cost,
+                                    start_time_candidate,
+                                    False, # is_cloud = False for local
+                                    chaining_score,
+                                    neg_min_free_capacity,
+                                    server_id
+                                )
+=======
+                                current_tie_breaker_tuple = (
+                                    current_objective_cost,
+                                    start_time_candidate,
+                                    False, # is_cloud = False for local
+                                    chaining_score,
+                                    server_id
+                                )
+>>>>>>> REPLACE
+<DIFF>
+<<<<<<< SEARCH
+                            # Cloud has effectively infinite capacity, so min_free_capacity is also infinite (negative for sorting)
+                            cloud_tie_breaker_tuple = (
+                                cloud_objective_cost,
+                                cloud_start_time,
+                                True, # is_cloud = True
+                                1, # no chaining bonus for cloud
+                                -float('inf'), # effectively infinite free capacity
+                                best_cloud_server_candidate
+                            )
+=======
+                            cloud_tie_breaker_tuple = (
+                                cloud_objective_cost,
+                                cloud_start_time,
+                                True, # is_cloud = True
+                                1, # no chaining bonus for cloud
+                                best_cloud_server_candidate
+                            )
+>>>>>>> REPLACE

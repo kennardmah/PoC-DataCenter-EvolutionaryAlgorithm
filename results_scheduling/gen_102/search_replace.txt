@@ -1,0 +1,17 @@
+<intelligent_scheduler_refactor>
+This refactor replaces the existing basic FIFO scheduling logic with a more sophisticated approach. It introduces:
+1.  **Objective Function-Driven Placement**: Each operation's placement (server and start time) is chosen by minimizing a combined objective of compute cost and projected delay penalty, directly addressing the problem's evaluation criteria.
+2.  **Extended Local Search Window**: Local machines are searched beyond the immediate earliest start time to find cheaper slots, balancing cost and urgency ("Cost-Time Windows"). The search window now dynamically adapts based on job priority.
+3.  **Smart Local/Cloud Tradeoff**: Both local and cloud options are explicitly evaluated and compared using the objective function. Cloud is no longer a last-resort fallback but a strategic option, especially for high-priority jobs or when local alternatives are expensive or lead to significant delays.
+4.  **Priority-Aware Scheduling**: The overall job ordering remains priority-aware, and the local search window also adapts to job priority.
+5.  **Robustness Metric for Tie-breaking**: When objective costs are equal, the scheduler prefers local machines, earlier start times, and then servers with more remaining free capacity (for local machines) to enhance resilience and stability.
+
+This significantly elevates the scheduling algorithm from a greedy online FIFO to a lookahead, cost-aware heuristic.
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_schedule(inst: Instance) -> Schedule:
+    """
+    Online FIFO scheduler - processes jobs as they arrive without future knowledge.
+
+    ONLINE CONSTRAINTS:

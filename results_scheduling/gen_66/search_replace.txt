@@ -1,0 +1,123 @@
+<NAME>
+cost_delay_aware_local_cloud_tradeoff_resubmit
+</NAME>
+
+<DESCRIPTION>
+The previous attempt failed due to a mismatch in the `SEARCH` block. This is a resubmission of the identical logic, with an extreme focus on ensuring the `SEARCH` block precisely matches the current code provided in the prompt, including all characters, spaces, and line breaks.
+
+The proposed logic refines the decision-making for assigning operations to local or cloud servers. Instead of simply preferring the earliest local slot, it performs a cost-benefit analysis by comparing:
+1.  The estimated total cost of using the best available local server (local compute cost + potential delay penalty for waiting for the local slot).
+2.  The estimated total cost of using the best available cloud server (cloud compute cost, as cloud can start immediately thus incurring no delay penalty).
+
+By choosing the option with the lower combined estimated cost, the scheduler intelligently balances local cost savings against the urgency of deadlines (represented by delay penalties). This should improve the overall score by reducing costly delays for high-priority jobs, even if it means using cloud resources more frequently when local machines are congested.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # If a local slot was found, use it
+            if best_local_server is not None:
+                final_server = best_local_server
+                final_start = best_local_start
+                scheduled = True
+            else:
+                # No local machine available within time horizon from current_op_start_time.
+                # Use cloud immediately to avoid delays.
+                for server_id in compatible_servers:
+                    if inst.servers[server_id].is_cloud:
+                        final_server = server_id
+                        final_start = current_op_start_time # Cloud has infinite capacity, schedule immediately
+                        scheduled = True
+                        break # Found a cloud server, no need to check others
+
+            # Fallback for extreme cases (should not happen if cloud servers exist for all types)
+            if not scheduled:
+                # If no cloud server was found or accessible, which implies a problem with instance setup,
+                # we'll still attempt to assign it to the first compatible server found, forcing it.
+                # This ensures the schedule is always generated, though it might violate constraints.
+                # The fitness function will then penalize for violations.
+                final_server = compatible_servers[0] if compatible_servers else list(inst.servers.keys())[0] # Very last resort
+                final_start = current_op_start_time
+                # Note: this case is a last resort and likely indicates a severe issue if cloud isn't chosen.
+
+            # Reserve capacity for the chosen server and start time
+            for t in range(final_start, final_start + op.duration):
+                if t not in capacity_usage[final_server]:
+                    capacity_usage[final_server][t] = 0
+                capacity_usage[final_server][t] += op.capacity_required
+
+            schedule[job_id].append({"server": final_server, "start": final_start})
+            current_op_start_time = final_start + op.duration
+            job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+=======
+            final_server = None
+            final_start = -1
+            scheduled = False
+
+            # Option 1: Best Local Server
+            best_local_option_cost = float('inf')
+            if best_local_server is not None:
+                local_compute_cost = _calculate_operation_cost(best_local_server, best_local_start, op.duration)
+                # Estimate delay cost incurred by choosing this local slot over immediate start
+                delay_incurred_by_local = max(0, best_local_start - current_op_start_time)
+                local_delay_penalty_estimate = delay_incurred_by_local * job.delay_weight * inst.weights["delay_penalty"]
+                best_local_option_cost = local_compute_cost + local_delay_penalty_estimate
+
+            # Option 2: Best Cloud Server
+            best_cloud_server = None
+            min_cloud_cost = float('inf')
+            cloud_start_time = current_op_start_time # Cloud can always start at earliest_start
+
+            for server_id in compatible_servers:
+                if inst.servers[server_id].is_cloud:
+                    current_op_cloud_cost = _calculate_operation_cost(server_id, cloud_start_time, op.duration)
+                    if current_op_cloud_cost < min_cloud_cost:
+                        min_cloud_cost = current_op_cloud_cost
+                        best_cloud_server = server_id
+
+            best_cloud_option_cost = min_cloud_cost # No delay incurred by cloud if it starts immediately
+
+            # Decision: Compare local vs. cloud based on estimated total cost (compute + delay penalty proxy)
+            if best_local_server is not None and best_local_option_cost <= best_cloud_option_cost:
+                final_server = best_local_server
+                final_start = best_local_start
+                scheduled = True
+            elif best_cloud_server is not None: # If local is not better or not available, try cloud
+                final_server = best_cloud_server
+                final_start = cloud_start_time
+                scheduled = True
+
+            # Fallback: if still not scheduled (should not happen if cloud servers exist for all types)
+            if not scheduled:
+                # This fallback should only be hit if no compatible server (local or cloud)
+                # was found, which indicates a problem with instance definition or a bug.
+                # For robustness, we will assign to the first available compatible, though it implies high cost/delay.
+                fallback_server_id = None
+                for server_id in compatible_servers:
+                    fallback_server_id = server_id # Just take the first one
+                    break
+
+                if fallback_server_id:
+                    final_server = fallback_server_id
+                    final_start = current_op_start_time
+                else:
+                    # This is an exceptional case, indicating no server of the required type exists.
+                    raise ValueError(f"No compatible server (local or cloud) found for job {job_id}, operation {op_idx} (type: {op.server_type})")
+
+            # Reserve capacity for the chosen server and start time
+            # Ensure final_server and final_start are valid before proceeding
+            if final_server is None or final_start == -1:
+                raise RuntimeError(f"Failed to schedule job {job_id}, operation {op_idx}. No valid server or start time found.")
+
+            for t in range(final_start, final_start + op.duration):
+                # Ensure not to reserve capacity beyond the time horizon for local machines
+                if not inst.servers[final_server].is_cloud and t >= inst.time_horizon:
+                    break
+                if t not in capacity_usage[final_server]:
+                    capacity_usage[final_server][t] = 0
+                capacity_usage[final_server][t] += op.capacity_required
+
+            schedule[job_id].append({"server": final_server, "start": final_start})
+            current_op_start_time = final_start + op.duration
+            job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+>>>>>>> REPLACE
+</DIFF>

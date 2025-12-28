@@ -1,0 +1,81 @@
+<refine_schedule_logic>
+Refined operation scheduling logic with multi-level tie-breaking for local and cloud servers. The `_get_op_schedule_cost` function now returns both the total objective cost and the raw compute cost, enabling a more sophisticated tie-breaking mechanism. When choosing between equally optimal options (based on primary objective cost), the scheduler prioritizes earlier start times, and then lower raw compute costs. This ensures that even when facing identical top-level scores, the solution further optimizes for efficiency and promptness. Additionally, the cloud server selection now properly iterates through all compatible cloud servers to find the truly cheapest option, instead of just picking the first one, which was an oversight.
+</NAME>
+
+<DESCRIPTION>
+The previous implementation for selecting a server for an operation had two main areas for improvement:
+1.  **Cloud Server Selection**: The code for cloud servers would simply pick the first compatible cloud server (`cloud_servers[0]`) without comparing their costs if multiple cloud servers of the same type were available. This could lead to selecting a more expensive cloud server unnecessarily.
+2.  **Local Server Tie-breaking**: When evaluating local servers, if multiple `(server_id, start_time)` combinations resulted in the exact same `best_total_objective_cost`, the tie-breaking was implicit (first one encountered). A more explicit multi-level tie-breaking strategy can further optimize the schedule.
+
+This change addresses both issues by:
+-   Modifying `_get_op_schedule_cost` to return both the composite objective cost and the raw compute cost for the operation, allowing for tertiary tie-breaking.
+-   Introducing a comprehensive selection logic within the main scheduling loop:
+    -   It initializes `best_overall_total_objective_cost`, `best_overall_chosen_server`, `best_overall_chosen_start`, and `best_overall_op_compute_cost`.
+    -   It iterates through all local servers and their possible start times, applying a multi-level tie-breaking:
+        1.  Minimize `total_objective_cost`.
+        2.  If `total_objective_cost` is equal, minimize `start_time`.
+        3.  If `total_objective_cost` and `start_time` are equal, minimize `op_compute_cost`.
+    -   It then iterates through *all* compatible cloud servers, calculating their costs at the earliest possible start time (`current_op_start_time`). These cloud options are then compared against the best local/cloud option found so far using the same multi-level tie-breaking.
+-   Finally, the operation is scheduled on the `chosen_server` and `chosen_start` determined by this thorough selection process.
+
+This refined logic aims to achieve a more cost-efficient schedule by making smarter choices, especially in scenarios where multiple options appear equally good on the primary objective, and to correct the previous oversight in cloud server selection.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional
+import copy
+import os
+
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+
+TIME_HORIZON = 24
+@dataclass
+class Server:
+    id: str
+    server_type: str
+    capacity: int  # Available capacity units
+    is_cloud: bool = False  # Cloud machines have infinite capacity but 5x cost
+
+
+@dataclass
+class Operation:
+    server_type: str
+    duration: int
+    capacity_required: int = 1  # Capacity units consumed during execution
+=======
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional, Tuple
+import copy
+import os
+
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+
+TIME_HORIZON = 24
+@dataclass
+class Server:
+    id: str
+    server_type: str
+    capacity: int  # Available capacity units
+    is_cloud: bool = False  # Cloud machines have infinite capacity but 5x cost
+
+
+@dataclass
+class Operation:
+    server_type: str
+    duration: int
+    capacity_required: int = 1  # Capacity units consumed during execution
+>>>>>>> REPLACE
+<DIFF>
+<<<<<<< SEARCH
+    def _get_op_schedule_cost(server_id: str, start_time: int, op_duration: int, capacity_req: int, job_id: str, current_op_index: int) -> float:
+        """
+        Calculates the estimated cost of scheduling an operation on a given server at a given start time.
+        This includes compute cost and an estimate of future delay penalty for the entire

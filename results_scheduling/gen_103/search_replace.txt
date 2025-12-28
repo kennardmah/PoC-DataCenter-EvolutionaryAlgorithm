@@ -1,0 +1,44 @@
+<NAME>
+dynamic_deadline_penalty_scaling
+</NAME>
+
+<DESCRIPTION>
+This modification introduces a dynamic scaling factor to the delay penalty within the objective function. For jobs that are projected to be delayed past their deadline, especially high-priority (CRITICAL, HIGH) jobs, the effective delay penalty is multiplied by an additional factor. This makes the scheduler more sensitive to impending deadline breaches for crucial tasks, incentivizing it to find faster (potentially cloud) alternatives even if they incur a higher immediate compute cost. This enhancement aims to better balance the total cost objective by giving more weight to avoiding critical delays, especially under stress scenarios like an earthquake, leading to improved overall robustness and performance in multi-scenario evaluation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+import os
+
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+
+TIME_HORIZON = 24
+@dataclass
+class Server:
+    id: str
+    server_type: str
+=======
+import os
+import math # Added for exponential functions, used in get_available_capacity
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+
+TIME_HORIZON = 24
+@dataclass
+class Server:
+    id: str
+    server_type: str
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    """
+    import math
+
+    def get_servers_by_type(server_type: str, prefer

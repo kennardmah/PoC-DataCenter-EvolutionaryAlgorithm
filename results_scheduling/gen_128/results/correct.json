@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "'JobShopScheduler' object has no attribute '_calculate_operation_compute_cost'"
+}

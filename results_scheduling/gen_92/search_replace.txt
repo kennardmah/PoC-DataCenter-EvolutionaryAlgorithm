@@ -1,0 +1,57 @@
+<NAME>
+deadline_aware_low_priority_search
+</NAME>
+
+<DESCRIPTION>
+This improvement enhances the "Cost-Time Windows" strategy for LOW priority jobs.
+Instead of using a fixed small lookahead window (`LOW_PRIORITY_LOCAL_SEARCH_WINDOW`), low-priority jobs now search for available local slots up to the latest possible start time that still allows the entire job to meet its deadline. This ensures that low-priority jobs can exploit cheaper off-peak hours later in the schedule, as long as it doesn't cause them to miss their deadline. This change aims to reduce compute costs for low-priority jobs by strategically delaying them when slack allows, without incurring delay penalties. High-priority jobs retain their preference for earlier scheduling.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+                    # Determine search window for local machines
+                    # For LOW priority jobs, limit the search to a smaller window to allow faster cloud fallback
+                    local_search_end_time = self.inst.time_horizon
+                    if job.priority_score == self.priority_map["LOW"]: # If it's a LOW priority job
+                        local_search_end_time = min(self.inst.time_horizon, current_op_start_time + self.LOW_PRIORITY_LOCAL_SEARCH_WINDOW)
+
+
+                    for server_id in local_servers_for_type:
+                        for start_time_candidate in range(current_op_start_time, local_search_end_time):
+                            if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                                overall_objective_value_candidate = self._calculate_operation_objective_value(
+                                    job, op, op_idx, server_id, start_time_candidate
+                                )
+=======
+                    # Determine search window for local machines
+                    local_search_end_time = self.inst.time_horizon
+                    if job.priority_score == self.priority_map["LOW"]:
+                        # For LOW priority, calculate the latest start time for this operation
+                        # that allows the *entire job* to complete by its deadline.
+                        remaining_ops_duration_after_this = sum(op_i.duration for idx_i, op_i in enumerate(job.operations) if idx_i > op_idx)
+                        latest_start_for_deadline = job.deadline - remaining_ops_duration_after_this - op.duration
+
+                        # The actual search window for start_time_candidate will be from current_op_start_time
+                        # up to this calculated latest_start_for_deadline, bounded by the overall time_horizon.
+                        # `range` is exclusive of the end, so we add 1.
+                        # Ensure we don't try to schedule past the time_horizon.
+                        # `max(current_op_start_time, ...)` handles cases where deadline makes `latest_start_for_deadline`
+                        # earlier than `current_op_start_time`, ensuring at least the `current_op_start_time` is checked.
+                        search_upper_bound_inclusive = min(self.inst.time_horizon - 1, # Max possible end_time for any op is time_horizon-1
+                                                           max(current_op_start_time, latest_start_for_deadline))
+
+                        local_search_end_time = search_upper_bound_inclusive + 1
+
+                        # Ensure the search range is not empty if current_op_start_time is the only valid option
+                        if local_search_end_time <= current_op_start_time:
+                            local_search_end_time = current_op_start_time + 1 # Search only the current slot if no later deadline-compliant slots exist
+
+
+                    for server_id in local_servers_for_type:
+                        for start_time_candidate in range(current_op_start_time, local_search_end_time):
+                            if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                                overall_objective_value_candidate = self._calculate_operation_objective_value(
+                                    job, op, op_idx, server_id, start_time_candidate
+                                )
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,46 @@
+<adaptive_emergency_prioritization>
+This change introduces an adaptive job prioritization mechanism, specifically for emergency scenarios. If machine failures are present, CRITICAL and HIGH priority jobs are given an additional urgency bonus, effectively reducing their perceived slack by a fixed amount (e.g., 5 hours). This nudges the scheduler to prioritize these vital jobs more aggressively during times of crisis, aiming to minimize their delay penalties which are heavily weighted in the total cost. This directly implements the "Adaptive Job Prioritization Based on Overall System Load and Future Capacity Crunch" strategy by dynamically adjusting the sorting key based on the scenario state.
+</NAME>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Prioritize jobs based on a multi-criteria heuristic:
+            # 1. Job Priority (CRITICAL, HIGH, MEDIUM, LOW) - lower integer value is higher priority
+            # 2. Effective deadline (deadline - total_duration - arrival_time) - tighter deadlines first
+            # 3. Delay weight (higher delay weight first) - multiplied by -1 to sort descending
+            # 4. Arrival time (earlier is better, for secondary tie-breaking)
+            # 5. Job ID (for deterministic tie-breaking)
+            sorted_jobs = sorted(self.inst.jobs.keys(),
+                                 key=lambda j_id: (
+                                     self.inst.jobs[j_id].priority_score,  # Lower priority_score first
+                                     self.inst.jobs[j_id].deadline - self.inst.jobs[j_id].arrival_time - self.inst.jobs[j_id].total_duration, # Smaller slack (tighter deadline) first
+                                     -self.inst.jobs[j_id].delay_weight, # Higher delay weight first
+                                     self.inst.jobs[j_id].arrival_time,  # Earlier arrival as tie-breaker
+                                     j_id  # Final tie-breaker
+                                 ))
+=======
+            # Determine if an emergency urgency bonus should be applied
+            dynamic_urgency_bonus = 0
+            if self.inst.machine_failures and len(self.inst.machine_failures) > 0:
+                # In failure scenarios, increase urgency for critical/high priority jobs
+                CRITICAL_EMERGENCY_URGENCY_FACTOR = 5 # Effectively reduce slack by 5 hours for critical jobs
+                dynamic_urgency_bonus = CRITICAL_EMERGENCY_URGENCY_FACTOR
+
+            # Prioritize jobs based on a multi-criteria heuristic:
+            # 1. Job Priority (CRITICAL, HIGH, MEDIUM, LOW) - lower integer value is higher priority
+            # 2. Effective deadline (deadline - total_duration - arrival_time) - tighter deadlines first
+            # 3. Delay weight (higher delay weight first) - multiplied by -1 to sort descending
+            # 4. Arrival time (earlier is better, for secondary tie-breaking)
+            # 5. Job ID (for deterministic tie-breaking)
+            sorted_jobs = sorted(self.inst.jobs.keys(),
+                                 key=lambda j_id: (
+                                     self.inst.jobs[j_id].priority_score,  # Lower priority_score first
+                                     # Apply urgency bonus for CRITICAL/HIGH jobs during emergencies
+                                     (self.inst.jobs[j_id].deadline - self.inst.jobs[j_id].arrival_time - self.inst.jobs[j_id].total_duration)
+                                     - (dynamic_urgency_bonus if self.inst.jobs[j_id].priority_score <= self.priority_map["HIGH"] else 0),
+                                     -self.inst.jobs[j_id].delay_weight, # Higher delay weight first
+                                     self.inst.jobs[j_id].arrival_time,  # Earlier arrival as tie-breaker
+                                     j_id  # Final tie-breaker
+                                 ))
+>>>>>>> REPLACE
+</DIFF>

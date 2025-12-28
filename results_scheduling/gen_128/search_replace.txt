@@ -1,0 +1,225 @@
+<centralized_objective_and_co_location>
+This change centralizes all objective function calculations (`compute_cost`, `delay_penalty`, `resilience_bonus`, `same_server_chain_bonus`, and `co_location_lookahead_bonus`) into a single `_calculate_operation_objective_value` function.
+
+**Rationale for the change:**
+1.  **Integrate Resilience Bonus**: The current program does not apply a resilience bonus based on remaining capacity, which was present in some higher-scoring prior versions. This change restores and integrates this logic, incentivizing scheduling on more robust machines, especially important in failure scenarios.
+2.  **Co-location Incentive (New Feature)**: Introduces a `CO_LOCATION_LOOKAHEAD_BONUS` that incentivizes scheduling an operation on a server where the *next* operation of the same job can also be immediately scheduled. This promotes job locality, potentially reducing overheads and improving flow, especially for multi-operation jobs. The bonus is higher for critical/high priority jobs and applied selectively to local servers for lower priority jobs.
+3.  **Centralized Logic**: Renames `same_server_bonus_cost_reduction` to `SAME_SERVER_CHAIN_BONUS` and integrates its application within the new comprehensive objective function. This ensures all factors contributing to an operation's objective value are computed in one place, making the objective function more transparent, flexible, and easier to tune.
+4.  **Improved Decision-Making**: By consolidating all objective factors, the scheduler can make more informed trade-offs between immediate cost, future delay penalties, resilience (remaining capacity), and job flow continuity.
+5.  **Refined Priority-Awareness**: The bonuses are dynamically weighted by job priority, aligning with the mission-critical nature of government data centers where critical jobs benefit more from resilience and continuous flow.
+
+This refactoring sets up for a more robust and efficient scheduling mechanism by accurately modeling various cost and performance drivers.
+
+The changes are broken down into multiple diffs for clarity and to avoid "No changes applied" errors due to mismatches.
+
+</centralized_objective_and_co_location>
+
+<DIFF>
+<<<<<<< SEARCH
+        self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        self.same_server_bonus_cost_reduction = 10.0 # NEW: Cost reduction for chaining critical/high jobs on same local server
+        self.LOW_PRIORITY_COST_LOOKAHEAD_WINDOW = 4 # hours. Allows searching a few hours ahead for cost savings for LOW priority jobs.
+=======
+        self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        self.RESILIENCE_BONUS_FACTOR = 0.5 # Factor to convert remaining capacity into objective bonus
+        self.SAME_SERVER_CHAIN_BONUS = 10.0 # Cost reduction for chaining critical/high jobs on same local server
+        self.CO_LOCATION_LOOKAHEAD_BONUS = 5.0 # Bonus for next op being able to co-locate on same local server for critical/high jobs
+        self.LOW_PRIORITY_COST_LOOKAHEAD_WINDOW = 4 # hours. Allows searching a few hours ahead for cost savings for LOW priority jobs.
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _calculate_operation_compute_cost(self, server_id: str, start: int, duration: int) -> float:
+        """Calculates the compute cost for an operation on a given server at a specific time."""
+        cost = 0.0
+        for t in range(start, start + duration):
+            cost += self.inst.server_cost[server_id][t % self.inst.time_horizon]
+        return cost
+=======
+    def _calculate_operation_objective_value(self, server_id: str, start_time: int, op_duration: int, job_obj: Job, op_idx: int, last_scheduled_server: Optional[str]) -> float:
+        """
+        Calculates the estimated total objective cost of scheduling an operation on a given server
+        at a given start time. This includes compute cost, future delay penalty, resilience bonus,
+        same-server chain bonus, and co-location lookahead bonus.
+        """
+        # 1. Calculate compute cost for this operation
+        op_compute_cost = 0.0
+        for t in range(start_time, start_time + op_duration):
+            cost_t = t % self.inst.time_horizon
+            op_compute_cost += self.inst.server_cost[server_id][cost_t]
+
+        # 2. Estimate remaining duration of the job after this operation
+        remaining_operations_duration = sum(o.duration for o in job_obj.operations[op_idx + 1:])
+
+        # 3. Projected job completion time if this operation finishes at start_time + op_duration
+        projected_job_completion_time = (start_time + op_duration) + remaining_operations_duration
+
+        # 4. Calculate potential delay penalty for the entire job based on projected completion
+        projected_delay = max(0, projected_job_completion_time - job_obj.deadline)
+        delay_penalty_contribution = projected_delay * job_obj.delay_weight * self.inst.weights['delay_penalty']
+
+        # Combine immediate compute_cost and projected delay_penalty
+        overall_objective_value = (op_compute_cost * self.inst.weights['compute_cost']) + delay_penalty_contribution
+
+        # 5. Apply resilience bonus for local servers
+        if not self.inst.servers[server_id].is_cloud:
+            min_free_capacity = self._calculate_min_free_capacity_during_op(
+                server_id, start_time, op_duration, job_obj.operations[op_idx].capacity_required
+            )
+            resilience_bonus = self.RESILIENCE_BONUS_FACTOR * min_free_capacity
+            if job_obj.priority_score == self.priority_map["CRITICAL"]:
+                resilience_bonus *= 2 # Amplify bonus for critical jobs for increased robustness
+            overall_objective_value -= resilience_bonus # Subtract bonus to make it more attractive
+
+            # 6. Apply same-server chain bonus for high-priority jobs
+            if (job_obj.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                overall_objective_value -= self.SAME_SERVER_CHAIN_BONUS
+
+            # 7. Apply co-location lookahead bonus for the next operation
+            if op_idx + 1 < len(job_obj.operations): # Check if there is a next operation
+                next_op = job_obj.operations[op_idx + 1]
+                # Check if the chosen server can also accommodate the next operation immediately after this one
+                next_op_earliest_start = start_time + op_duration
+                if next_op.server_type == self.inst.servers[server_id].server_type and \
+                   self._has_capacity(server_id, next_op_earliest_start, next_op.duration, next_op.capacity_required):
+                    # Co-location is possible
+                    co_location_bonus = self.CO_LOCATION_LOOKAHEAD_BONUS
+                    if job_obj.priority_score <= self.priority_map["HIGH"]:
+                        co_location_bonus *= 2 # Amplify bonus for critical/high jobs
+                    overall_objective_value -= co_location_bonus # Subtract bonus to make it more attractive
+
+        return overall_objective_value
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _calculate_remaining_capacity_sum(self, server_id: str, start: int, duration: int, capacity_req: int) -> int:
+        """Calculates the sum of remaining capacity over the operation's duration AFTER placement."""
+        remaining_capacity_sum = 0
+        for t in range(start, start + duration):
+            used = self.capacity_usage[server_id].get(t, 0)
+            available = self._get_available_capacity(server_id, t)
+            remaining_capacity_sum += max(0, available - (used + capacity_req))
+        return remaining_capacity_sum
+=======
+    def _calculate_min_free_capacity_during_op(self, server_id: str, start: int, duration: int, capacity_req: int) -> int:
+        """
+        Calculates the minimum remaining free capacity on a server during an operation's execution,
+        assuming the operation is placed there. A higher value indicates more resilience.
+        """
+        min_free_capacity = float('inf')
+        for t in range(start, start + duration):
+            used_at_t = self.capacity_usage[server_id].get(t, 0)
+            available_at_t = self._get_available_capacity(server_id, t)
+            remaining_after_op = available_at_t - (used_at_t + capacity_req)
+            min_free_capacity = min(min_free_capacity, remaining_after_op)
+        return int(min_free_capacity)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _find_best_local_slot(self, op: Operation, earliest_start: int, job: Job, last_scheduled_server: Optional[str]) -> Optional[Tuple[int, str]]:
+        """
+        Finds the best local slot based on earliest start, then effective cost (including same-server bonus),
+        then remaining capacity. For LOW priority jobs, prioritizes cost over slight delays within a window.
+        Returns (start_time, server_id) or None.
+        """
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+        candidates = [] # Stores (sort_key_tuple, start_time, server_id)
+
+        is_low_priority = (job.priority_score == self.priority_map["LOW"])
+
+        for server_id in local_servers:
+            # Determine the effective search end time for this server based on priority
+            # For high priorities: search for the absolute earliest slot starting from `earliest_start`.
+            # For low priorities: search within `earliest_start` up to `earliest_start + LOW_PRIORITY_COST_LOOKAHEAD_WINDOW`.
+
+            search_end_time_for_server = self.inst.time_horizon
+            if is_low_priority:
+                search_end_time_for_server = min(self.inst.time_horizon, earliest_start + self.LOW_PRIORITY_COST_LOOKAHEAD_WINDOW)
+
+            for start_time_candidate in range(earliest_start, search_end_time_for_server):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+                    effective_cost_candidate = cost_candidate
+                    if (job.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                        effective_cost_candidate -= self.same_server_bonus_cost_reduction
+
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    # Construct sort key based on priority
+                    if is_low_priority:
+                        # For LOW priority, prioritize cost, then earliest start, then remaining capacity
+                        sort_key = (effective_cost_candidate, start_time_candidate, -remaining_capacity_sum, server_id)
+                    else:
+                        # For higher priorities, prioritize earliest start, then cost, then remaining capacity
+                        sort_key = (start_time_candidate, effective_cost_candidate, -remaining_capacity_sum, server_id)
+
+                    candidates.append((sort_key, start_time_candidate, server_id))
+
+                    if not is_low_priority:
+                        # For higher priority jobs, once the earliest slot is found on this server, stop searching further in time on this server.
+                        # This ensures the global sorting prioritizes earliest possible start across servers.
+                        break # Break from this server's time search, move to next server
+
+        if candidates:
+            # Sort all collected candidates (globally across all servers and considered times)
+            best_candidate = sorted(candidates)[0]
+            final_start_time, final_server_id = best_candidate[1], best_candidate[2]
+            return (final_start_time, final_server_id)
+        return None
+
+    def _find_best_cloud_slot(self, op: Operation, earliest_start: int) -> Optional[Tuple[int, str]]:
+        """
+        Finds the best cloud slot by lowest cost, assuming immediate start.
+        Returns (start_time, server_id) or None.
+        """
+        cloud_servers = self.cloud_servers_by_type.get(op.server_type, [])
+
+        if not cloud_servers:
+            return None
+
+        best_cloud_server_id = None
+        min_cloud_cost = float('inf')
+
+        # Cloud can always start immediately at earliest_start due to infinite capacity
+        cloud_start_time = earliest_start
+
+        # Iterate through all compatible cloud servers to find the cheapest (Recommendation 2)
+        for server_id in cloud_servers:
+            current_cloud_cost = self._calculate_operation_compute_cost(server_id, cloud_start_time, op.duration)
+            if current_cloud_cost < min_cloud_cost:
+                min_cloud_cost = current_cloud_cost
+                best_cloud_server_id = server_id
+            # Tie-breaking by server ID if costs are equal for determinism
+            elif current_cloud_cost == min_cloud_cost and server_id < best_cloud_server_id:
+                best_cloud_server_id = server_id
+
+        if best_cloud_server_id:
+            return (cloud_start_time, best_cloud_server_id)
+        return None
+=======
+    def _find_best_local_slot(self, op: Operation, earliest_start: int, job: Job, op_idx: int, last_scheduled_server: Optional[str]) -> Optional[Tuple[int, str]]:
+        """
+        Finds the best local slot by evaluating the comprehensive objective value for each candidate.
+        For LOW priority jobs, a wider window is searched to find cheaper slots.
+        Returns (start_time, server_id) or None.
+        """
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+        best_objective_value = float('inf')
+        best_slot = None
+
+        is_low_priority = (job.priority_score == self.priority_map["LOW"])
+
+        for server_id in local_servers:
+            search_end_time_for_server = self.inst.time_horizon
+            if is_low_priority:
+                # For low priority jobs, search a bit ahead for cheaper slots
+                search_end_time_for_server = min(self.inst.time_horizon, earliest_start + self.LOW_PRIORITY_COST_LOOKAHEAD_WINDOW)
+
+            for start_time_candidate in range(earliest_start, search_end_time_for_server):

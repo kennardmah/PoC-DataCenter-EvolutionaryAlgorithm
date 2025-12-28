@@ -1,0 +1,15 @@
+<add_contention_penalty_revised>
+This revised change introduces a resource contention penalty to the objective function within the current functional structure of `construct_schedule`. The previous attempt failed due to an exact `SEARCH` block mismatch, primarily because the context included comments and multiple lines that varied slightly from the live code, and the `Scheduler` class was not present in the code I was modifying.
+
+This revised edit will:
+1.  Add two new global constants (`RESOURCE_CONTENTION_WEIGHT` and `CONTENTION_THRESHOLD`) within the `construct_schedule` function to configure the penalty.
+2.  Modify the signature of the helper function `_calculate_operation_objective_value` to accept `op_capacity_required` as a new argument.
+3.  Implement the logic for calculating a `resource_contention_penalty` based on the `max_contention_ratio` for local machines and add it to the objective function.
+4.  Update all calls to `_calculate_operation_objective_value` to pass `op.capacity_required` correctly.
+
+These changes aim to improve the scheduler's ability to balance load on local machines, preventing critical resources from becoming bottlenecks and forcing expensive cloud relocations.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Define a reasonable search window for local machines to find cheaper slots
+    MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER = 2 # Search up to 2 full time horizons (e.g., 48 hours) for local slots

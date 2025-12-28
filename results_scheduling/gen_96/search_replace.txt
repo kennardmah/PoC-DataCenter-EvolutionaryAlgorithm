@@ -1,0 +1,383 @@
+<NAME>
+scheduler_enhancements_v3
+</NAME>
+
+<DESCRIPTION>
+This edit refines the internal `Scheduler` class within `construct_schedule` by:
+
+1.  **Introducing `_calculate_min_free_capacity_during_op`**: A new helper method is added to calculate the minimum free capacity that would remain on a server *during* an operation's execution, *after* the operation itself is placed. This provides a quantitative measure of capacity 'slack' for a given placement.
+2.  **Introducing `_get_servers_by_type_sorted`**: This helper function, previously a global helper, is now encapsulated within the `Scheduler` class. It sorts compatible servers (local preferred, then cloud) based on available capacity (descending) and current hourly cost (ascending). This ensures that the search prioritizes more robust and cost-effective servers.
+3.  **Enhanced tie-breaking for local server selection**: When multiple local server/time slots yield the same minimal objective cost and earliest start time, the algorithm now uses the `_calculate_min_free_capacity_during_op` metric. It prioritizes the option that leaves *more* minimum free capacity on the server, promoting better load distribution and resilience.
+4.  **Optimized cloud server selection**: The cloud server selection logic now directly leverages the `_get_servers_by_type_sorted` method to efficiently find the cheapest cloud server for immediate placement.
+5.  **Refined overall `chosen_server` and `chosen_start` update logic**: The logic is made more explicit to handle `None` values for `chosen_start` when no valid local slot has been found yet, ensuring robust comparison with cloud options.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        def _has_capacity(self, server_id: str, start: int, duration: int, capacity_req: int) -> bool:
+            """Check if server has enough capacity for the entire operation duration."""
+            for t in range(start, start + duration):
+                used = self._get_current_used_capacity(server_id, t)
+                available = self._get_available_capacity(server_id, t)
+                if used + capacity_req > available:
+                    return False
+            return True
+
+        # Class attributes for search window configuration
+        MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER = 2 # Search up to 2 full time horizons (e.g., 48 hours) for local slots
+        MAX_LOCAL_SEARCH_WINDOW_ADD = 10 # Small buffer for local scheduling slightly past deadline/horizon
+
+        def _calculate_operation_objective_value(self, server_id: str, start_time: int, op_duration: int, job_obj: Job, op_idx: int) -> float:
+            """
+            Calculates the estimated total objective cost of scheduling an operation on a given server
+            at a given start time. This includes compute cost and an estimate of future delay penalty
+            for the entire job, aligning with the problem's total cost objective.
+            """
+            # Calculate compute cost for this operation
+            op_compute_cost = 0.0
+            for t in range(start_time, start_time + op_duration):
+                # Ensure time index for cost is within time_horizon
+                cost_t = t % self.inst.time_horizon
+                op_compute_cost += self.inst.server_cost[server_id][cost_t]
+
+            # Estimate remaining duration of the job after this operation
+            remaining_operations_duration = sum(o.duration for o in job_obj.operations[op_idx + 1:])
+
+            # Projected job completion time if this operation finishes at start_time + op_duration
+            # and all subsequent operations start immediately
+            projected_job_completion_time = (start_time + op_duration) + remaining_operations_duration
+
+            # Calculate potential delay penalty for the entire job based on projected completion
+            projected_delay = max(0, projected_job_completion_time - job_obj.deadline)
+
+            # Apply the specific delay penalty weight from the instance
+            delay_penalty_contribution = projected_delay * job_obj.delay_weight * self.inst.weights['delay_penalty']
+
+            # Total score to minimize for this operation's placement
+            return (op_compute_cost * self.inst.weights['compute_cost']) + delay_penalty_contribution
+
+        def run_scheduling(self) -> Schedule:
+            """
+            Main scheduling loop: processes jobs based on priority and schedules operations.
+            """
+            # Prioritize jobs based on a multi-criteria heuristic:
+            # 1. Job Priority (CRITICAL, HIGH, MEDIUM, LOW) - lower integer value is higher priority
+            # 2. Effective deadline (deadline - total_duration - arrival_time) - tighter deadlines first
+            # 3. Delay weight (higher delay weight first) - multiplied by -1 to sort descending
+            # 4. Arrival time (earlier is better, for secondary tie-breaking)
+            # 5. Job ID (for deterministic tie-breaking)
+            sorted_jobs = sorted(self.inst.jobs.keys(),
+                                 key=lambda j_id: (
+                                     self.inst.jobs[j_id].priority_score,  # Lower priority_score first
+                                     self.inst.jobs[j_id].deadline - self.inst.jobs[j_id].arrival_time - self.inst.jobs[j_id].total_duration, # Smaller slack (tighter deadline) first
+                                     -self.inst.jobs[j_id].delay_weight, # Higher delay weight first
+                                     self.inst.jobs[j_id].arrival_time,  # Earlier arrival as tie-breaker
+                                     j_id  # Final tie-breaker
+                                 ))
+
+            for job_id in sorted_jobs:
+                job = self.inst.jobs[job_id]
+                self.schedule[job_id] = []
+
+                # `current_op_start_time` tracks the earliest an operation of THIS job can start,
+                # considering its own arrival_time and preceding operations of the SAME job.
+                current_op_start_time = self.job_available_time[job_id]
+
+                for op_idx, op in enumerate(job.operations):
+                    best_overall_objective_cost = float('inf')
+                    chosen_server = None
+                    chosen_start = None
+
+                    # 1. Evaluate local machines
+                    local_servers_for_type = [s_id for s_id, s in self.inst.servers.items()
+                                              if s.server_type == op.server_type and not s.is_cloud]
+
+                    # Determine search end time for local machines: balance finding cheaper slots with avoiding excessive lookahead
+                    search_end_time = max(current_op_start_time + op.duration, # At least enough time for current op
+                                          min(self.inst.time_horizon * self.MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER, job.deadline + op.duration + self.MAX_LOCAL_SEARCH_WINDOW_ADD))
+
+                    for server_id in local_servers_for_type:
+                        for start_time_candidate in range(current_op_start_time, search_end_time + 1):
+                            if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                                current_objective_cost = self._calculate_operation_objective_value(
+                                    server_id, start_time_candidate, op.duration, job, op_idx
+                                )
+                                # Tie-breaking: if costs are equal, prioritize earlier start times
+                                if current_objective_cost < best_overall_objective_cost or \
+                                   (current_objective_cost == best_overall_objective_cost and start_time_candidate < chosen_start):
+                                    best_overall_objective_cost = current_objective_cost
+                                    chosen_server = server_id
+                                    chosen_start = start_time_candidate
+                                # Do NOT break here: continue searching all slots on this server
+                                # to find the truly optimal (lowest cost/penalty) slot within the window.
+
+                    # 2. Evaluate cloud machines
+                    cloud_servers_for_type = [s_id for s_id, s in self.inst.servers.items()
+                                              if s.server_type == op.server_type and s.is_cloud]
+
+                    if cloud_servers_for_type:
+                        cloud_start_time = current_op_start_time # Cloud has infinite capacity, can always start immediately
+
+                        # Find the best cloud server based on the objective function
+                        best_cloud_server_candidate = None
+                        best_cloud_objective_cost = float('inf')
+
+                        for cloud_server_id in cloud_servers_for_type:
+                            current_cloud_objective_cost = self._calculate_operation_objective_value(
+                                cloud_server_id, cloud_start_time, op.duration, job, op_idx
+                            )
+                            if current_cloud_objective_cost < best_cloud_objective_cost:
+                                best_cloud_objective_cost = current_cloud_objective_cost
+                                best_cloud_server_candidate = cloud_server_id
+
+                        # Compare the best cloud option with the best local option found so far
+                        if best_cloud_server_candidate is not None and best_cloud_objective_cost < best_overall_objective_cost:
+                            best_overall_objective_cost = best_cloud_objective_cost
+                            chosen_server = best_cloud_server_candidate
+                            chosen_start = cloud_start_time
+
+                    # 3. Commit the chosen option to the schedule and update capacity usage
+                    if chosen_server is not None:
+                        for t in range(chosen_start, chosen_start + op.duration):
+                            if t not in self.capacity_usage[chosen_server]:
+                                self.capacity_usage[chosen_server][t] = 0
+                            self.capacity_usage[chosen_server][t] += op.capacity_required
+
+                        self.schedule[job_id].append({"server": chosen_server, "start": chosen_start})
+                        current_op_start_time = chosen_start + op.duration
+                        self.job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+                    else:
+                        # Fallback: This should ideally not be reached if cloud is truly infinite/always available
+                        # and there's at least one cloud server per type. If it is, something is fundamentally wrong.
+                        # For robustness, we will try to force schedule on the first compatible server found,
+                        # even if it violates capacity (which evaluation will then penalize).
+                        # This ensures the schedule generation doesn't crash.
+                        fallback_server_id = None
+                        # Prioritize a local server for fallback if possible, otherwise any cloud
+                        if local_servers_for_type:
+                            fallback_server_id = local_servers_for_type[0]
+                        elif cloud_servers_for_type:
+                            fallback_server_id = cloud_servers_for_type[0]
+                        else: # Truly no servers of this type exist
+                            raise ValueError(f"No compatible server (local or cloud) found for job {job_id}, operation {op_idx} (type: {op.server_type})")
+
+                        fallback_start_time = current_op_start_time
+                        for t in range(fallback_start_time, fallback_start_time + op.duration):
+                            if t not in self.capacity_usage[fallback_server_id]:
+                                self.capacity_usage[fallback_server_id][t] = 0
+                            self.capacity_usage[fallback_server_id][t] += op.capacity_required
+                        self.schedule[job_id].append({"server": fallback_server_id, "start": fallback_start_time})
+                        self.job_available_time[job_id] = fallback_start_time + op.duration
+
+            return self.schedule
+=======
+        def _has_capacity(self, server_id: str, start: int, duration: int, capacity_req: int) -> bool:
+            """Check if server has enough capacity for the entire operation duration."""
+            for t in range(start, start + duration):
+                used = self._get_current_used_capacity(server_id, t)
+                available = self._get_available_capacity(server_id, t)
+                if used + capacity_req > available:
+                    return False
+            return True
+
+        def _calculate_min_free_capacity_during_op(self, server_id: str, start: int, duration: int, capacity_req: int) -> int:
+            """
+            Calculates the minimum remaining free capacity on a server during an operation's execution,
+            assuming the operation is placed there. A higher value indicates more resilience.
+            """
+            min_free_capacity = float('inf')
+            for t in range(start, start + duration):
+                used_at_t = self._get_current_used_capacity(server_id, t)
+                available_at_t = self._get_available_capacity(server_id, t)
+                remaining_after_op = available_at_t - (used_at_t + capacity_req)
+                min_free_capacity = min(min_free_capacity, remaining_after_op)
+            return int(min_free_capacity)
+
+        def _get_servers_by_type_sorted(self, server_type: str, current_time: int) -> List[str]:
+            """
+            Get servers of a given type, sorted by capacity health (less degradation)
+            and then by current hourly cost. Local servers always preferred.
+            """
+            compatible_local = []
+            compatible_cloud = []
+            for s_id, server in self.inst.servers.items():
+                if server.server_type == server_type:
+                    if server.is_cloud:
+                        compatible_cloud.append(s_id)
+                    else:
+                        compatible_local.append(s_id)
+
+            # Use min(current_time, self.inst.time_horizon - 1) for cost_t to avoid index error
+            local_cost_time = min(current_time, self.inst.time_horizon - 1)
+
+            # Sort local: Higher available capacity first, then lower cost
+            compatible_local.sort(key=lambda s_id: (
+                -self._get_available_capacity(s_id, current_time),  # Negate for descending sort (more capacity is better)
+                self.inst.server_cost[s_id][local_cost_time % self.inst.time_horizon]
+            ))
+
+            # Sort cloud: Lower cost first (capacity is infinite)
+            compatible_cloud.sort(key=lambda s_id: self.inst.server_cost[s_id][local_cost_time % self.inst.time_horizon])
+
+            # Prioritize local over cloud for initial search order
+            return compatible_local + compatible_cloud
+
+        # Class attributes for search window configuration
+        MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER = 2 # Search up to 2 full time horizons (e.g., 48 hours) for local slots
+        MAX_LOCAL_SEARCH_WINDOW_ADD = 10 # Small buffer for local scheduling slightly past deadline/horizon
+
+        def _calculate_operation_objective_value(self, server_id: str, start_time: int, op_duration: int, job_obj: Job, op_idx: int) -> float:
+            """
+            Calculates the estimated total objective cost of scheduling an operation on a given server
+            at a given start time. This includes compute cost and an estimate of future delay penalty
+            for the entire job, aligning with the problem's total cost objective.
+            """
+            # Calculate compute cost for this operation
+            op_compute_cost = 0.0
+            for t in range(start_time, start_time + op_duration):
+                # Ensure time index for cost is within time_horizon
+                cost_t = t % self.inst.time_horizon
+                op_compute_cost += self.inst.server_cost[server_id][cost_t]
+
+            # Estimate remaining duration of the job after this operation
+            remaining_operations_duration = sum(o.duration for o in job_obj.operations[op_idx + 1:])
+
+            # Projected job completion time if this operation finishes at start_time + op_duration
+            # and all subsequent operations start immediately
+            projected_job_completion_time = (start_time + op_duration) + remaining_operations_duration
+
+            # Calculate potential delay penalty for the entire job based on projected completion
+            projected_delay = max(0, projected_job_completion_time - job_obj.deadline)
+
+            # Apply the specific delay penalty weight from the instance
+            delay_penalty_contribution = projected_delay * job_obj.delay_weight * self.inst.weights['delay_penalty']
+
+            # Total score to minimize for this operation's placement
+            return (op_compute_cost * self.inst.weights['compute_cost']) + delay_penalty_contribution
+
+        def run_scheduling(self) -> Schedule:
+            """
+            Main scheduling loop: processes jobs based on priority and schedules operations.
+            """
+            # Prioritize jobs based on a multi-criteria heuristic:
+            # 1. Job Priority (CRITICAL, HIGH, MEDIUM, LOW) - lower integer value is higher priority
+            # 2. Effective deadline (deadline - total_duration - arrival_time) - tighter deadlines first
+            # 3. Delay weight (higher delay weight first) - multiplied by -1 to sort descending
+            # 4. Arrival time (earlier is better, for secondary tie-breaking)
+            # 5. Job ID (for deterministic tie-breaking)
+            sorted_jobs = sorted(self.inst.jobs.keys(),
+                                 key=lambda j_id: (
+                                     self.inst.jobs[j_id].priority_score,  # Lower priority_score first
+                                     self.inst.jobs[j_id].deadline - self.inst.jobs[j_id].arrival_time - self.inst.jobs[j_id].total_duration, # Smaller slack (tighter deadline) first
+                                     -self.inst.jobs[j_id].delay_weight, # Higher delay weight first
+                                     self.inst.jobs[j_id].arrival_time,  # Earlier arrival as tie-breaker
+                                     j_id  # Final tie-breaker
+                                 ))
+
+            for job_id in sorted_jobs:
+                job = self.inst.jobs[job_id]
+                self.schedule[job_id] = []
+
+                # `current_op_start_time` tracks the earliest an operation of THIS job can start,
+                # considering its own arrival_time and preceding operations of the SAME job.
+                current_op_start_time = self.job_available_time[job_id]
+
+                for op_idx, op in enumerate(job.operations):
+                    best_overall_objective_cost = float('inf')
+                    chosen_server = None
+                    chosen_start = None
+                    best_min_free_capacity = -1 # Used for tie-breaking on local servers
+
+                    # Get all compatible servers, sorted by heuristic preference (local, then cloud, by health/cost)
+                    compatible_servers_sorted = self._get_servers_by_type_sorted(op.server_type, current_op_start_time)
+
+                    # Determine search end time for local machines: balance finding cheaper slots with avoiding excessive lookahead
+                    search_end_time = max(current_op_start_time + op.duration, # At least enough time for current op
+                                          min(self.inst.time_horizon * self.MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER, job.deadline + op.duration + self.MAX_LOCAL_SEARCH_WINDOW_ADD))
+
+                    # 1. Evaluate local machines first
+                    for server_id in compatible_servers_sorted:
+                        if self.inst.servers[server_id].is_cloud:
+                            break  # All remaining are cloud, handled separately
+
+                        for start_time_candidate in range(current_op_start_time, search_end_time + 1):
+                            if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                                current_objective_cost = self._calculate_operation_objective_value(
+                                    server_id, start_time_candidate, op.duration, job, op_idx
+                                )
+                                current_min_free_capacity = self._calculate_min_free_capacity_during_op(
+                                    server_id, start_time_candidate, op.duration, op.capacity_required
+                                )
+                                # Tie-breaking:
+                                # 1. Lower objective cost
+                                # 2. Earlier start time
+                                # 3. Higher minimum free capacity (more resilient)
+                                if current_objective_cost < best_overall_objective_cost or \
+                                   (current_objective_cost == best_overall_objective_cost and (chosen_start is None or start_time_candidate < chosen_start)) or \
+                                   (current_objective_cost == best_overall_objective_cost and start_time_candidate == chosen_start and current_min_free_capacity > best_min_free_capacity):
+                                    best_overall_objective_cost = current_objective_cost
+                                    chosen_server = server_id
+                                    chosen_start = start_time_candidate
+                                    best_min_free_capacity = current_min_free_capacity
+                                # Do NOT break here: continue searching all slots on this server
+                                # to find the truly optimal (lowest cost/penalty) slot within the window.
+
+                    # 2. Evaluate cloud machines (can always start immediately)
+                    cloud_start_time = current_op_start_time
+                    best_cloud_server_candidate = None
+
+                    # Find the cheapest cloud server of the required type among the sorted compatible list
+                    for s_id in compatible_servers_sorted:
+                        if self.inst.servers[s_id].is_cloud:
+                            best_cloud_server_candidate = s_id
+                            break # Due to sorting, this will be the cheapest cloud server
+
+                    if best_cloud_server_candidate:
+                        cloud_objective_cost = self._calculate_operation_objective_value(
+                            best_cloud_server_candidate, cloud_start_time, op.duration, job, op_idx
+                        )
+
+                        # Compare the best cloud option with the best local option found so far
+                        # Tie-breaking: if costs are equal, prioritize cloud if start time is equal (arbitrary but deterministic)
+                        if cloud_objective_cost < best_overall_objective_cost or \
+                           (cloud_objective_cost == best_overall_objective_cost and (chosen_start is None or cloud_start_time < chosen_start)) or \
+                           (cloud_objective_cost == best_overall_objective_cost and cloud_start_time == chosen_start and self.inst.servers[best_cloud_server_candidate].is_cloud): # Prefer cloud on equal metrics
+                            best_overall_objective_cost = cloud_objective_cost
+                            chosen_server = best_cloud_server_candidate
+                            chosen_start = cloud_start_time
+                            best_min_free_capacity = float('inf') # Cloud has "infinite" free capacity for tie-breaking comparison
+
+                    # 3. Commit the chosen option to the schedule and update capacity usage
+                    if chosen_server is not None:
+                        for t in range(chosen_start, chosen_start + op.duration):
+                            if t not in self.capacity_usage[chosen_server]:
+                                self.capacity_usage[chosen_server][t] = 0
+                            self.capacity_usage[chosen_server][t] += op.capacity_required
+
+                        self.schedule[job_id].append({"server": chosen_server, "start": chosen_start})
+                        current_op_start_time = chosen_start + op.duration
+                        self.job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+                    else:
+                        # Fallback: This should ideally not be reached if cloud is truly infinite/always available
+                        # and there's at least one cloud server per type. If it is, something is fundamentally wrong.
+                        # For robustness, we will try to force schedule on the first compatible server found,
+                        # even if it violates capacity (which evaluation will then penalize).
+                        # This ensures the schedule generation doesn't crash.
+                        fallback_server_id = None
+                        # Prioritize a local server for fallback if possible, otherwise any cloud
+                        if compatible_servers_sorted:
+                            fallback_server_id = compatible_servers_sorted[0]
+                        else: # Truly no servers of this type exist
+                            raise ValueError(f"No compatible server (local or cloud) found for job {job_id}, operation {op_idx} (type: {op.server_type})")
+
+                        fallback_start_time = current_op_start_time
+                        for t in range(fallback_start_time, fallback_start_time + op.duration):
+                            if t not in self.capacity_usage[fallback_server_id]:
+                                self.capacity_usage[fallback_server_id][t] = 0
+                            self.capacity_usage[fallback_server_id][t] += op.capacity_required
+                        self.schedule[job_id].append({"server": fallback_server_id, "start": fallback_start_time})
+                        self.job_available_time[job_id] = fallback_start_time + op.duration
+
+            return self.schedule
+>>>>>>> REPLACE
+</DIFF>

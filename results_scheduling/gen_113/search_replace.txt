@@ -1,0 +1,65 @@
+<NAME>
+remove_class_search_window_configs
+</NAME>
+
+<DESCRIPTION>
+This is the first part of refactoring the search window configuration. It removes the `MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER` and `MAX_LOCAL_SEARCH_WINDOW_ADD` as class attributes from the `Scheduler` class. These will be re-added as instance attributes within `Scheduler.__init__` in the next step, allowing for dynamic adjustment based on job characteristics.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Class attributes for search window configuration
+        MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER = 2 # Search up to 2 full time horizons (e.g., 48 hours) for local slots
+        MAX_LOCAL_SEARCH_WINDOW_ADD = 10 # Small buffer for local scheduling slightly past deadline/horizon
+
+        def _calculate_operation_objective_value(self, server_id: str, start_time: int, op_duration: int, job_obj: Job, op_idx: int) -> float:
+=======
+        def _calculate_operation_objective_value(self, server_id: str, start_time: int, op_duration: int, job_obj: Job, op_idx: int) -> float:
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_adaptive_search_window_init
+</NAME>
+
+<DESCRIPTION>
+This edit moves the `MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER` and `MAX_LOCAL_SEARCH_WINDOW_ADD` into `Scheduler.__init__` as instance attributes (renamed to `default_local_search_window_multiplier` and `default_local_search_window_add`).
+
+Crucially, it also introduces several new instance attributes to support an adaptive search window for local machines (as per Recommendation 1):
+- `tight_slack_threshold`, `critical_slack_threshold`, `ample_slack_threshold`: define ranges of job urgency based on its remaining slack.
+- `tight_window_multiplier`, `tight_window_add`, `critical_window_multiplier`, `critical_window_add`, `ample_window_multiplier`, `ample_window_add`: define specific search window parameters for each urgency level.
+
+These attributes will be used in a subsequent step to dynamically adjust the search window size when looking for local machine slots, allowing the scheduler to prioritize either speed (for urgent jobs) or cost optimization (for less urgent jobs) by looking for slots further in the future.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99)
+=======
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99)
+
+            # Instance attributes for adaptive search window configuration (Recommendation 1)
+            self.default_local_search_window_multiplier = 2 # Default multiplier for local search window
+            self.default_local_search_window_add = 10 # Default additive buffer
+
+            # Thresholds and adjustments for adaptive window based on job slack
+            self.tight_slack_threshold = 2 # If (deadline - projected_completion_if_immediate) <= this, use tight window
+            self.critical_slack_threshold = -1 # If slack is <= this, use critical window (negative slack means past deadline if scheduled immediately)
+            self.ample_slack_threshold = self.inst.time_horizon // 2 # If slack is > this, use ample window (e.g., half a day ahead)
+
+            self.tight_window_multiplier = 1 # e.g., search only 1x horizon for tight jobs
+            self.tight_window_add = 5 # Small buffer for tight jobs
+            self.critical_window_multiplier = 0.5 # e.g., search very narrowly for critical jobs, prioritizing immediate
+            self.critical_window_add = 2 # Minimal buffer for critical jobs
+            self.ample_window_multiplier = 3 # e.g., search 3x horizon for ample jobs
+            self.ample_window_add = self.inst.time_horizon # Larger buffer for ample jobs
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,114 @@
+<NAME>
+objective_capacity_contention
+</NAME>
+
+<DESCRIPTION>
+This enhancement integrates a 'capacity contention penalty' directly into the operation's objective value calculation. Previously, capacity awareness was primarily handled by finding the earliest available slot and using minimum free capacity as a tie-breaker. This change proactively discourages over-saturating local machines by adding a penalty to the objective if placing an operation would leave very little remaining capacity.
+
+The penalty is calculated based on how far the minimum projected free capacity during the operation's execution falls below a defined threshold. This incentivizes the scheduler to utilize local resources more judiciously, potentially spreading the load more evenly or opting for cloud resources sooner for less critical jobs or highly contended machine types. This should lead to:
+1.  **Improved Resilience**: By avoiding highly contended local slots, the system retains more slack, making it less susceptible to cascading failures or performance degradation, especially in earthquake scenarios where capacity can suddenly drop.
+2.  **Reduced Cloud Relocations**: Proactive load balancing on local machines might reduce the need for reactive, costly cloud relocations if local capacity becomes critically low.
+3.  **Better Cost-Efficiency**: By incorporating future contention into the decision-making, the scheduler can make more informed trade-offs between immediate low local cost and the implicit future costs of resource contention (delays for other jobs, or eventual cloud migrations).
+
+Two new class attributes, `CAPACITY_PENALTY_THRESHOLD` and `CAPACITY_PENALTY_FACTOR`, are introduced to allow for tuning this new penalty. The penalty is applied only to local servers, as cloud servers have unlimited capacity.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            self.capacity_usage = {s_id: {} for s_id in inst.servers}
+            self.job_available_time = {j_id: inst.jobs[j_id].arrival_time for j_id in inst.jobs}
+            self.schedule = {}
+            self.last_scheduled_local_server_per_job = {} # To track the last local server used by a job for chaining
+            self.DELAY_PENALTY_WEIGHT_IN_OBJECTIVE = 5 # As specified in problem: Total Cost = compute_cost + 5 × delay_penalty
+
+            # Class attributes for search window configuration (Re-introduced)
+            self.BASE_LOCAL_SEARCH_WINDOW_MULTIPLIER = 1.5 # Base search up to 1.5 full time horizons (e.g., 36 hours) for local slots
+            self.BASE_LOCAL_SEARCH_WINDOW_ADD = 5 # Small buffer for local scheduling slightly past deadline/horizon
+
+            # Dynamic search window factors based on priority (Re-introduced)
+            # Higher factor means wider search, suitable for low priority jobs to find cheaper slots.
+            # Lower factor means narrower search, suitable for high priority jobs to ensure early completion.
+            self.PRIORITY_SEARCH_WINDOW_FACTORS = {
+                0: 0.8,   # CRITICAL: Narrower window, prioritize immediate availability
+                1: 1.0,   # HIGH: Standard window
+                2: 1.2,   # MEDIUM: Slightly wider window
+                3: 1.5,   # LOW: Widest window, prioritize cost
+                99: 1.0   # Default/unknown (for any non-mapped priority)
+            }
+
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+=======
+            self.capacity_usage = {s_id: {} for s_id in inst.servers}
+            self.job_available_time = {j_id: inst.jobs[j_id].arrival_time for j_id in inst.jobs}
+            self.schedule = {}
+            self.last_scheduled_local_server_per_job = {} # To track the last local server used by a job for chaining
+            self.DELAY_PENALTY_WEIGHT_IN_OBJECTIVE = 5 # As specified in problem: Total Cost = compute_cost + 5 × delay_penalty
+
+            # Class attributes for search window configuration (Re-introduced)
+            self.BASE_LOCAL_SEARCH_WINDOW_MULTIPLIER = 1.5 # Base search up to 1.5 full time horizons (e.g., 36 hours) for local slots
+            self.BASE_LOCAL_SEARCH_WINDOW_ADD = 5 # Small buffer for local scheduling slightly past deadline/horizon
+
+            # Dynamic search window factors based on priority (Re-introduced)
+            # Higher factor means wider search, suitable for low priority jobs to find cheaper slots.
+            # Lower factor means narrower search, suitable for high priority jobs to ensure early completion.
+            self.PRIORITY_SEARCH_WINDOW_FACTORS = {
+                0: 0.8,   # CRITICAL: Narrower window, prioritize immediate availability
+                1: 1.0,   # HIGH: Standard window
+                2: 1.2,   # MEDIUM: Slightly wider window
+                3: 1.5,   # LOW: Widest window, prioritize cost
+                99: 1.0   # Default/unknown (for any non-mapped priority)
+            }
+
+            # New: Capacity Contention Penalty attributes
+            self.CAPACITY_PENALTY_THRESHOLD = 5  # If remaining capacity drops below this, start penalizing
+            self.CAPACITY_PENALTY_FACTOR = 2.0   # Penalty cost per unit below threshold
+
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+            overall_objective_value = compute_cost_this_op + projected_delay_penalty
+            return overall_objective_value
+
+
+        def _get_servers_by_type(self, server_type: str, prefer_local: bool = True) -> List[str]:
+            """Get servers of a given type, optionally preferring local over cloud."""
+            servers = [s.id for s in self.inst.servers.values() if s.server_type == server_type]
+            if prefer_local:
+                # Sort: local machines first, then cloud
+                servers.sort(key=lambda s: self.inst.servers[s].is_cloud)
+            return servers
+=======
+            overall_objective_value = (compute_cost_this_op * self.inst.weights['compute_cost']) + projected_delay_penalty
+
+            # 4. Capacity Contention Penalty (for local servers only)
+            contention_penalty = 0.0
+            if not self.inst.servers[server_id].is_cloud:
+                min_remaining_capacity = float('inf')
+                for t in range(start_time, start_time + op.duration):
+                    used_at_t = self._get_current_used_capacity(server_id, t)
+                    available_at_t = self._get_available_capacity(server_id, t)
+                    remaining_after_op_at_t = available_at_t - (used_at_t + op.capacity_required)
+                    min_remaining_capacity = min(min_remaining_capacity, remaining_after_op_at_t)
+
+                if min_remaining_capacity < self.CAPACITY_PENALTY_THRESHOLD:
+                    contention_penalty = (self.CAPACITY_PENALTY_THRESHOLD - min_remaining_capacity) * self.CAPACITY_PENALTY_FACTOR
+
+            overall_objective_value += contention_penalty
+            return overall_objective_value
+
+
+        # The _get_servers_by_type method is no longer used directly in run_scheduling,
+        # as _get_servers_by_type_sorted provides a more comprehensive sorting.
+        # Keeping it for potential future use or if other parts of the system rely on it.
+        def _get_servers_by_type(self, server_type: str, prefer_local: bool = True) -> List[str]:
+            """Get servers of a given type, optionally preferring local over cloud."""
+            servers = [s.id for s in self.inst.servers.values() if s.server_type == server_type]
+            if prefer_local:
+                servers.sort(key=lambda s: self.inst.servers[s].is_cloud) # Local machines first, then cloud
+            return servers
+>>>>>>> REPLACE
+</DIFF>

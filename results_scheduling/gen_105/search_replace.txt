@@ -1,0 +1,50 @@
+<dynamic_cost_penalty_and_tiebreaking>
+This edit implements two key improvements:
+
+1.  **Dynamic Non-Linear Delay Penalty (Recommendation 3)**: The `_calculate_operation_objective_value` function is updated to apply a non-linear scaling factor to the delay penalty. If an operation's projected completion causes the job to exceed its deadline, the delay penalty is multiplied by a factor that increases quadratically with the duration of the delay, capped to prevent extreme values. This makes the scheduler significantly more sensitive to deadline overruns, especially for critical jobs, pushing it to avoid delays more aggressively.
+2.  **Intelligent Tie-Breaking for Local vs. Cloud (Recommendation 4)**: The logic for comparing the best local and best cloud scheduling options is refined. Previously, in the case of identical total objective cost and start time, the algorithm implicitly preferred cloud. This change explicitly modifies the tie-breaking to prioritize *local* server placement over cloud placement when all other metrics (cost and start time) are equal. This aligns with the overall goal of maximizing local resource utilization and minimizing expensive cloud reliance where possible.
+
+These changes enhance the multi-objective optimization by making the cost function more responsive to impending deadlines and ensuring a strategic preference for local resources in ambiguous scenarios.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Class attributes for search window configuration
+        MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER = 2 # Search up to 2 full time horizons (e.g., 48 hours) for local slots
+        MAX_LOCAL_SEARCH_WINDOW_ADD = 10 # Small buffer for local scheduling slightly past deadline/horizon
+
+        def _calculate_operation_objective_value(self, server_id: str, start_time: int, op_duration: int, job_obj: Job, op_idx: int) -> float:
+            """
+            Calculates the estimated total objective cost of scheduling an operation on a given server
+            at a given start time. This includes compute cost and an estimate of future delay penalty
+            for the entire job, aligning with the problem's total cost objective.
+            """
+            # Calculate compute cost for this operation
+            op_compute_cost = 0.0
+            for t in range(start_time, start_time + op_duration):
+                # Ensure time index for cost is within time_horizon
+                cost_t = t % self.inst.time_horizon
+                op_compute_cost += self.inst.server_cost[server_id][cost_t]
+
+            # Estimate remaining duration of the job after this operation
+            remaining_operations_duration = sum(o.duration for o in job_obj.operations[op_idx + 1:])
+
+            # Projected job completion time if this operation finishes at start_time + op_duration
+            # and all subsequent operations start immediately
+            projected_job_completion_time = (start_time + op_duration) + remaining_operations_duration
+
+            # Calculate potential delay penalty for the entire job based on projected completion
+            projected_delay = max(0, projected_job_completion_time - job_obj.deadline)
+
+            # Apply the specific delay penalty weight from the instance
+            delay_penalty_contribution = projected_delay * job_obj.delay_weight * self.inst.weights['delay_penalty']
+
+            # Total score to minimize for this operation's placement
+            return (op_compute_cost * self.inst.weights['compute_cost']) + delay_penalty_contribution
+
+        def run_scheduling(self) -> Schedule:
+            """
+            Main scheduling loop: processes jobs based on priority and schedules operations.
+            """
+            # Prioritize jobs based on a multi-criteria heuristic:
+            # 1. Job Priority (CRITICAL, HIGH, MEDIUM, LOW) - lower integer value is higher priority

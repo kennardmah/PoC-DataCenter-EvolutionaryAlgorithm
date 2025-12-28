@@ -1,0 +1,50 @@
+<NAME>
+prefer_local_on_tie_break
+</NAME>
+
+<DESCRIPTION>
+This change refines the tie-breaking logic when deciding between a local and a cloud server. Previously, if the objective cost and start time were identical for a local and a cloud option, the logic ambiguously or explicitly favored cloud. This is corrected to prioritize local servers (which are 5x cheaper) when all other evaluation metrics (objective cost, start time) are equal. This ensures that local resources are maximized before resorting to cloud, thereby minimizing overall compute cost while maintaining schedule validity and adherence to deadlines. The logic now:
+1. Prefers cloud if it's strictly better (lower objective cost).
+2. Prefers cloud if it has the same objective cost but an earlier start time.
+3. If objective cost AND start time are equal, and a local option has been found, the local option is retained. Only if no local option has been identified yet (or the current chosen server is already a cloud server) will an equally performing cloud option be selected.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+                        # Compare the best cloud option with the best local option found so far
+                        # Tie-breaking: if costs are equal, prioritize cloud if start time is equal (arbitrary but deterministic)
+                        if cloud_objective_cost < best_overall_objective_cost or \
+                           (cloud_objective_cost == best_overall_objective_cost and (chosen_start is None or cloud_start_time < chosen_start)) or \
+                           (cloud_objective_cost == best_overall_objective_cost and cloud_start_time == chosen_start and self.inst.servers[best_cloud_server_candidate].is_cloud): # Prefer cloud on equal metrics
+                            best_overall_objective_cost = cloud_objective_cost
+                            chosen_server = best_cloud_server_candidate
+                            chosen_start = cloud_start_time
+                            best_min_free_capacity = float('inf') # Cloud has "infinite" free capacity for tie-breaking comparison
+=======
+                        # Compare the best cloud option with the best local option found so far
+                        # Revised tie-breaking: prefer local over cloud if objective cost and start time are equal.
+                        # 1. If cloud is strictly better (lower objective cost), choose cloud.
+                        if cloud_objective_cost < best_overall_objective_cost:
+                            best_overall_objective_cost = cloud_objective_cost
+                            chosen_server = best_cloud_server_candidate
+                            chosen_start = cloud_start_time
+                            best_min_free_capacity = float('inf') # Cloud has "infinite" free capacity for tie-breaking comparison
+                        # 2. If objective costs are equal:
+                        elif cloud_objective_cost == best_overall_objective_cost:
+                            # a. If cloud starts earlier, choose cloud.
+                            if chosen_start is None or cloud_start_time < chosen_start:
+                                best_overall_objective_cost = cloud_objective_cost
+                                chosen_server = best_cloud_server_candidate
+                                chosen_start = cloud_start_time
+                                best_min_free_capacity = float('inf')
+                            # b. If start times are also equal, prefer local over cloud.
+                            #    Only choose cloud if no local was found yet, or the current chosen is already cloud.
+                            elif chosen_start == cloud_start_time:
+                                if chosen_server is None or self.inst.servers[chosen_server].is_cloud:
+                                    best_overall_objective_cost = cloud_objective_cost
+                                    chosen_server = best_cloud_server_candidate
+                                    chosen_start = cloud_start_time
+                                    best_min_free_capacity = float('inf')
+                                # Else (current chosen_server is local and metrics are equal), keep the local server.
+>>>>>>> REPLACE
+</DIFF>

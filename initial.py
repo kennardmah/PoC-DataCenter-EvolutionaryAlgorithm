@@ -1,4 +1,3 @@
-# EVOLVE-BLOCK-START
 """Constructor-based job-shop scheduling for government data center"""
 
 from dataclasses import dataclass
@@ -300,6 +299,7 @@ def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
 # SCHEDULE CONSTRUCTOR (TO BE EVOLVED)
 # =============================================================================
 
+# EVOLVE-BLOCK-START
 def construct_schedule(inst: Instance) -> Schedule:
     """
     Online FIFO scheduler - processes jobs as they arrive without future knowledge.

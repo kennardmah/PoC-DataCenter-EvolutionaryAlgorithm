@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "'Scheduler' object has no attribute 'MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER'"
+}

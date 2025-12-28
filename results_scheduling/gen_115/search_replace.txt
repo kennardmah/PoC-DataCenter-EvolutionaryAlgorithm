@@ -1,0 +1,23 @@
+<NAME>
+re_prioritize_local_server_sorting
+</NAME>
+
+<DESCRIPTION>
+This change refines the heuristic used to sort local servers in the `get_servers_by_type_sorted` helper function. Previously, local servers were primarily sorted by their current available capacity (descending), and then by cost. This could lead to a preference for servers with high immediate capacity even if they were more expensive, potentially causing the scheduler to miss overall cheaper alternatives.
+
+The updated sorting prioritizes local servers primarily by their current hourly cost (ascending) and then by available capacity (descending) as a secondary tie-breaker. This modification ensures that when evaluating potential placements, the algorithm explores cheaper local servers first. While the full objective function will still evaluate all suitable time slots for each server, this re-ordering helps guide the search towards more cost-efficient local resources earlier, without sacrificing capacity awareness in the final selection, as `has_capacity` and `_calculate_operation_objective_value` (which includes `min_free_capacity_during_op` in its tie-breaking) still perform detailed capacity and cost evaluations for each candidate slot. This should lead to a better balance between cost optimization and resource utilization.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        compatible_local.sort(key=lambda s_id: (
+            -get_available_capacity(s_id, current_time),  # Negate for descending sort (more capacity is better)
+            inst.server_cost[s_id][local_cost_time % inst.time_horizon]
+        ))
+=======
+        compatible_local.sort(key=lambda s_id: (
+            inst.server_cost[s_id][local_cost_time % inst.time_horizon], # Lower cost first
+            -get_available_capacity(s_id, current_time) # Then, more capacity as secondary tie-breaker
+        ))
+>>>>>>> REPLACE
+</DIFF>

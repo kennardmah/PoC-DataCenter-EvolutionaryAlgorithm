@@ -1,0 +1,102 @@
+<sort_local_servers_by_resilience>
+Prioritize local servers during scheduling by sorting them based on their immediately available capacity. This heuristic aims to select "healthier" or less-degraded local machines first, especially beneficial in failure scenarios, to improve robustness and reduce the likelihood of subsequent cloud relocations or delays. The `_get_available_capacity` function, which already accounts for machine failures, is used to determine a server's immediate health.
+</sort_local_servers_by_resilience>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _find_best_local_slot(self, op: Operation, earliest_start: int, job: Job, last_scheduled_server: Optional[str]) -> Optional[Tuple[int, str]]:
+        """
+        Finds the best local slot based on earliest start, then effective cost (including same-server bonus),
+        then remaining capacity.
+        Returns (start_time, server_id) or None.
+        """
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+
+        candidates = [] # Stores (start_time, effective_cost_for_op, -remaining_cap_sum, server_id)
+
+        for server_id in local_servers:
+            for start_time_candidate in range(earliest_start, self.inst.time_horizon):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                    effective_cost_candidate = cost_candidate
+                    # Apply same-server chaining bonus for CRITICAL/HIGH priority jobs (Recommendation 5)
+                    # Note: priority_map values are 0 (CRITICAL), 1 (HIGH), etc. Lower value means higher priority.
+                    if (job.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                        effective_cost_candidate -= self.same_server_bonus_cost_reduction
+
+                    # Calculate remaining capacity sum across the duration (Recommendation 4)
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    candidates.append((
+                        start_time_candidate,
+                        effective_cost_candidate,
+                        -remaining_capacity_sum, # Negate to sort descending (more remaining is better)
+                        server_id # Last for deterministic tie-breaking by ID
+                    ))
+                    break # Found earliest slot for THIS server, move to next server
+
+        if candidates:
+            # Sort candidates based on criteria:
+            # 1. Earliest start_time (ascending)
+            # 2. Lowest effective cost (ascending)
+            # 3. Highest remaining capacity sum (descending, hence -remaining_cap_sum ascending)
+            # 4. Server ID (ascending) for deterministic tie-breaking
+            best_candidate = sorted(candidates)[0]
+            # The server_id is now the 4th element (index 3) in the 4-tuple.
+            return (best_candidate[0], best_candidate[3]) # Return (start_time, server_id)
+        return None
+=======
+    def _find_best_local_slot(self, op: Operation, earliest_start: int, job: Job, last_scheduled_server: Optional[str]) -> Optional[Tuple[int, str]]:
+        """
+        Finds the best local slot based on earliest start, then effective cost (including same-server bonus),
+        then remaining capacity.
+        Returns (start_time, server_id) or None.
+        """
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+
+        # NEW: Prioritize local servers by current available capacity (Recommendation 3)
+        # Sort in descending order of available capacity at the earliest possible start time.
+        # This prioritizes machines that are currently 'healthier' or less capacity-degraded.
+        local_servers.sort(key=lambda s_id: self._get_available_capacity(s_id, earliest_start), reverse=True)
+
+        candidates = [] # Stores (start_time, effective_cost_for_op, -remaining_cap_sum, server_id)
+
+        for server_id in local_servers:
+            for start_time_candidate in range(earliest_start, self.inst.time_horizon):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                    effective_cost_candidate = cost_candidate
+                    # Apply same-server chaining bonus for CRITICAL/HIGH priority jobs (Recommendation 5)
+                    # Note: priority_map values are 0 (CRITICAL), 1 (HIGH), etc. Lower value means higher priority.
+                    if (job.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                        effective_cost_candidate -= self.same_server_bonus_cost_reduction
+
+                    # Calculate remaining capacity sum across the duration (Recommendation 4)
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    candidates.append((
+                        start_time_candidate,
+                        effective_cost_candidate,
+                        -remaining_capacity_sum, # Negate to sort descending (more remaining is better)
+                        server_id # Last for deterministic tie-breaking by ID
+                    ))
+                    break # Found earliest slot for THIS server, move to next server
+
+        if candidates:
+            # Sort candidates based on criteria:
+            # 1. Earliest start_time (ascending)
+            # 2. Lowest effective cost (ascending)
+            # 3. Highest remaining capacity sum (descending, hence -remaining_cap_sum ascending)
+            # 4. Server ID (ascending) for deterministic tie-breaking
+            best_candidate = sorted(candidates)[0]
+            # The server_id is now the 4th element (index 3) in the 4-tuple.
+            return (best_candidate[0], best_candidate[3]) # Return (start_time, server_id)
+        return None
+>>>>>>> REPLACE
+</DIFF>

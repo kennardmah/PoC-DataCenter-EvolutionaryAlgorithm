@@ -1,0 +1,229 @@
+<objective_function_enhancements>
+This improvement enhances the objective function (`_calculate_operation_objective_value`) with two strategies:
+1.  **Same-Server Continuation Bonus**: A fixed `SAME_SERVER_BONUS` is subtracted from the cost if a critical/high priority job's operation is scheduled on the same local server as its previous operation. This incentivizes keeping related operations together on the same physical machine, which can reduce implicit overheads like data transfer or setup times. This is only applied to local machines to maximize their utility.
+2.  **Non-Linear Delay Weight Scaling**: The `projected_delay` is now raised to a power (`NON_LINEAR_DELAY_FACTOR`), making the delay penalty increase non-linearly. This amplifies the penalty for jobs that are projected to be significantly late, pushing the scheduler to prioritize on-time completion for urgent tasks more aggressively.
+
+These changes are designed to improve both cost efficiency (by encouraging local chaining) and deadline adherence (by strongly penalizing long delays), directly addressing key optimization objectives. `last_scheduled_server_per_job` is introduced to track the server used by each job's preceding operation.
+</objective_function_enhancements>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Helper to calculate the objective value for an operation placement
+    def _calculate_operation_objective_value(server_id: str, start_time: int, op_duration: int, job_obj: Job, op_idx: int, job_total_durations: Dict[str, int], instance_weights: Dict[str, float]) -> float:
+        """
+        Calculates the estimated total objective cost of scheduling an operation on a given server
+        at a given start time. This includes compute cost and an estimate of future delay penalty
+        for the entire job, aligning with the problem's total cost objective.
+        """
+        # Calculate compute cost for this operation
+        op_compute_cost = 0.0
+        for t in range(start_time, start_time + op_duration):
+            # Ensure time index for cost is within time_horizon
+            cost_t = t % inst.time_horizon
+            op_compute_cost += inst.server_cost[server_id][cost_t]
+
+        # Estimate remaining duration of the job after this operation
+        remaining_operations_duration = sum(o.duration for o in job_obj.operations[op_idx + 1:])
+
+        # Projected job completion time if this operation finishes at start_time + op.duration
+        # and all subsequent operations start immediately
+        projected_job_completion_time = (start_time + op_duration) + remaining_operations_duration
+
+        # Calculate potential delay penalty for the entire job based on projected completion
+        projected_delay = max(0, projected_job_completion_time - job_obj.deadline)
+
+        # Apply the specific delay penalty weight from the instance
+        delay_penalty_contribution = projected_delay * job_obj.delay_weight * instance_weights['delay_penalty']
+
+        # Total score to minimize for this operation's placement
+        return (op_compute_cost * instance_weights['compute_cost']) + delay_penalty_contribution
+=======
+    # NEW: Constants for objective function enhancements
+    SAME_SERVER_BONUS = 5.0 # Cost reduction for chaining CRITICAL/HIGH jobs on same local server
+    NON_LINEAR_DELAY_FACTOR = 1.05 # Exponent for non-linear delay penalty scaling (e.g., delay^1.05)
+
+    # Helper to calculate the objective value for an operation placement
+    def _calculate_operation_objective_value(
+        server_id: str,
+        start_time: int,
+        op_duration: int,
+        job_id: str, # Changed from job_obj: Job to job_id: str
+        op_idx: int,
+        job_total_durations: Dict[str, int],
+        job_priority_scores: Dict[str, int], # New: for priority check
+        priority_map: Dict[str, int], # New: for priority mapping
+        last_scheduled_server_for_job: Optional[str], # New: for same-server bonus
+        instance_weights: Dict[str, float] # Keep this explicit
+    ) -> float:
+        """
+        Calculates the estimated total objective cost of scheduling an operation on a given server
+        at a given start time. This includes compute cost and an estimate of future delay penalty
+        for the entire job, aligning with the problem's total cost objective.
+        """
+        job_obj = inst.jobs[job_id] # Retrieve job object inside the helper using job_id and 'inst' from closure
+
+        # Calculate compute cost for this operation
+        op_compute_cost = 0.0
+        for t in range(start_time, start_time + op_duration):
+            # Ensure time index for cost is within time_horizon
+            cost_t = t % inst.time_horizon
+            op_compute_cost += inst.server_cost[server_id][cost_t]
+
+        # Estimate remaining duration of the job after this operation
+        remaining_operations_duration = sum(o.duration for o in job_obj.operations[op_idx + 1:])
+
+        # Projected job completion time if this operation finishes at start_time + op_duration
+        # and all subsequent operations start immediately
+        projected_job_completion_time = (start_time + op_duration) + remaining_operations_duration
+
+        # Calculate potential delay penalty for the entire job based on projected completion
+        projected_delay = max(0, projected_job_completion_time - job_obj.deadline)
+
+        # Apply non-linear scaling to delay if it exists (Recommendation 5)
+        if projected_delay > 0:
+            projected_delay_scaled = projected_delay ** NON_LINEAR_DELAY_FACTOR
+        else:
+            projected_delay_scaled = 0
+
+        # Apply the specific delay penalty weight from the instance
+        delay_penalty_contribution = projected_delay_scaled * job_obj.delay_weight * instance_weights['delay_penalty']
+
+        # Initial total score to minimize for this operation's placement
+        total_objective_score = (op_compute_cost * instance_weights['compute_cost']) + delay_penalty_contribution
+
+        # Apply same-server chaining bonus for CRITICAL/HIGH priority jobs on local servers (Recommendation 4)
+        if not inst.servers[server_id].is_cloud and \
+           job_priority_scores[job_id] <= priority_map["HIGH"] and \
+           server_id == last_scheduled_server_for_job:
+            total_objective_score -= SAME_SERVER_BONUS
+
+        return total_objective_score
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Track when each job can start (max of arrival time and previous operation finish time)
+    job_available_time = {j_id: inst.jobs[j_id].arrival_time for j_id in inst.jobs}
+
+    schedule = {}
+=======
+    # Track when each job can start (max of arrival time and previous operation finish time)
+    job_available_time = {j_id: inst.jobs[j_id].arrival_time for j_id in inst.jobs}
+
+    schedule = {}
+
+    # Track the last local server an operation of a job was scheduled on, for same-server chaining bonus
+    last_scheduled_server_per_job: Dict[str, Optional[str]] = {j_id: None for j_id in inst.jobs}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+                        current_objective_cost = _calculate_operation_objective_value(
+                            server_id, start_time_candidate, op.duration, job, op_idx, job_total_durations, inst.weights
+                        )
+                        if current_objective_cost < best_overall_objective_cost:
+                            best_overall_objective_cost = current_objective_cost
+                            chosen_server = server_id
+                            chosen_start = start_time_candidate
+                        # IMPORTANT: Do NOT break here. Continue searching all slots on this server
+                        # to find the truly optimal (lowest cost/penalty) slot, not just the earliest.
+                        # The 'break' was removed from previous iterations to allow this full scan.
+
+            # --- Evaluate cloud machines ---
+            # Cloud has infinite capacity, so it can always start immediately at `current_op_start_time`.
+            cloud_start_time = current_op_start_time
+
+            # Find the cheapest cloud server of the required type among the sorted compatible list
+            best_cloud_server_candidate = None
+            for s_id in compatible_servers_sorted:
+                if inst.servers[s_id].is_cloud:
+                    best_cloud_server_candidate = s_id
+                    break # The compatible_servers_sorted list ensures the first cloud server is the cheapest.
+
+            if best_cloud_server_candidate:
+                cloud_objective_cost = _calculate_operation_objective_value(
+                    best_cloud_server_candidate, cloud_start_time, op.duration, job, op_idx, job_total_durations, inst.weights
+                )
+
+                # If cloud is better than any local option found so far (or if no local option found)
+                if cloud_objective_cost < best_overall_objective_cost:
+                    best_overall_objective_cost = cloud_objective_cost
+                    chosen_server = best_cloud_server_candidate
+                    chosen_start = cloud_start_time
+
+            # --- Schedule the chosen option ---
+            if chosen_server is not None:
+                # Reserve capacity for the chosen server and start time
+                for t in range(chosen_start, chosen_start + op.duration):
+                    if t not in capacity_usage[chosen_server]:
+                        capacity_usage[chosen_server][t] = 0
+                    capacity_usage[chosen_server][t] += op.capacity_required
+
+                schedule[job_id].append({"server": chosen_server, "start": chosen_start})
+                current_op_start_time = chosen_start + op.duration
+                job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+            else:
+                # Fallback: This case should only be reached if no compatible local *and* no compatible
+=======
+                        current_objective_cost = _calculate_operation_objective_value(
+                            server_id, start_time_candidate, op.duration, job_id, op_idx,
+                            job_total_durations, job_priority_scores, priority_map, last_scheduled_server_per_job.get(job_id), inst.weights
+                        )
+                        if current_objective_cost < best_overall_objective_cost:
+                            best_overall_objective_cost = current_objective_cost
+                            chosen_server = server_id
+                            chosen_start = start_time_candidate
+                        # IMPORTANT: Do NOT break here. Continue searching all slots on this server
+                        # to find the truly optimal (lowest cost/penalty) slot, not just the earliest.
+                        # The 'break' was removed from previous iterations to allow this full scan.
+
+            # --- Evaluate cloud machines ---
+            # Cloud has infinite capacity, so it can always start immediately at `current_op_start_time`.
+            cloud_start_time = current_op_start_time
+
+            # Find the cheapest cloud server of the required type among the sorted compatible list
+            best_cloud_server_candidate = None
+            for s_id in compatible_servers_sorted:
+                if inst.servers[s_id].is_cloud:
+                    best_cloud_server_candidate = s_id
+                    break # The compatible_servers_sorted list ensures the first cloud server is the cheapest.
+
+            if best_cloud_server_candidate:
+                cloud_objective_cost = _calculate_operation_objective_value(
+                    best_cloud_server_candidate, cloud_start_time, op.duration, job_id, op_idx,
+                    job_total_durations, job_priority_scores, priority_map, last_scheduled_server_per_job.get(job_id), inst.weights
+                )
+
+                # If cloud is better than any local option found so far (or if no local option found)
+                if cloud_objective_cost < best_overall_objective_cost:
+                    best_overall_objective_cost = cloud_objective_cost
+                    chosen_server = best_cloud_server_candidate
+                    chosen_start = cloud_start_time
+
+            # --- Schedule the chosen option ---
+            if chosen_server is not None:
+                # Reserve capacity for the chosen server and start time
+                for t in range(chosen_start, chosen_start + op.duration):
+                    if t not in capacity_usage[chosen_server]:
+                        capacity_usage[chosen_server][t] = 0
+                    capacity_usage[chosen_server][t] += op.capacity_required
+
+                schedule[job_id].append({"server": chosen_server, "start": chosen_start})
+                current_op_start_time = chosen_start + op.duration
+                job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+
+                # Update last_scheduled_server_per_job for chaining bonus
+                if not inst.servers[chosen_server].is_cloud:
+                    last_scheduled_server_per_job[job_id] = chosen_server
+                else:
+                    last_scheduled_server_per_job[job_id] = None # Clear if cloud was used
+            else:
+                # Fallback: This case should only be reached if no compatible local *and* no compatible
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+                    capacity_usage[fallback_server_id][t] += op.capacity_required

@@ -1,0 +1,61 @@
+local_server_congestion_sort
+Sorts local servers by anticipated congestion before attempting to schedule. Instead of an arbitrary order, servers that have more available capacity over the operation's potential execution window (starting from the job's earliest available time) are prioritized. This aims to spread the load more evenly across local machines, reducing the chance of unnecessary cloud spillover or delays due to resource contention.
+
+<DIFF>
+<<<<<<< SEARCH
+            # 1. Try to schedule on a local machine (prefer local to minimize cost)
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+            for server_id in local_servers:
+                # Find the earliest time this local server can accommodate the operation
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_compute_cost(server_id, start_time, op.duration)
+
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            min_local_cost = current_op_cost
+                        elif start_time == best_local_start:
+                            # Tie-breaking: if same earliest start, choose lower cost
+                            if current_op_cost < min_local_cost:
+                                best_local_server = server_id
+                                min_local_cost = current_op_cost
+                        break  # Found earliest slot on this server, no need to look further for THIS server
+=======
+            # 1. Try to schedule on a local machine (prefer local to minimize cost)
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+
+            # Sort local servers by anticipated congestion (higher remaining capacity is better)
+            # This helps distribute load and potentially find earlier slots more efficiently.
+            def calculate_congestion_score(server_id_to_check: str) -> float:
+                # Sum of current free capacity over the potential operation duration
+                total_remaining_capacity = 0
+                for t in range(current_op_start_time, current_op_start_time + op.duration):
+                    if t >= inst.time_horizon: # Avoid checking beyond horizon
+                        break
+                    used = capacity_usage[server_id_to_check].get(t, 0)
+                    available = get_available_capacity(server_id_to_check, t)
+                    total_remaining_capacity += max(0, available - used)
+                return total_remaining_capacity
+
+            # Sort in descending order of remaining capacity (most free first)
+            local_servers.sort(key=calculate_congestion_score, reverse=True)
+
+            for server_id in local_servers:
+                # Find the earliest time this local server can accommodate the operation
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_compute_cost(server_id, start_time, op.duration)
+
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            min_local_cost = current_op_cost
+                        elif start_time == best_local_start:
+                            # Tie-breaking: if same earliest start, choose lower cost
+                            if current_op_cost < min_local_cost:
+                                best_local_server = server_id
+                                min_local_cost = current_op_cost
+                        break  # Found earliest slot on this server, no need to look further for THIS server
+>>>>>>> REPLACE
+</DIFF>

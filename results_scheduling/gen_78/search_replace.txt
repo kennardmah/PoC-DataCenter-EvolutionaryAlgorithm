@@ -1,0 +1,79 @@
+<select_best_local_capacity>
+Refines local server selection by prioritizing earliest start, then lowest cost, and finally, the highest minimum available capacity throughout the operation's duration. This strategy aims to improve resilience by choosing servers that maintain a healthier capacity buffer, reducing the risk of future contention or hidden bottlenecks during the operation. The previous sorting of local servers by instantaneous available capacity is removed as the full candidate evaluation provides a more robust selection.
+</select_best_local_capacity>
+
+<DIFF>
+<<<<<<< SEARCH
+                    # 1. Try to schedule on a local machine
+                    local_servers_for_type = [s_id for s_id, s in self.inst.servers.items()
+                                              if s.server_type == op.server_type and not s.is_cloud]
+
+                    # Recommendation 3: Prioritize local servers by anticipated congestion (e.g., current available capacity)
+                    # Sort local servers by current max capacity over the potential operation duration
+                    # For simplicity, we can sort by current capacity at `current_op_start_time`
+                    local_servers_for_type.sort(key=lambda s_id: self._get_available_capacity(s_id, current_op_start_time), reverse=True)
+
+                    for server_id in local_servers_for_type:
+                        for start_time_candidate in range(current_op_start_time, self.inst.time_horizon):
+                            if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                                cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                                # Calculate remaining capacity after placement (Recommendation 4)
+                                # Sum capacity over the duration of the operation
+                                remaining_capacity_after_op = 0
+                                for t in range(start_time_candidate, start_time_candidate + op.duration):
+                                    available = self._get_available_capacity(server_id, t)
+                                    used = self._get_current_used_capacity(server_id, t)
+                                    remaining_capacity_after_op += (available - (used + op.capacity_required))
+
+                                local_candidates.append((start_time_candidate, cost_candidate, -remaining_capacity_after_op, server_id))
+                                break # Found the earliest slot on *this specific server*, move to next server
+
+                    if local_candidates:
+                        # Sort local candidates: (1) earliest start, (2) lowest cost, (3) highest remaining capacity, (4) server_id for determinism
+                        # Python's tuple sort handles this naturally for the first two, and -remaining_capacity_after_op for the third.
+                        local_candidates.sort()
+
+                        best_local_start, best_local_cost, _, best_local_server = local_candidates[0]
+                        best_server_choice = best_local_server
+                        best_start_time_choice = best_local_start
+                        scheduled = True
+=======
+                    # 1. Try to schedule on a local machine
+                    local_servers_for_type = [s_id for s_id, s in self.inst.servers.items()
+                                              if s.server_type == op.server_type and not s.is_cloud]
+
+                    # Store all valid local placement candidates (start_time, cost_for_op, neg_min_capacity_slack, server_id)
+                    local_candidates = []
+
+                    for server_id in local_servers_for_type:
+                        for start_time_candidate in range(current_op_start_time, self.inst.time_horizon):
+                            if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                                cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                                # Calculate the minimum capacity slack during the operation's execution (Recommendation 1)
+                                # This ensures resilience by picking servers that maintain a healthy capacity buffer.
+                                min_capacity_slack_during_op = float('inf')
+                                for t in range(start_time_candidate, start_time_candidate + op.duration):
+                                    available_at_t = self._get_available_capacity(server_id, t)
+                                    used_at_t_by_others = self._get_current_used_capacity(server_id, t)
+                                    slack_at_t = available_at_t - used_at_t_by_others - op.capacity_required
+                                    min_capacity_slack_during_op = min(min_capacity_slack_during_op, slack_at_t)
+
+                                local_candidates.append((start_time_candidate, cost_candidate, -min_capacity_slack_during_op, server_id))
+                                break # Found the earliest slot on *this specific server*, move to next server
+
+                    if local_candidates:
+                        # Sort local candidates:
+                        # 1. Earliest start_time (ascending)
+                        # 2. Lowest cost_for_op (ascending)
+                        # 3. Highest minimum capacity slack during op (descending, hence -min_capacity_slack_during_op)
+                        # 4. Server ID (lexicographical ascending, for deterministic tie-breaking)
+                        local_candidates.sort()
+
+                        best_local_start, best_local_cost, _, best_local_server = local_candidates[0]
+                        best_server_choice = best_local_server
+                        best_start_time_choice = best_local_start
+                        scheduled = True
+>>>>>>> REPLACE
+</DIFF>

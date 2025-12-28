@@ -1,0 +1,270 @@
+<adaptive_cloud_fallback_low_priority>
+Refined local search window for LOW priority jobs to enable faster cloud fallback.
+
+This modification implements an "Adaptive Cloud Fallback Trigger for Low Priority Jobs." For jobs classified as 'LOW' priority, the scheduler will only search for a local machine slot within a limited time window (e.g., `current_op_start_time + LOW_PRIORITY_LOCAL_SEARCH_WINDOW`). If no local slot is found within this short window, the operation will immediately fall back to a cloud server. This strategy aims to:
+1.  **Preserve Local Capacity**: Prevent low-priority jobs from consuming valuable local machine capacity that might be needed by higher-priority jobs, especially if they would occupy the machine for a long time far into the future.
+2.  **Reduce Search Overhead**: Speed up scheduling decisions for low-priority tasks by not performing an exhaustive search across the entire time horizon.
+3.  **Optimize Cost/Delay Trade-off**: For low-priority jobs, a slight increase in compute cost (by moving to cloud) might be acceptable if it prevents potential delays or contention for critical local resources. The immediate cloud fallback prioritizes timely execution for these non-critical tasks without exhaustive local search.
+
+By making this change, the scheduler becomes more dynamic and resource-aware, ensuring that high-priority jobs have a better chance at securing optimal local slots, while low-priority jobs are processed efficiently, even if it means incurring a higher cloud cost in specific scenarios.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            self.last_scheduled_local_server_per_job = {}
+
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99)
+
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """Calculate available capacity at a specific time, considering failures."""
+=======
+            self.last_scheduled_local_server_per_job = {}
+            self.LOW_PRIORITY_LOCAL_SEARCH_WINDOW = 3 # hours. For LOW priority jobs, only search this far for a local slot.
+
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99) # Lower score for higher priority
+
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """Calculate available capacity at a specific time, considering failures.
+            This is the raw available capacity before considering current pending usage.
+            """
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+                for op_idx, op in enumerate(job.operations):
+                    scheduled = False
+                    best_server_choice = None
+                    best_start_time_choice = None
+
+                    # Store all valid local placement candidates (start_time, cost_for_op, neg_remaining_capacity_after_op, server_id)
+                    # neg_remaining_capacity_after_op is used for sorting descending (max capacity)
+                    local_candidates = []
+
+                    # 1. Try to schedule on a local machine
+                    local_servers_for_type = [s_id for s_id, s in self.inst.servers.items()
+                                              if s.server_type == op.server_type and not s.is_cloud]
+
+                    # Recommendation 3: Prioritize local servers by anticipated congestion (e.g., current available capacity)
+                    # Sort local servers by current max capacity over the potential operation duration
+                    # For simplicity, we can sort by current capacity at `current_op_start_time`
+                    local_servers_for_type.sort(key=lambda s_id: self._get_available_capacity(s_id, current_op_start_time), reverse=True)
+
+                    # Recommendation 5: Prioritized Sequential Scheduling for Critical/High Jobs
+                    # If this is a CRITICAL/HIGH job and the previous operation was on a local machine of the same type,
+                    # try to chain it on the same machine first.
+                    preferred_for_chaining_server = None
+                    if job.priority in ["CRITICAL", "HIGH"] and op_idx > 0:
+                        last_op_info = self.schedule[job_id][op_idx - 1]
+                        last_server_id = last_op_info["server"]
+                        if not self.inst.servers[last_server_id].is_cloud and \
+                           self.inst.servers[last_server_id].server_type == op.server_type:
+                            preferred_for_chaining_server = last_server_id
+                            # Move preferred server to the front for checking
+                            if preferred_for_chaining_server in local_servers_for_type:
+                                local_servers_for_type.remove(preferred_for_chaining_server)
+                                local_servers_for_type.insert(0, preferred_for_chaining_server)
+
+
+                    for server_id in local_servers_for_type:
+                        for start_time_candidate in range(current_op_start_time, self.inst.time_horizon):
+                            if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                                cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                                # Calculate remaining capacity after placement (Recommendation 4)
+                                remaining_capacity_after_op = 0
+                                for t in range(start_time_candidate, start_time_candidate + op.duration):
+                                    available = self._get_available_capacity(server_id, t)
+                                    used = self._get_current_used_capacity(server_id, t)
+                                    remaining_capacity_after_op += (available - (used + op.capacity_required))
+
+                                preferred_for_chaining_score = 0 if server_id == preferred_for_chaining_server else 1
+                                local_candidates.append((start_time_candidate, preferred_for_chaining_score, cost_candidate, -remaining_capacity_after_op, server_id))
+                                break # Found the earliest slot on *this specific server*, move to next server
+
+                    if local_candidates:
+                        # Sort local candidates:
+                        # (1) earliest start
+                        # (2) preferred for chaining (0 = preferred, 1 = normal)
+                        # (3) lowest cost (Recommendation 1)
+                        # (4) highest remaining capacity (-remaining_capacity_after_op for sorting descending) (Recommendation 4)
+                        # (5) server_id for deterministic tie-breaking
+                        local_candidates.sort()
+
+                        best_local_start, _, best_local_cost, _, best_local_server = local_candidates[0]
+                        best_server_choice = best_local_server
+                        best_start_time_choice = best_local_start
+                        scheduled = True
+
+                    # 2. If no local machine was chosen, use cloud immediately (to avoid delay)
+                    if not scheduled:
+                        cloud_servers_for_type = [s_id for s_id, s in self.inst.servers.items()
+                                                  if s.server_type == op.server_type and s.is_cloud]
+
+                        if cloud_servers_for_type:
+                            cloud_start_time = current_op_start_time # Cloud has infinite capacity, can always start here
+
+                            best_cloud_server_candidate = None
+                            min_cloud_cost = float('inf')
+
+                            # Recommendation 2: Select the cloud server with the lowest compute cost
+                            for cloud_server_id in cloud_servers_for_type:
+                                current_cloud_cost = self._calculate_operation_compute_cost(cloud_server_id, cloud_start_time, op.duration)
+                                if current_cloud_cost < min_cloud_cost:
+                                    min_cloud_cost = current_cloud_cost
+                                    best_cloud_server_candidate = cloud_server_id
+
+                            if best_cloud_server_candidate is not None:
+                                best_server_choice = best_cloud_server_candidate
+                                best_start_time_choice = cloud_start_time
+                                scheduled = True
+                                # Clear last scheduled local server as we've moved to cloud
+                                self.last_scheduled_local_server_per_job.pop(job_id, None)
+
+                    # 3. Commit the chosen option to the schedule and update capacity usage
+                    if best_server_choice is not None:
+                        for t in range(best_start_time_choice, best_start_time_choice + op.duration):
+                            if t not in self.capacity_usage[best_server_choice]:
+                                self.capacity_usage[best_server_choice][t] = 0
+                            self.capacity_usage[best_server_choice][t] += op.capacity_required
+
+                        self.schedule[job_id].append({"server": best_server_choice, "start": best_start_time_choice})
+                        current_op_start_time = best_start_time_choice + op.duration
+                        self.job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+
+                        # Update last scheduled local server for chaining if a local server was used
+                        if not self.inst.servers[best_server_choice].is_cloud:
+                            self.last_scheduled_local_server_per_job[job_id] = best_server_choice
+                        else:
+                            self.last_scheduled_local_server_per_job.pop(job_id, None) # Clear if cloud was used
+                    else:
+                        # Fallback: This should ideally not be reached if cloud is truly infinite/always available
+                        # and there's at least one cloud server per type. If it is, something is fundamentally wrong.
+                        raise ValueError(f"No compatible server (local or cloud) found for job {job_id}, operation {op_idx} (type: {op.server_type})")
+
+            return self.schedule
+=======
+                for op_idx, op in enumerate(job.operations):
+                    scheduled = False
+                    best_server_choice = None
+                    best_start_time_choice = None
+
+                    # Store all valid local placement candidates (start_time, preferred_for_chaining_score, cost_for_op, neg_min_projected_capacity_during_op, server_id)
+                    local_candidates = []
+
+                    # 1. Try to schedule on a local machine
+                    local_servers_for_type = [s_id for s_id, s in self.inst.servers.items()
+                                              if s.server_type == op.server_type and not s.is_cloud]
+
+                    # Prioritize local servers by current max capacity over the potential operation duration
+                    # For simplicity, we can sort by current capacity at `current_op_start_time`
+                    local_servers_for_type.sort(key=lambda s_id: self._get_available_capacity(s_id, current_op_start_time), reverse=True)
+
+                    # Prioritized Sequential Scheduling for Critical/High Jobs
+                    # If this is a CRITICAL/HIGH job and the previous operation was on a local machine of the same type,
+                    # try to chain it on the same machine first.
+                    preferred_for_chaining_server = None
+                    if job.priority in ["CRITICAL", "HIGH"] and op_idx > 0:
+                        last_op_info = self.schedule[job_id][op_idx - 1]
+                        last_server_id = last_op_info["server"]
+                        if not self.inst.servers[last_server_id].is_cloud and \
+                           self.inst.servers[last_server_id].server_type == op.server_type:
+                            preferred_for_chaining_server = last_server_id
+                            # Move preferred server to the front for checking
+                            if preferred_for_chaining_server in local_servers_for_type:
+                                local_servers_for_type.remove(preferred_for_chaining_server)
+                                local_servers_for_type.insert(0, preferred_for_chaining_server)
+
+                    # Determine search window for local machines
+                    # For LOW priority jobs, limit the search to a smaller window to allow faster cloud fallback
+                    local_search_end_time = self.inst.time_horizon
+                    if job.priority_score == self.priority_map["LOW"]: # If it's a LOW priority job
+                        local_search_end_time = min(self.inst.time_horizon, current_op_start_time + self.LOW_PRIORITY_LOCAL_SEARCH_WINDOW)
+
+
+                    for server_id in local_servers_for_type:
+                        for start_time_candidate in range(current_op_start_time, local_search_end_time):
+                            if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                                cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                                # Calculate minimum projected remaining capacity after placement over the operation's duration
+                                min_projected_capacity_during_op = float('inf')
+                                for t in range(start_time_candidate, start_time_candidate + op.duration):
+                                    available = self._get_available_capacity(server_id, t)
+                                    used = self._get_current_used_capacity(server_id, t)
+                                    min_projected_capacity_during_op = min(min_projected_capacity_during_op, (available - (used + op.capacity_required)))
+                                # Use negative for sorting descending (max capacity)
+                                neg_min_projected_capacity_during_op = -min_projected_capacity_during_op
+
+                                preferred_for_chaining_score = 0 if server_id == preferred_for_chaining_server else 1
+                                local_candidates.append((start_time_candidate, preferred_for_chaining_score, cost_candidate, neg_min_projected_capacity_during_op, server_id))
+                                break # Found the earliest slot on *this specific server*, move to next server
+
+                    if local_candidates:
+                        # Sort local candidates:
+                        # (1) earliest start
+                        # (2) preferred for chaining (0 = preferred, 1 = normal)
+                        # (3) lowest cost
+                        # (4) highest *minimum projected* remaining capacity (neg_min_projected_capacity_during_op for sorting descending)
+                        # (5) server_id for deterministic tie-breaking
+                        local_candidates.sort()
+
+                        best_local_start, _, _, _, best_local_server = local_candidates[0]
+                        best_server_choice = best_local_server
+                        best_start_time_choice = best_local_start
+                        scheduled = True
+
+                    # 2. If no local machine was chosen (either none available or search window truncated for LOW priority), use cloud immediately (to avoid delay)
+                    if not scheduled:
+                        cloud_servers_for_type = [s_id for s_id, s in self.inst.servers.items()
+                                                  if s.server_type == op.server_type and s.is_cloud]
+
+                        if cloud_servers_for_type:
+                            cloud_start_time = current_op_start_time # Cloud has infinite capacity, can always start here
+
+                            best_cloud_server_candidate = None
+                            min_cloud_cost = float('inf')
+
+                            # Select the cloud server with the lowest compute cost
+                            for cloud_server_id in cloud_servers_for_type:
+                                current_cloud_cost = self._calculate_operation_compute_cost(cloud_server_id, cloud_start_time, op.duration)
+                                if current_cloud_cost < min_cloud_cost:
+                                    min_cloud_cost = current_cloud_cost
+                                    best_cloud_server_candidate = cloud_server_id
+
+                            if best_cloud_server_candidate is not None:
+                                best_server_choice = best_cloud_server_candidate
+                                best_start_time_choice = cloud_start_time
+                                scheduled = True
+                                # Clear last scheduled local server as we've moved to cloud
+                                self.last_scheduled_local_server_per_job.pop(job_id, None)
+
+                    # 3. Commit the chosen option to the schedule and update capacity usage
+                    if best_server_choice is not None:
+                        for t in range(best_start_time_choice, best_start_time_choice + op.duration):
+                            if t not in self.capacity_usage[best_server_choice]:
+                                self.capacity_usage[best_server_choice][t] = 0
+                            self.capacity_usage[best_server_choice][t] += op.capacity_required
+
+                        self.schedule[job_id].append({"server": best_server_choice, "start": best_start_time_choice})
+                        current_op_start_time = best_start_time_choice + op.duration
+                        self.job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+
+                        # Update last scheduled local server for chaining if a local server was used
+                        if not self.inst.servers[best_server_choice].is_cloud:
+                            self.last_scheduled_local_server_per_job[job_id] = best_server_choice
+                        else:
+                            self.last_scheduled_local_server_per_job.pop(job_id, None) # Clear if cloud was used
+                    else:
+                        # Fallback: This should ideally not be reached if cloud is truly infinite/always available
+                        # and there's at least one cloud server per type. If it is, something is fundamentally wrong.
+                        raise ValueError(f"No compatible server (local or cloud) found for job {job_id}, operation {op_idx} (type: {op.server_type})")
+
+            return self.schedule
+>>>>>>> REPLACE
+</DIFF>

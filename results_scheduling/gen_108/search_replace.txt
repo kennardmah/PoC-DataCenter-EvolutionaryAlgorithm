@@ -1,0 +1,240 @@
+<name>
+precompute_capacities_and_refine_get_available
+</name>
+
+<description>
+This change improves performance by precomputing the static available capacity for all local servers across the time horizon, considering only machine failures. This avoids redundant and expensive recalculations of exponential failure/recovery functions for every `_get_available_capacity` call.
+
+The `_get_available_capacity` method is updated to:
+1.  Return effectively infinite capacity for cloud servers immediately.
+2.  Use the precomputed values for local servers when the time is within the `inst.time_horizon`.
+3.  Fall back to the base capacity for times beyond the precomputed horizon, assuming failures resolve within `TIME_HORIZON` for practical purposes.
+
+This change optimizes a frequently called function, which should lead to faster schedule generation, especially in scenarios with many jobs or operations, or complex failure patterns.
+</description>
+
+<diff>
+<<<<<<< SEARCH
+from typing import Dict, List, Any, Optional
+import copy
+import os
+import math
+
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+
+TIME_HORIZON = 24
+@dataclass
+class Server:
+    id: str
+    server_type: str
+    capacity: int  # Available capacity units
+    is_cloud: bool = False  # Cloud machines have infinite capacity but 5x cost
+
+
+@dataclass
+class Operation:
+    server_type: str
+    duration: int
+    capacity_required: int = 1  # Capacity units consumed during execution
+
+
+@dataclass
+class Job:
+    id: str
+    description: str
+    priority: str
+    deadline: int
+    delay_weight: float
+    operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
+
+    # These will be populated during schedule construction
+    total_duration: int = 0
+    priority_score: int = 0
+
+
+@dataclass
+class MachineFailure:
+    machine_id: str
+    failure_start: int
+    failure_end: int
+    capacity_reduction: int  # Amount of capacity lost during failure
+    failure_rate: float = 1.0  # Exponential failure rate (1.0 = instant, <1.0 = gradual)
+    recovery_rate: float = 1.0  # Exponential recovery rate (1.0 = instant, <1.0 = gradual)
+    reason: str = ""  # Description of failure
+
+
+@dataclass
+class Instance:
+    servers: Dict[str, Server]
+    jobs: Dict[str, Job]
+    server_cost: Dict[str, Dict[int, float]]
+    time_horizon: int
+    weights: Dict[str, float]
+    machine_failures: Optional[List[MachineFailure]] = None
+=======
+from typing import Dict, List, Any, Optional, Tuple # Added Tuple for clearer type hinting
+import copy
+import os
+import math
+
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+
+TIME_HORIZON = 24
+@dataclass
+class Server:
+    id: str
+    server_type: str
+    capacity: int  # Available capacity units
+    is_cloud: bool = False  # Cloud machines have infinite capacity but 5x cost
+
+
+@dataclass
+class Operation:
+    server_type: str
+    duration: int
+    capacity_required: int = 1  # Capacity units consumed during execution
+
+
+@dataclass
+class Job:
+    id: str
+    description: str
+    priority: str
+    deadline: int
+    delay_weight: float
+    operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
+
+    # These will be populated during schedule construction
+    total_duration: int = 0
+    priority_score: int = 0
+
+
+@dataclass
+class MachineFailure:
+    machine_id: str
+    failure_start: int
+    failure_end: int
+    capacity_reduction: int  # Amount of capacity lost during failure
+    failure_rate: float = 1.0  # Exponential failure rate (1.0 = instant, <1.0 = gradual)
+    recovery_rate: float = 1.0  # Exponential recovery rate (1.0 = instant, <1.0 = gradual)
+    reason: str = ""  # Description of failure
+
+
+@dataclass
+class Instance:
+    servers: Dict[str, Server]
+    jobs: Dict[str, Job]
+    server_cost: Dict[str, Dict[int, float]]
+    time_horizon: int
+    weights: Dict[str, float]
+    machine_failures: Optional[List[MachineFailure]] = None
+>>>>>>> REPLACE
+</diff>
+
+<diff>
+<<<<<<< SEARCH
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99) # Lower score for higher priority
+
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """Calculate available capacity at a specific time, considering failures.
+            This is the raw available capacity before considering current pending usage.
+            """
+            base_capacity = self.inst.servers[server_id].capacity
+            if not self.inst.machine_failures:
+                return base_capacity
+
+            total_reduction = 0
+            for failure in self.inst.machine_failures:
+                if failure.machine_id != server_id:
+                    continue
+
+                if time < failure.failure_start:
+                    continue
+                elif time >= failure.failure_end:
+                    time_since_end = time - failure.failure_end
+                    recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                    reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                    total_reduction += reduction
+                else:
+                    time_since_start = time - failure.failure_start
+                    failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                    reduction = failure.capacity_reduction * failure_factor
+                    total_reduction += reduction
+
+            available = max(0, base_capacity - int(total_reduction))
+            return available
+
+        def _get_current_used_capacity(self, server_id: str, time: int) -> int:
+            """Get current capacity used on a server at a specific time."""
+            return self.capacity_usage[server_id].get(time, 0)
+=======
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99) # Lower score for higher priority
+
+            # NEW: Precompute available capacities to avoid repeated calculations
+            self.precomputed_available_capacity: Dict[str, Dict[int, int]] = self._precompute_all_capacities()
+
+        def _precompute_all_capacities(self) -> Dict[str, Dict[int, int]]:
+            """
+            Precompute the static available capacity for all local servers across the time horizon,
+            considering only machine failures. This avoids recalculating exponential functions repeatedly.
+            """
+            precomputed_caps = {}
+            for server_id, server in self.inst.servers.items():
+                if server.is_cloud: # Cloud servers have infinite capacity, don't precompute fixed values
+                    continue
+                precomputed_caps[server_id] = {}
+                for t in range(self.inst.time_horizon):
+                    base_capacity = server.capacity
+                    total_reduction = 0
+                    if self.inst.machine_failures:
+                        for failure in self.inst.machine_failures:
+                            if failure.machine_id != server_id:
+                                continue
+
+                            if t < failure.failure_start:
+                                continue
+                            elif t >= failure.failure_end:
+                                time_since_end = t - failure.failure_end
+                                recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                                reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                                total_reduction += reduction
+                            else: # During failure window
+                                time_since_start = t - failure.failure_start
+                                failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                                reduction = failure.capacity_reduction * failure_factor
+                                total_reduction += reduction
+                    precomputed_caps[server_id][t] = max(0, base_capacity - int(total_reduction))
+            return precomputed_caps
+
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """
+            Get available capacity at a specific time using precomputed values for local servers,
+            or infinite for cloud servers.
+            """
+            server = self.inst.servers[server_id]
+            if server.is_cloud:
+                return 999999999 # Effectively infinite
+
+            # Use precomputed value for local servers. Ensure time is within bounds of precomputed horizon.
+            if 0 <= time < self.inst.time_horizon:
+                return self.precomputed_available_capacity[server_id][time]
+
+            # If time is beyond precomputed horizon, assume full capacity if no ongoing failure.
+            # This simplifies logic, assuming failures resolve within TIME_HORIZON or new ones are not predicted.
+            return server.capacity
+
+        def _get_current_used_capacity(self, server_id: str, time: int) -> int:
+            """Get current capacity used on a server at a specific time."""
+            return self.capacity_usage[server_id].get(time, 0)
+>>>>>>> REPLACE
+</diff>

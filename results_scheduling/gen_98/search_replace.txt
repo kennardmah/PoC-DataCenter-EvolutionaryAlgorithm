@@ -1,0 +1,114 @@
+<flexible_local_lookahead>
+This improvement refines the selection of local machine slots for operations. Previously, for high-priority jobs, the scheduler would strictly pick the earliest available slot on any local machine, without considering if a slightly later slot on the same or another local machine might be significantly cheaper. For low-priority jobs, a fixed `LOW_PRIORITY_COST_LOOKAHEAD_WINDOW` was used.
+
+This change introduces a `GENERAL_COST_LOOKAHEAD_WINDOW` that applies to all jobs, regardless of priority. When searching for an available local slot, the scheduler will now consider all feasible slots within `earliest_start` and `earliest_start + GENERAL_COST_LOOKAHEAD_WINDOW` for each compatible local server.
+
+The selection of the "best" local slot among these candidates is then determined by a multi-criteria sort order:
+1.  **Earliest start time:** This remains the primary objective to minimize delays, especially for high-priority jobs.
+2.  **Lowest effective cost:** If multiple slots share the same earliest start time, the one with the lowest compute cost (adjusted by the `same_server_bonus_cost_reduction` if applicable) is preferred. This allows for strategic cost savings.
+3.  **Highest remaining capacity:** As a tie-breaker, slots that leave more capacity available on the machine after the operation are preferred. This helps reduce future contention.
+4.  **Server ID:** For deterministic tie-breaking.
+
+This approach balances the need for timely job completion (especially for critical tasks) with cost efficiency, allowing for minor, strategically chosen delays to achieve substantial cost reductions without violating hard constraints. It generalizes the cost lookahead mechanism previously only applied to low-priority jobs, providing more nuanced decision-making for all priorities.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        self.same_server_bonus_cost_reduction = 10.0 # NEW: Cost reduction for chaining critical/high jobs on same local server
+        self.LOW_PRIORITY_COST_LOOKAHEAD_WINDOW = 4 # hours. Allows searching a few hours ahead for cost savings for LOW priority jobs.
+        self._precompute_job_properties()
+        self._categorize_servers()
+        self.precomputed_available_capacity: Dict[str, Dict[int, int]] = self._precompute_all_capacities() # NEW: Precompute available capacities
+=======
+        self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        self.same_server_bonus_cost_reduction = 10.0 # Cost reduction for chaining critical/high jobs on same local server
+        self.GENERAL_COST_LOOKAHEAD_WINDOW = 2 # hours. Allows searching a few hours ahead for cost savings for all jobs.
+        self._precompute_job_properties()
+        self._categorize_servers()
+        self.precomputed_available_capacity: Dict[str, Dict[int, int]] = self._precompute_all_capacities() # Precompute available capacities
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+        candidates = [] # Stores (sort_key_tuple, start_time, server_id)
+
+        is_low_priority = (job.priority_score == self.priority_map["LOW"])
+
+        for server_id in local_servers:
+            # Determine the effective search end time for this server based on priority
+            # For high priorities: search for the absolute earliest slot starting from `earliest_start`.
+            # For low priorities: search within `earliest_start` up to `earliest_start + LOW_PRIORITY_COST_LOOKAHEAD_WINDOW`.
+
+            search_end_time_for_server = self.inst.time_horizon
+            if is_low_priority:
+                search_end_time_for_server = min(self.inst.time_horizon, earliest_start + self.LOW_PRIORITY_COST_LOOKAHEAD_WINDOW)
+
+            for start_time_candidate in range(earliest_start, search_end_time_for_server):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+                    effective_cost_candidate = cost_candidate
+                    if (job.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                        effective_cost_candidate -= self.same_server_bonus_cost_reduction
+
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    # Construct sort key based on priority
+                    if is_low_priority:
+                        # For LOW priority, prioritize cost, then earliest start, then remaining capacity
+                        sort_key = (effective_cost_candidate, start_time_candidate, -remaining_capacity_sum, server_id)
+                    else:
+                        # For higher priorities, prioritize earliest start, then cost, then remaining capacity
+                        sort_key = (start_time_candidate, effective_cost_candidate, -remaining_capacity_sum, server_id)
+
+                    candidates.append((sort_key, start_time_candidate, server_id))
+
+                    if not is_low_priority:
+                        # For higher priority jobs, once the earliest slot is found on this server, stop searching further in time on this server.
+                        # This ensures the global sorting prioritizes earliest possible start across servers.
+                        break # Break from this server's time search, move to next server
+
+        if candidates:
+            # Sort all collected candidates (globally across all servers and considered times)
+            best_candidate = sorted(candidates)[0]
+            final_start_time, final_server_id = best_candidate[1], best_candidate[2]
+            return (final_start_time, final_server_id)
+        return None
+=======
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+        candidates = [] # Stores (sort_key_tuple, start_time, server_id)
+
+        # The effective search end time for local slots, allowing for a small lookahead for cost optimization
+        search_end_time_for_slots = min(self.inst.time_horizon, earliest_start + self.GENERAL_COST_LOOKAHEAD_WINDOW)
+
+        for server_id in local_servers:
+            for start_time_candidate in range(earliest_start, search_end_time_for_slots):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+                    effective_cost_candidate = cost_candidate
+
+                    # Apply bonus for chaining critical/high jobs on the same local server
+                    if (job.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                        effective_cost_candidate -= self.same_server_bonus_cost_reduction
+
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    # Sort key prioritizes: (1) earliest start time, (2) lowest effective cost,
+                    # (3) highest remaining capacity, (4) server_id for determinism.
+                    sort_key = (start_time_candidate, effective_cost_candidate, -remaining_capacity_sum, server_id)
+                    candidates.append((sort_key, start_time_candidate, server_id))
+
+        if candidates:
+            # Sort all collected candidates globally across all servers and considered times
+            best_candidate = sorted(candidates)[0]
+            final_start_time, final_server_id = best_candidate[1], best_candidate[2]
+            return (final_start_time, final_server_id)
+        return None
+>>>>>>> REPLACE
+</DIFF>

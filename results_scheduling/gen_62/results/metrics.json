@@ -1,0 +1,40 @@
+{
+    "combined_score": -5693.0,
+    "public": {
+        "multi_scenario": true,
+        "weighted_score": 5693.0,
+        "scenarios": {
+            "normal": {
+                "schedule_str": "  J1: M5@t=0 \u2192 M2@t=2 (done: t=5)\n  J10: M5@t=11 \u2192 M2@t=13 \u2192 M3@t=16 (done: t=18)\n  J11: M5@t=13 \u2192 M2@t=14 \u2192 M3@t=16 (done: t=18)\n  J12: M4@t=14 \u2192 M1@t=16 \u2192 M2@t=18 (done: t=19)\n  J13: M5@t=17 \u2192 M2@t=18 \u2192 M4@t=21 (done: t=23)\n  J14: M5@t=18 \u2192 M2@t=19 \u2192 M3@t=21 (done: t=22)\n  J2: M5@t=1 \u2192 M1@t=2 (done: t=7)\n  J3: M5@t=2 \u2192 M3@t=3 \u2192 M2@t=6 (done: t=7)\n  J4: M2@t=3 \u2192 M3@t=5 (done: t=6)\n  J5: M5@t=6 \u2192 M1@t=7 \u2192 M2@t=10 (done: t=12)\n  J6: M5@t=7 \u2192 M2@t=8 \u2192 M3@t=10 (done: t=12)\n  J7: M4@t=8 \u2192 M2@t=10 \u2192 M3@t=11 (done: t=12)\n  J8: M4@t=9 \u2192 M4@t=12 (done: t=14)\n  J9: M5@t=10 \u2192 M3@t=12 \u2192 M2@t=16 (done: t=18)",
+                "num_jobs": 14,
+                "is_valid": true
+            },
+            "earthquake": {
+                "schedule_str": "  E1: M5@t=10 \u2192 M1@t=13 \u2192 M3@t=16 (done: t=18)\n  E2: M4@t=10 \u2192 M2@t=11 \u2192 M3@t=15 (done: t=16)\n  E3: M5@t=10 \u2192 M2@t=11 \u2192 M3@t=13 (done: t=15)\n  E4: M3@t=18 \u2192 M1@t=21 (done: t=23)\n  E5: M4@t=11 \u2192 M2@t=13 \u2192 M3@t=15 (done: t=16)\n  E6: M5@t=12 \u2192 M2@t=13 \u2192 M4@t=18 (done: t=19)\n  E7: M1@t=15 \u2192 M3@t=21 (done: t=23)\n  E8: M5@t=13 \u2192 C3@t=15 (done: t=18)\n  E9: M4@t=18 \u2192 M2@t=20 \u2192 M3@t=22 (done: t=23)\n  J1: M5@t=0 \u2192 M2@t=2 (done: t=5)\n  J10: M5@t=11 \u2192 M2@t=13 \u2192 M3@t=16 (done: t=18)\n  J11: M5@t=13 \u2192 M2@t=14 \u2192 M3@t=18 (done: t=20)\n  J12: M4@t=16 \u2192 M1@t=18 \u2192 M2@t=20 (done: t=21)\n  J13: M5@t=17 \u2192 M2@t=18 \u2192 M4@t=21 (done: t=23)\n  J14: M5@t=18 \u2192 M2@t=19 \u2192 M3@t=21 (done: t=22)\n  J2: M5@t=1 \u2192 M1@t=2 (done: t=7)\n  J3: M5@t=2 \u2192 M3@t=3 \u2192 M2@t=6 (done: t=7)\n  J4: M2@t=3 \u2192 M3@t=5 (done: t=6)\n  J5: M5@t=6 \u2192 M1@t=7 \u2192 M2@t=10 (done: t=12)\n  J6: M5@t=7 \u2192 M2@t=8 \u2192 M3@t=10 (done: t=12)\n  J7: M4@t=8 \u2192 M2@t=10 \u2192 M3@t=11 (done: t=12)\n  J8: M4@t=13 \u2192 M4@t=16 (done: t=18)\n  J9: M5@t=10 \u2192 M3@t=23 \u2192 C2@t=27 (done: t=29)",
+                "num_jobs": 23,
+                "is_valid": true
+            }
+        }
+    },
+    "private": {
+        "scenarios": {
+            "normal": {
+                "score": 4180.0,
+                "compute_cost": 4180.0,
+                "delay_penalty": 0.0,
+                "num_violations": 0
+            },
+            "earthquake": {
+                "score": 11745.0,
+                "compute_cost": 8365.0,
+                "delay_penalty": 676.0,
+                "num_violations": 0
+            }
+        }
+    },
+    "execution_time_mean": 0.013682262993825134,
+    "execution_time_std": 0.0,
+    "num_valid_runs": 1,
+    "num_invalid_runs": 0,
+    "all_validation_errors": []
+}

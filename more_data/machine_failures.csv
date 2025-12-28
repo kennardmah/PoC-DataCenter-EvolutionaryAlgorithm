@@ -1,0 +1,9 @@
+failure_scenario,machine_id,failure_start,failure_end,capacity_reduction,failure_rate,recovery_rate,reason
+earthquake_moderate,M1,8,12,10,0.8,0.6,Earthquake - GPU cooling system damage
+earthquake_moderate,M3,8,14,5,0.7,0.5,Earthquake - Memory module damage
+tsunami_warning,M4,5,10,3,0.9,0.7,Tsunami evacuation - Facility access restricted
+power_outage,M2,15,18,20,1.0,0.8,Rolling blackout - Circuit failure
+power_outage,M5,15,18,15,1.0,0.8,Rolling blackout - Ingest station offline
+typhoon_severe,M2,10,20,25,0.6,0.4,Typhoon - Major cooling failure
+typhoon_severe,M3,12,22,7,0.5,0.4,Typhoon - Water damage
+nuclear_alert,M4,0,8,2,0.9,0.9,Nuclear alert - Security protocol overhead

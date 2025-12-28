@@ -1,0 +1,72 @@
+<add_resilience_tie_breaker>
+Introduces a tertiary tie-breaking mechanism for local server selection. When multiple local servers offer the same earliest start time and the same minimum compute cost for an operation, the scheduler will now prefer the server that maintains the highest minimum *free capacity* (available capacity minus current usage and projected failure-induced reductions) during the operation's entire duration. This aims to improve robustness, especially in failure scenarios, by proactively choosing more resilient machines to reduce the likelihood of future capacity violations and costly cloud relocations.
+</add_resilience_tie_breaker>
+
+<DIFF>
+<<<<<<< SEARCH
+            # GREEDY DECISION: Try local machines, finding next available slot
+            best_local_start = None
+            best_local_server = None
+            best_local_cost = float('inf') # Initialize best cost for tie-breaking
+
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, try local first
+
+                # Find the earliest time this server can accommodate the operation
+                for start_time in range(earliest_start, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_cost(server_id, start_time, op.duration)
+
+                        # Primary sort by earliest start_time, secondary by lowest cost
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            best_local_cost = current_op_cost
+                        elif start_time == best_local_start: # If same earliest start time, compare costs
+                            if current_op_cost < best_local_cost:
+                                best_local_server = server_id
+                                best_local_cost = current_op_cost
+                        break  # Found earliest slot on this server (or a better cost at the same earliest time)
+=======
+            # GREEDY DECISION: Try local machines, finding next available slot
+            best_local_start = None
+            best_local_server = None
+            best_local_cost = float('inf') # Initialize best cost for tie-breaking
+            best_local_min_free_capacity_during_op = -1 # Initialize with a low value; higher is better for tie-breaking
+
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, try local first
+
+                # Find the earliest time this server can accommodate the operation
+                for start_time in range(earliest_start, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_cost(server_id, start_time, op.duration)
+
+                        # Calculate a resilience metric: minimum available free capacity during operation
+                        # This considers capacity AFTER existing usage and potential failure-induced reductions.
+                        current_min_free_capacity_during_op = float('inf')
+                        for t_op in range(start_time, start_time + op.duration):
+                            # Calculate the capacity that would be left if this operation were scheduled
+                            remaining_capacity = get_available_capacity(server_id, t_op) - capacity_usage[server_id].get(t_op, 0)
+                            current_min_free_capacity_during_op = min(current_min_free_capacity_during_op, remaining_capacity)
+
+                        # Primary sort by earliest start_time, secondary by lowest cost, tertiary by highest min_free_capacity
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            best_local_cost = current_op_cost
+                            best_local_min_free_capacity_during_op = current_min_free_capacity_during_op
+                        elif start_time == best_local_start: # If same earliest start time, compare costs
+                            if current_op_cost < best_local_cost:
+                                best_local_server = server_id
+                                best_local_cost = current_op_cost
+                                best_local_min_free_capacity_during_op = current_min_free_capacity_during_op
+                            elif current_op_cost == best_local_cost: # If same earliest start time AND same cost, compare min free capacity
+                                if current_min_free_capacity_during_op > best_local_min_free_capacity_during_op:
+                                    best_local_server = server_id
+                                    best_local_min_free_capacity_during_op = current_min_free_capacity_during_op
+                        break  # Found earliest slot on this server (or a better cost/resilience at the same earliest time)
+>>>>>>> REPLACE
+</DIFF>

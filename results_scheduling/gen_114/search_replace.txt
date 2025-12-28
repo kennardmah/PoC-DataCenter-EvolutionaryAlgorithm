@@ -1,0 +1,216 @@
+<NAME>
+proactive_capacity_sorting
+</NAME>
+
+<DESCRIPTION>
+This set of changes enhances the server selection process by incorporating a more proactive "health score" for local machines into the sorting mechanism.
+
+The key improvements are:
+1.  **New Helper Function `_get_projected_min_available_capacity_over_duration`**: This function is introduced within the `Scheduler` class. It calculates the minimum *base* capacity available on a given server over a specified future time window (`start_time` to `start_time + duration`), strictly considering only machine failures and recoveries, not existing capacity usage. This allows the scheduler to assess a server's inherent resilience to upcoming failures.
+2.  **Enhanced Server Sorting in `_get_servers_by_type_sorted`**: The `_get_servers_by_type_sorted` method's signature is updated to accept `op_duration`. The sorting key for local servers is then modified to use the output of `_get_projected_min_available_capacity_over_duration`. This means local servers are now prioritized not just by their instantaneous available capacity and current cost, but also by their projected minimum available capacity throughout the *entire duration* of the operation being considered. Servers that are more resilient to future failures (i.e., maintain higher minimum capacity) will be ranked higher.
+3.  **Updated Call Site**: The call to `_get_servers_by_type_sorted` in `run_scheduling` is updated to pass the `op.duration`, enabling the more sophisticated sorting logic.
+
+This change aims to improve the robustness of schedules, especially in earthquake scenarios, by proactively guiding operations towards local machines that are predicted to be less affected by capacity degradation during their execution, thereby reducing the likelihood of costly cloud relocations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """Calculate available capacity at a specific time, considering failures."""
+            base_capacity = self.inst.servers[server_id].capacity
+            if not self.inst.machine_failures:
+                return base_capacity
+
+            total_reduction = 0
+            for failure in self.inst.machine_failures:
+                if failure.machine_id != server_id:
+                    continue
+
+                if time < failure.failure_start:
+                    continue
+                elif time >= failure.failure_end:
+                    time_since_end = time - failure.failure_end
+                    recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                    reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                    total_reduction += reduction
+                else:
+                    time_since_start = time - failure.failure_start
+                    failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                    reduction = failure.capacity_reduction * failure_factor
+                    total_reduction += reduction
+
+            available = max(0, base_capacity - int(total_reduction))
+            return available
+
+        def _get_current_used_capacity(self, server_id: str, time: int) -> int:
+            """Get current capacity used on a server at a specific time."""
+            return self.capacity_usage[server_id].get(time, 0)
+
+        def _has_capacity(self, server_id: str, start: int, duration: int, capacity_req: int) -> bool:
+            """Check if server has enough capacity for the entire operation duration."""
+            for t in range(start, start + duration):
+                used = self._get_current_used_capacity(server_id, t)
+                available = self._get_available_capacity(server_id, t)
+                if used + capacity_req > available:
+                    return False
+            return True
+
+        def _calculate_min_free_capacity_during_op(self, server_id: str, start: int, duration: int, capacity_req: int) -> int:
+            """
+            Calculates the minimum remaining free capacity on a server during an operation's execution,
+            assuming the operation is placed there. A higher value indicates more resilience.
+            """
+            min_free_capacity = float('inf')
+            for t in range(start, start + duration):
+                used_at_t = self._get_current_used_capacity(server_id, t)
+                available_at_t = self._get_available_capacity(server_id, t)
+                remaining_after_op = available_at_t - (used_at_t + capacity_req)
+                min_free_capacity = min(min_free_capacity, remaining_after_op)
+            return int(min_free_capacity)
+
+        def _get_servers_by_type_sorted(self, server_type: str, current_time: int) -> List[str]:
+            """
+            Get servers of a given type, sorted by capacity health (less degradation)
+            and then by current hourly cost. Local servers always preferred.
+            """
+            compatible_local = []
+            compatible_cloud = []
+            for s_id, server in self.inst.servers.items():
+                if server.server_type == server_type:
+                    if server.is_cloud:
+                        compatible_cloud.append(s_id)
+                    else:
+                        compatible_local.append(s_id)
+
+            # Use min(current_time, self.inst.time_horizon - 1) for cost_t to avoid index error
+            local_cost_time = min(current_time, self.inst.time_horizon - 1)
+
+            # Sort local: Higher available capacity first, then lower cost
+            compatible_local.sort(key=lambda s_id: (
+                -self._get_available_capacity(s_id, current_time),  # Negate for descending sort (more capacity is better)
+                self.inst.server_cost[s_id][local_cost_time % self.inst.time_horizon]
+            ))
+
+            # Sort cloud: Lower cost first (capacity is infinite)
+            compatible_cloud.sort(key=lambda s_id: self.inst.server_cost[s_id][local_cost_time % self.inst.time_horizon])
+
+            # Prioritize local over cloud for initial search order
+            return compatible_local + compatible_cloud
+=======
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """Calculate available capacity at a specific time, considering failures."""
+            base_capacity = self.inst.servers[server_id].capacity
+            if not self.inst.machine_failures:
+                return base_capacity
+
+            total_reduction = 0
+            for failure in self.inst.machine_failures:
+                if failure.machine_id != server_id:
+                    continue
+
+                if time < failure.failure_start:
+                    continue
+                elif time >= failure.failure_end:
+                    time_since_end = time - failure.failure_end
+                    recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                    reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                    total_reduction += reduction
+                else:
+                    time_since_start = time - failure.failure_start
+                    failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                    reduction = failure.capacity_reduction * failure_factor
+                    total_reduction += reduction
+
+            available = max(0, base_capacity - int(total_reduction))
+            return available
+
+        def _get_projected_min_available_capacity_over_duration(self, server_id: str, start_time: int, duration: int) -> int:
+            """
+            Predicts the minimum *base* capacity available for a server over a future time window,
+            considering only machine failures and not current usage. This helps identify resilient machines.
+            """
+            if self.inst.servers[server_id].is_cloud:
+                return float('inf') # Cloud has infinite capacity
+
+            min_proj_capacity = self.inst.servers[server_id].capacity # Start with full capacity
+            for t in range(start_time, start_time + duration):
+                # We want base capacity minus reduction due to failure, NOT considering current usage.
+                # self._get_available_capacity already does this.
+                proj_available_at_t = self._get_available_capacity(server_id, t)
+                min_proj_capacity = min(min_proj_capacity, proj_available_at_t)
+            return int(min_proj_capacity)
+
+        def _get_current_used_capacity(self, server_id: str, time: int) -> int:
+            """Get current capacity used on a server at a specific time."""
+            return self.capacity_usage[server_id].get(time, 0)
+
+        def _has_capacity(self, server_id: str, start: int, duration: int, capacity_req: int) -> bool:
+            """Check if server has enough capacity for the entire operation duration."""
+            for t in range(start, start + duration):
+                used = self._get_current_used_capacity(server_id, t)
+                available = self._get_available_capacity(server_id, t)
+                if used + capacity_req > available:
+                    return False
+            return True
+
+        def _calculate_min_free_capacity_during_op(self, server_id: str, start: int, duration: int, capacity_req: int) -> int:
+            """
+            Calculates the minimum remaining free capacity on a server during an operation's execution,
+            assuming the operation is placed there. A higher value indicates more resilience.
+            """
+            min_free_capacity = float('inf')
+            for t in range(start, start + duration):
+                used_at_t = self._get_current_used_capacity(server_id, t)
+                available_at_t = self._get_available_capacity(server_id, t)
+                remaining_after_op = available_at_t - (used_at_t + capacity_req)
+                min_free_capacity = min(min_free_capacity, remaining_after_op)
+            return int(min_free_capacity)
+
+        def _get_servers_by_type_sorted(self, server_type: str, current_time: int, op_duration: int) -> List[str]:
+            """
+            Get servers of a given type, sorted by projected capacity health (less degradation over op_duration)
+            and then by current hourly cost. Local servers always preferred.
+            """
+            compatible_local = []
+            compatible_cloud = []
+            for s_id, server in self.inst.servers.items():
+                if server.server_type == server_type:
+                    if server.is_cloud:
+                        compatible_cloud.append(s_id)
+                    else:
+                        compatible_local.append(s_id)
+
+            # Use min(current_time, self.inst.time_horizon - 1) for cost_t to avoid index error
+            local_cost_time = min(current_time, self.inst.time_horizon - 1)
+
+            # Sort local: Higher projected minimum available capacity over op_duration first, then lower cost
+            compatible_local.sort(key=lambda s_id: (
+                -self._get_projected_min_available_capacity_over_duration(s_id, current_time, op_duration),  # Negate for descending sort (more capacity is better)
+                self.inst.server_cost[s_id][local_cost_time % self.inst.time_horizon]
+            ))
+
+            # Sort cloud: Lower cost first (capacity is infinite)
+            compatible_cloud.sort(key=lambda s_id: self.inst.server_cost[s_id][local_cost_time % self.inst.time_horizon])
+
+            # Prioritize local over cloud for initial search order
+            return compatible_local + compatible_cloud
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+                    # Get all compatible servers, sorted by heuristic preference (local, then cloud, by health/cost)
+                    compatible_servers_sorted = self._get_servers_by_type_sorted(op.server_type, current_op_start_time)
+
+                    # Determine search end time for local machines: balance finding cheaper slots with avoiding excessive lookahead
+                    search_end_time = max(current_op_start_time + op.duration, # At least enough time for current op
+                                          min(self.inst.time_horizon * self.MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER, job.deadline + op.duration + self.MAX_LOCAL_SEARCH_WINDOW_ADD))
+=======
+                    # Get all compatible servers, sorted by heuristic preference (local, then cloud, by health/cost)
+                    compatible_servers_sorted = self._get_servers_by_type_sorted(op.server_type, current_op_start_time, op.duration)
+
+                    # Determine search end time for local machines: balance finding cheaper slots with avoiding excessive lookahead
+                    search_end_time = max(current_op_start_time + op.duration, # At least enough time for current op
+                                          min(self.inst.time_horizon * self.MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER, job.deadline + op.duration + self.MAX_LOCAL_SEARCH_WINDOW_ADD))
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,46 @@
+<local_server_tie_breaking_by_cost>
+Local Server Tie-breaking by Minimal Compute Cost for Same Earliest Start
+
+This enhancement refines the local machine scheduling logic. When multiple local servers can accommodate an operation at the *same earliest start time*, the algorithm will now choose the server that incurs the *lowest compute cost* for that specific operation. This introduces a subtle cost-awareness early in the decision process, which can lead to overall cost reductions without sacrificing the primary goal of minimizing delays.
+</local_server_tie_breaking_by_cost>
+
+<DIFF>
+<<<<<<< SEARCH
+            best_local_start = None
+            best_local_server = None
+
+            # 1. Try to schedule on a local machine (prefer local to minimize cost)
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+            for server_id in local_servers:
+                # Find the earliest time this local server can accommodate the operation
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                        break  # Found earliest slot on this server, no need to look further for THIS server
+=======
+            best_local_start = None
+            best_local_server = None
+            min_local_cost = float('inf') # Track cost for tie-breaking
+
+            # 1. Try to schedule on a local machine (prefer local to minimize cost)
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+            for server_id in local_servers:
+                # Find the earliest time this local server can accommodate the operation
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_compute_cost(server_id, start_time, op.duration)
+
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            min_local_cost = current_op_cost
+                        elif start_time == best_local_start:
+                            # Tie-breaking: if same earliest start, choose lower cost
+                            if current_op_cost < min_local_cost:
+                                best_local_server = server_id
+                                min_local_cost = current_op_cost
+                        break  # Found earliest slot on this server, no need to look further for THIS server
+>>>>>>> REPLACE
+</DIFF>

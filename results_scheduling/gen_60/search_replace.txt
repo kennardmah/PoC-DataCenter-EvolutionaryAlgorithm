@@ -1,0 +1,131 @@
+<same_server_chaining_bonus>
+Apply a significant cost reduction (bonus) to critical and high-priority jobs if their operations can be scheduled on the same local machine as the preceding operation. This incentivizes chaining operations for critical workloads on the same server to minimize internal job delays, aligning with the robustness and priority objectives.
+
+The `JobShopScheduler` class will be updated:
+1.  A new instance variable `same_server_bonus_cost_reduction` will be introduced to quantify the bonus.
+2.  In `_find_best_local_slot`, when evaluating local server candidates:
+    *   If the current job is `CRITICAL` or `HIGH` priority (checked via `job.priority_score <= self.priority_map["HIGH"]`), AND
+    *   The candidate server is the `last_scheduled_server` for this job,
+    *   Then, the `effective_cost_candidate` will be reduced by `same_server_bonus_cost_reduction`. This makes that candidate appear cheaper in the sorting logic, thus prioritizing it.
+3.  The `candidates` tuple in `_find_best_local_slot` will be updated to reflect this change, removing the now redundant `same_server_penalty` element and thus having one less element, requiring adjustment in the `return` statement index.
+
+This change aims to improve the performance of high-priority jobs by ensuring their operations are tightly coupled, reducing overall completion time and thus delay penalties, particularly crucial in emergency scenarios.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        self.schedule: Schedule = {}
+
+        self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        self._precompute_job_properties()
+        self._categorize_servers()
+        self.precomputed_available_capacity: Dict[str, Dict[int, int]] = self._precompute_all_capacities() # NEW: Precompute available capacities
+
+    def _precompute_job_properties(self):
+        """Pre-calculate total duration and priority scores for each job."""
+=======
+        self.schedule: Schedule = {}
+
+        self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        self.same_server_bonus_cost_reduction = 10.0 # NEW: Cost reduction for chaining critical/high jobs on same local server
+        self._precompute_job_properties()
+        self._categorize_servers()
+        self.precomputed_available_capacity: Dict[str, Dict[int, int]] = self._precompute_all_capacities() # NEW: Precompute available capacities
+
+    def _precompute_job_properties(self):
+        """Pre-calculate total duration and priority scores for each job."""
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        """
+        Finds the best local slot based on earliest start, then cost, then remaining capacity,
+        then preference for same server for critical jobs.
+        Returns (start_time, server_id) or None.
+        """
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+
+        candidates = [] # Stores (start_time, cost, -remaining_cap_sum, same_server_penalty, server_id)
+
+        for server_id in local_servers:
+            # Prioritize local servers that are less congested in the *immediate future*
+            # This is a heuristic to try to spread load. Reorder based on anticipated capacity usage.
+            # However, for simplicity and performance with existing precomputation, we iterate as is.
+            # A more advanced lookahead would involve estimating future availability.
+
+            for start_time_candidate in range(earliest_start, self.inst.time_horizon):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                    # Calculate remaining capacity sum across the duration
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    # Preference for same server for CRITICAL/HIGH priority jobs (Recommendation 5)
+                    same_server_penalty = 1 if server_id != last_scheduled_server else 0
+                    if job.priority_score > self.priority_map["HIGH"]: # Only apply for CRITICAL/HIGH
+                        same_server_penalty = 1 # Not a critical/high job, no preference for same server
+
+                    candidates.append((
+                        start_time_candidate,
+                        cost_candidate,
+                        -remaining_capacity_sum, # Negate to sort descending (more remaining is better)
+                        same_server_penalty,
+                        server_id # Last for deterministic tie-breaking by ID
+                    ))
+                    break # Found earliest slot for THIS server, move to next server
+
+        if candidates:
+            # Sort candidates based on criteria:
+            # 1. Earliest start_time (ascending)
+            # 2. Lowest cost (ascending)
+            # 3. Highest remaining capacity sum (descending, hence -remaining_cap_sum ascending)
+            # 4. Same server preference (0 before 1) for critical/high jobs
+            # 5. Server ID (ascending) for deterministic tie-breaking
+            best_candidate = sorted(candidates)[0]
+            return (best_candidate[0], best_candidate[4]) # Return (start_time, server_id)
+        return None
+=======
+        """
+        Finds the best local slot based on earliest start, then effective cost (including same-server bonus),
+        then remaining capacity.
+        Returns (start_time, server_id) or None.
+        """
+        local_servers = self.local_servers_by_type.get(op.server_type, [])
+
+        candidates = [] # Stores (start_time, effective_cost_for_op, -remaining_cap_sum, server_id)
+
+        for server_id in local_servers:
+            for start_time_candidate in range(earliest_start, self.inst.time_horizon):
+                if self._has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                    cost_candidate = self._calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+
+                    effective_cost_candidate = cost_candidate
+                    # Apply same-server chaining bonus for CRITICAL/HIGH priority jobs (Recommendation 5)
+                    # Note: priority_map values are 0 (CRITICAL), 1 (HIGH), etc. Lower value means higher priority.
+                    if (job.priority_score <= self.priority_map["HIGH"]) and (server_id == last_scheduled_server):
+                        effective_cost_candidate -= self.same_server_bonus_cost_reduction
+
+                    # Calculate remaining capacity sum across the duration (Recommendation 4)
+                    remaining_capacity_sum = self._calculate_remaining_capacity_sum(
+                        server_id, start_time_candidate, op.duration, op.capacity_required
+                    )
+
+                    candidates.append((
+                        start_time_candidate,
+                        effective_cost_candidate,
+                        -remaining_capacity_sum, # Negate to sort descending (more remaining is better)
+                        server_id # Last for deterministic tie-breaking by ID
+                    ))
+                    break # Found earliest slot for THIS server, move to next server
+
+        if candidates:
+            # Sort candidates based on criteria:
+            # 1. Earliest start_time (ascending)
+            # 2. Lowest effective cost (ascending)
+            # 3. Highest remaining capacity sum (descending, hence -remaining_cap_sum ascending)
+            # 4. Server ID (ascending) for deterministic tie-breaking
+            best_candidate = sorted(candidates)[0]
+            # The server_id is now the 4th element (index 3) in the 4-tuple.
+            return (best_candidate[0], best_candidate[3]) # Return (start_time, server_id)
+        return None
+>>>>>>> REPLACE
+</same_server_chaining_bonus>

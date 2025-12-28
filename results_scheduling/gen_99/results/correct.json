@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "name 'get_servers_by_type' is not defined"
+}

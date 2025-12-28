@@ -1,0 +1,64 @@
+<job_last_local_server_init>
+Initializes a dictionary `job_last_local_server` to track the last local machine used by each job. This is a prerequisite for implementing sticky scheduling, ensuring that the information about a job's previous server assignment is stored and accessible for subsequent operations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    schedule = {}
+=======
+    schedule = {}
+
+    # Track the last local server used by each job for sticky scheduling
+    job_last_local_server = {j_id: None for j_id in inst.jobs}
+>>>>>>> REPLACE
+</DIFF>
+
+<stickyscheduling_prioritize_local>
+Implements "Sticky Scheduling" by prioritizing the local server that was used for the immediately preceding operation of the same job. If that server is compatible and available, it is moved to the front of the `local_servers_for_type` list, giving it preferential treatment during the earliest-slot search. This promotes sequential operations of a job running on the same machine, potentially reducing overhead and improving throughput.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # --- Start: Refined local machine search ---
+            local_servers_for_type = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+
+            # Store all valid local placement candidates (start_time, cost_for_op, server_id)
+            # This allows sorting based on these criteria to pick the truly "best" local slot.
+            local_candidates = []
+=======
+            # --- Start: Refined local machine search ---
+            # Get local servers of the required type
+            local_servers_for_type = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+
+            # Recommendation: Sticky scheduling - if previous operation used a local machine of the same type,
+            # prioritize that machine for the current operation.
+            last_server_for_this_job = job_last_local_server[job_id]
+            if last_server_for_this_job and last_server_for_this_job in local_servers_for_type:
+                # Move the last used server to the front of the list for prioritization
+                local_servers_for_type.remove(last_server_for_this_job)
+                local_servers_for_type.insert(0, last_server_for_this_job)
+
+            # Store all valid local placement candidates (start_time, cost_for_op, server_id)
+            # This allows sorting based on these criteria to pick the truly "best" local slot.
+            local_candidates = []
+>>>>>>> REPLACE
+</DIFF>
+
+<stickyscheduling_update_last_server>
+Updates the `job_last_local_server` for the current job when a local server is successfully chosen for an operation. This ensures that the sticky scheduling logic in the next operation of the same job has the most up-to-date information about the previously used local machine, facilitating consistent resource allocation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
+                current_op_start_time = best_local_start + op.duration
+                job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+                scheduled = True
+=======
+                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
+                current_op_start_time = best_local_start + op.duration
+                job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+                job_last_local_server[job_id] = best_local_server # Update last used local server for this job
+                scheduled = True
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,38 @@
+<NAME>
+add_math_import_top
+</NAME>
+
+<DESCRIPTION>
+The previous attempt to revert to a better performing scheduler failed because `math` was not imported globally within the `EVOLVE-BLOCK`. The target `construct_schedule` assumes `math` is available. This change adds `import math` to the top of the `EVOLVE-BLOCK` to ensure it's accessible by all functions within it, resolving a potential import error for the subsequent replacement.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+import os
+
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+
+TIME_HORIZON = 24
+=======
+import os
+import math # Added for exponential functions in get_available_capacity and failure penalty
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+
+TIME_HORIZON = 24
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+revert_to_multi_objective_scheduler
+</NAME>
+
+<DESCRIPTION>
+This edit replaces the current `construct_schedule` function with a previously evolved version that achieved a significantly better combined score (-6427.00 vs. current -6169.00). This version incorporates advanced strategies:
+
+1.  **Multi-objective Cost Evaluation (`_get_op_schedule_cost`)**: This helper function estimates the full objective cost of an operation, including compute cost, weighted future delay penalties, and a proactive

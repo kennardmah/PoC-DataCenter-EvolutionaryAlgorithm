@@ -1,0 +1,61 @@
+<add_resilience_tiebreaking>
+Adds a resilience tie-breaking mechanism to local server selection. When multiple local servers can start an operation at the same earliest time and incur the same cost, the scheduler will now prefer the server with higher *current available capacity*. This prioritizes healthier machines, especially beneficial in earthquake scenarios where machine failures are present, making the schedule more robust. The `max_local_resilience` variable tracks the highest available capacity encountered for tied options.
+</add_resilience_tiebreaking>
+
+<DIFF>
+<<<<<<< SEARCH
+            best_local_start = None
+            best_local_server = None
+            min_local_cost = float('inf') # Track cost for tie-breaking
+
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, try local first
+
+                # Find the earliest time this server can accommodate the operation
+                for start_time in range(earliest_start, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_cost(server_id, start_time, op.duration)
+
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            min_local_cost = current_op_cost
+                        elif start_time == best_local_start and current_op_cost < min_local_cost:
+                            # Tie-breaking: if same earliest start, pick lower cost
+                            best_local_server = server_id
+                            min_local_cost = current_op_cost
+                        break  # Found earliest slot on this server, move to next server
+=======
+            best_local_start = None
+            best_local_server = None
+            min_local_cost = float('inf') # Track cost for tie-breaking
+            max_local_resilience = -1.0 # Track available capacity for resilience tie-breaking (higher is better)
+
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, try local first
+
+                # Find the earliest time this server can accommodate the operation
+                for start_time in range(earliest_start, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_cost(server_id, start_time, op.duration)
+                        current_resilience = get_available_capacity(server_id, start_time) # Use available capacity as resilience metric
+
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            min_local_cost = current_op_cost
+                            max_local_resilience = current_resilience
+                        elif start_time == best_local_start: # Same earliest start
+                            if current_op_cost < min_local_cost: # Better cost
+                                best_local_server = server_id
+                                min_local_cost = current_op_cost
+                                max_local_resilience = current_resilience
+                            elif current_op_cost == min_local_cost: # Same cost, now check resilience
+                                if current_resilience > max_local_resilience: # Better resilience
+                                    best_local_server = server_id
+                                    max_local_resilience = current_resilience
+                        break  # Found earliest slot on this server, move to next server
+>>>>>>> REPLACE
+</DIFF>

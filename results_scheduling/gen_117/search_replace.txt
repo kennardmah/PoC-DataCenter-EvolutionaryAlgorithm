@@ -1,0 +1,25 @@
+<NAME>
+server_affinity_bonus
+</NAME>
+
+<DESCRIPTION>
+This modification introduces a "server affinity bonus" to the objective function. When an operation is scheduled, if it can be placed on the *same server* as the immediately preceding operation of the same job, a small cost reduction (SERVER_AFFINITY_BONUS) is applied. This incentivizes job locality, which can reduce implicit overheads such as data transfer and context switching between sequential operations of a job. The bonus acts as a tie-breaker or a slight preference in cases where other costs are similar, guiding the scheduler to group operations of a job on the same resource where efficient. This directly implements Recommendation 4 from the suggested improvements.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    MAX_LOCAL_SEARCH_WINDOW_ADD = 10 # Small buffer for local scheduling slightly past horizon if needed
+=======
+    MAX_LOCAL_SEARCH_WINDOW_ADD = 10 # Small buffer for local scheduling slightly past horizon if needed
+
+    # Server affinity bonus (a cost reduction)
+    SERVER_AFFINITY_BONUS = 5.0 # Value to subtract from cost if previous operation on same server
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+            cost_t = t % inst.time_horizon
+            op_compute_cost += inst.server_cost[server_id][cost_t]
+
+        # Estimate remaining duration of the job after this operation
+        remaining_operations_duration = sum(o

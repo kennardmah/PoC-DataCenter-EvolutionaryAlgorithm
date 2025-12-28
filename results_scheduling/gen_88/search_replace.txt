@@ -1,0 +1,35 @@
+<NAME>
+add_math_and_tuple_imports
+</NAME>
+
+<DESCRIPTION>
+Adds the `math` module as a top-level import and `Tuple` to the `typing` import. This prepares the environment for the `JobShopScheduler` class by making mathematical functions (like `math.exp`) and the `Tuple` type hint broadly accessible, avoiding repeated or internal imports within the new class methods.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional
+import copy
+import os
+=======
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional, Tuple
+import copy
+import os
+import math # Added for exponential functions and other math operations in scheduler
+>>>>>>> REPLACE
+</DIFF>
+
+---
+
+<NAME>
+refactor_to_jobshopscheduler_with_lookahead
+</NAME>
+
+<DESCRIPTION>
+Refactors the `construct_schedule` function into a `JobShopScheduler` class. This improves code organization, reusability, and maintainability.
+
+The `JobShopScheduler` class implements the following enhancements:
+1.  **Centralized State Management**: `capacity_usage` and `job_available_time` are managed as instance attributes, simplifying state passing.
+2.  **Precomputation**: `_precompute_job_properties`, `_categorize_servers`, and `_precompute_all_capacities` are introduced to perform expensive lookups and calculations once during

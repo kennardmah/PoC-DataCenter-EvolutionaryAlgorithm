@@ -1,0 +1,122 @@
+<NAME>
+precompute_capacity_cache_v2
+</NAME>
+
+<DESCRIPTION>
+This is a corrected version of the previous attempt to introduce precomputation and caching for available capacities for local servers within the `Scheduler` class. The previous edit failed due to a mismatch in the `SEARCH` block.
+
+This change aims to significantly reduce redundant calculations of exponential failure/recovery curves in `_get_available_capacity`, which is frequently invoked. By precomputing these values once at the `Scheduler`'s initialization for an extended time horizon (2x the instance's `time_horizon`), the scheduler can quickly access capacity information from a cache. This directly implements Recommendation 3, optimizing performance and potentially allowing for better scheduling decisions within the time limits. The `_get_available_capacity` method will now use this cache for local servers and continue to return a large constant for cloud servers.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99) # Lower score for higher priority
+
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """Calculate available capacity at a specific time, considering failures.
+            This is the raw available capacity before considering current pending usage.
+            """
+            base_capacity = self.inst.servers[server_id].capacity
+            if not self.inst.machine_failures:
+                return base_capacity
+
+            total_reduction = 0
+            for failure in self.inst.machine_failures:
+                if failure.machine_id != server_id:
+                    continue
+
+                if time < failure.failure_start:
+                    continue
+                elif time >= failure.failure_end:
+                    time_since_end = time - failure.failure_end
+                    recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                    reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                    total_reduction += reduction
+                else:
+                    time_since_start = time - failure.failure_start
+                    failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                    reduction = failure.capacity_reduction * failure_factor
+                    total_reduction += reduction
+
+            available = max(0, base_capacity - int(total_reduction))
+            return available
+
+        def _get_current_used_capacity(self, server_id: str, time: int) -> int:
+            """Get current capacity used on a server at a specific time."""
+            return self.capacity_usage[server_id].get(time, 0)
+=======
+            # Define a multiplier for how far into the future to precompute capacities.
+            # 2x time_horizon (48 hours) should cover most scheduling lookahead.
+            self.MAX_PRECOMPUTE_HORIZON_MULTIPLIER = 2
+            self.precomputed_server_capacity: Dict[str, Dict[int, int]] = {} # Cache for available capacity (only for local servers)
+
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99) # Lower score for higher priority
+
+            self._precompute_all_server_capacities() # Populate the cache at initialization
+
+        def _precompute_all_server_capacities(self):
+            """
+            Precompute the static available capacity for all local servers across an extended time horizon,
+            considering only machine failures. This avoids recalculating exponential functions repeatedly.
+            """
+            max_precompute_time = self.inst.time_horizon * self.MAX_PRECOMPUTE_HORIZON_MULTIPLIER
+            for server_id, server in self.inst.servers.items():
+                if server.is_cloud:
+                    continue # Cloud servers have infinite capacity, no need to precompute fixed values
+
+                self.precomputed_server_capacity[server_id] = {}
+                for t in range(max_precompute_time):
+                    base_capacity = server.capacity
+                    total_reduction = 0
+                    if self.inst.machine_failures:
+                        for failure in self.inst.machine_failures:
+                            if failure.machine_id != server_id:
+                                continue
+
+                            if t < failure.failure_start:
+                                continue
+                            elif t >= failure.failure_end:
+                                # Exponential recovery
+                                time_since_end = t - failure.failure_end
+                                recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                                reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                                total_reduction += reduction
+                            else: # During failure window
+                                # Exponential failure onset
+                                time_since_start = t - failure.failure_start
+                                failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                                reduction = failure.capacity_reduction * failure_factor
+                                total_reduction += reduction
+                    self.precomputed_server_capacity[server_id][t] = max(0, base_capacity - int(total_reduction))
+
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """
+            Get available capacity at a specific time using precomputed values for local servers,
+            or infinite for cloud servers.
+            """
+            server = self.inst.servers[server_id]
+            if server.is_cloud:
+                return 999999999 # Effectively infinite
+
+            # Use precomputed value for local servers
+            # If time is outside the precomputed range, fall back to base capacity (assuming failures resolve)
+            if server_id in self.precomputed_server_capacity and 0 <= time < len(self.precomputed_server_capacity[server_id]):
+                return self.precomputed_server_capacity[server_id][time]
+
+            # Fallback for times far beyond precomputed horizon, assuming no new failures.
+            # This is a simplification; for very long horizons, dynamic calculation would be needed
+            # for any potential active failures still recovering. But for typical TIME_HORIZON=24
+            # and search windows up to ~40-50, the precomputed range should be sufficient.
+            return server.capacity
+
+        def _get_current_used_capacity(self, server_id: str, time: int) -> int:
+            """Get current capacity used on a server at a specific time."""
+            return self.capacity_usage[server_id].get(time, 0)
+>>>>>>> REPLACE
+</DIFF>

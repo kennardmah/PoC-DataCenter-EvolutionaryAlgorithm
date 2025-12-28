@@ -1,0 +1,116 @@
+<local_server_cost_tiebreak>
+Introduces a cost-aware tie-breaking mechanism for local server selection. When multiple local servers can accommodate an operation at the *same earliest start time*, the algorithm now selects the server that minimizes the compute cost for that specific operation. This refines the greedy local search by adding a secondary cost optimization objective, aiming to reduce overall compute cost without sacrificing the primary objective of avoiding delays by finding the earliest possible start time.
+</local_server_cost_tiebreak>
+
+<DIFF>
+<<<<<<< SEARCH
+        available = max(0, base_capacity - int(total_reduction))
+        return available
+
+    def has_capacity(server_id: str, start: int, duration: int, capacity_req: int) -> bool:
+        """Check if server has enough capacity for the entire operation duration."""
+        for t in range(start, start + duration):
+            used = capacity_usage[server_id].get(t, 0)
+            available = get_available_capacity(server_id, t)
+            if used + capacity_req > available:
+                return False
+        return True
+
+    # Track capacity usage per machine per timestep
+    capacity_usage = {s: {} for s in inst.servers}
+=======
+        available = max(0, base_capacity - int(total_reduction))
+        return available
+
+    def _calculate_operation_cost(server_id: str, start: int, duration: int) -> float:
+        """Calculate the compute cost for an operation on a specific server."""
+        cost = 0.0
+        for t in range(start, start + duration):
+            # Ensure not to calculate cost beyond time horizon, though `evaluate` handles this
+            if t >= inst.time_horizon:
+                break
+            cost += inst.server_cost[server_id][t % inst.time_horizon]
+        return cost
+
+    def has_capacity(server_id: str, start: int, duration: int, capacity_req: int) -> bool:
+        """Check if server has enough capacity for the entire operation duration."""
+        for t in range(start, start + duration):
+            used = capacity_usage[server_id].get(t, 0)
+            available = get_available_capacity(server_id, t)
+            if used + capacity_req > available:
+                return False
+        return True
+
+    # Track capacity usage per machine per timestep
+    capacity_usage = {s: {} for s in inst.servers}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            # GREEDY DECISION: Try local machines, finding next available slot
+            best_local_start = None
+            best_local_server = None
+
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, try local first
+
+                # Find the earliest time this server can accommodate the operation
+                for start_time in range(earliest_start, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                        break  # Found earliest slot on this server
+
+            # Schedule on best local server if found
+            if best_local_server is not None:
+                # Reserve capacity
+                for t in range(best_local_start, best_local_start + op.duration):
+                    if t not in capacity_usage[best_local_server]:
+                        capacity_usage[best_local_server][t] = 0
+                    capacity_usage[best_local_server][t] += op.capacity_required
+
+                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
+                job_available_time[job_id] = best_local_start + op.duration
+                scheduled = True
+=======
+            # GREEDY DECISION: Try local machines, finding next available slot
+            best_local_start = None
+            best_local_server = None
+            best_local_cost = float('inf') # Initialize best cost for tie-breaking
+
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, try local first
+
+                # Find the earliest time this server can accommodate the operation
+                for start_time in range(earliest_start, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_cost(server_id, start_time, op.duration)
+
+                        # Primary sort by earliest start_time, secondary by lowest cost
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            best_local_cost = current_op_cost
+                        elif start_time == best_local_start: # If same earliest start time, compare costs
+                            if current_op_cost < best_local_cost:
+                                best_local_server = server_id
+                                best_local_cost = current_op_cost
+                        break  # Found earliest slot on this server (or a better cost at the same earliest time)
+
+            # Schedule on best local server if found
+            if best_local_server is not None:
+                # Reserve capacity
+                for t in range(best_local_start, best_local_start + op.duration):
+                    if t not in capacity_usage[best_local_server]:
+                        capacity_usage[best_local_server][t] = 0
+                    capacity_usage[best_local_server][t] += op.capacity_required
+
+                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
+                job_available_time[job_id] = best_local_start + op.duration
+                scheduled = True
+>>>>>>> REPLACE
+</DIFF>

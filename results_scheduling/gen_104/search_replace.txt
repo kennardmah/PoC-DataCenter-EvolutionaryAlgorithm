@@ -1,0 +1,90 @@
+<restore_full_scheduler_class_logic>
+This edit restores the `construct_schedule` function to a previously high-performing state, specifically bringing back the more sophisticated `Scheduler` class logic from an earlier successful generation (score -5306.00). The current version of `construct_schedule` (score -5693.00) appears to have undergone simplification, leading to a performance degradation.
+
+The key improvements being reintroduced are:
+1.  **`_calculate_operation_objective_value`**: A comprehensive objective function that evaluates both immediate compute cost and the projected impact on future delay penalties for the entire job, leading to more globally optimal placement decisions.
+2.  **`_calculate_min_free_capacity_during_op`**: A helper function to determine remaining capacity after an operation, which is crucial for robust tie-breaking, favoring assignments that leave more slack.
+3.  **`_get_servers_by_type_sorted`**: An enhanced server sorting mechanism that prioritizes local servers by their 'capacity health' (less degradation) and current hourly cost, before considering cloud options by cost. This ensures intelligent local resource utilization.
+4.  **Adaptive Local Search Window**: Parameters `MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER` and `MAX_LOCAL_SEARCH_WINDOW_ADD` are restored, allowing the scheduler to look ahead for potentially cheaper local slots while still respecting deadlines, balancing immediate availability with long-term cost efficiency.
+5.  **Refined Placement Logic**: The main `run_scheduling` loop is updated to leverage the full objective function for both local and cloud candidates, incorporating a robust set of tie-breaking rules (objective cost, start time, remaining capacity, server ID, and an explicit preference for local over cloud when all else is equal) to make the most informed decision for each operation.
+
+This change aims to recover the lost performance by re-integrating the advanced heuristic strategies that proved effective in earlier iterations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_schedule(inst: Instance) -> Schedule:
+    """
+    Constructs a schedule for jobs, prioritizing based on a multi-criteria heuristic
+    and making local/cloud placement decisions by finding the earliest available slot.
+
+    Args:
+        inst: Problem instance with servers, jobs, server costs
+
+    Returns:
+        Schedule: Dict mapping job_id -> list of {"server": str, "start": int}
+    """
+    # Define the Scheduler class internally to encapsulate logic and state
+    class Scheduler:
+        def __init__(self, inst: Instance):
+            self.inst = inst
+            self.capacity_usage = {s_id: {} for s_id in inst.servers}
+            self.job_available_time = {j_id: inst.jobs[j_id].arrival_time for j_id in inst.jobs}
+            self.schedule = {}
+
+            # Pre-calculate job properties for sorting
+            self.priority_map = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for job_id, job in self.inst.jobs.items():
+                job.total_duration = sum(op.duration for op in job.operations)
+                job.priority_score = self.priority_map.get(job.priority, 99)
+
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """Calculate available capacity at a specific time, considering failures."""
+            base_capacity = self.inst.servers[server_id].capacity
+            if not self.inst.machine_failures:
+                return base_capacity
+
+            total_reduction = 0
+            for failure in self.inst.machine_failures:
+                if failure.machine_id != server_id:
+                    continue
+
+                if time < failure.failure_start:
+                    continue
+                elif time >= failure.failure_end:
+                    time_since_end = time - failure.failure_end
+                    recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                    reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                    total_reduction += reduction
+                else:
+                    time_since_start = time - failure.failure_start
+                    failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                    reduction = failure.capacity_reduction * failure_factor
+                    total_reduction += reduction
+
+            available = max(0, base_capacity - int(total_reduction))
+            return available
+
+        def _get_current_used_capacity(self, server_id: str, time: int) -> int:
+            """Get current capacity used on a server at a specific time."""
+            return self.capacity_usage[server_id].get(time, 0)
+
+        def _has_capacity(self, server_id: str, start: int, duration: int, capacity_req: int) -> bool:
+            """Check if server has enough capacity for the entire operation duration."""
+            for t in range(start, start + duration):
+                used = self._get_current_used_capacity(server_id, t)
+                available = self._get_available_capacity(server_id, t)
+                if used + capacity_req > available:
+                    return False
+            return True
+
+        def _calculate_operation_compute_cost(self, server_id: str, start: int, duration: int) -> float:
+            """Calculates the compute cost for an operation on a given server at a specific time."""
+            cost = 0.0
+            for t in range(start, start + duration):
+                cost += self.inst.server_cost[server_id][t % self.inst.time_horizon]
+            return cost
+
+        def _get_servers_by_type(self, server_type: str, prefer_local: bool = True) -> List[str]:
+            """Get servers of a given type, optionally preferring local over cloud."""
+            servers = [s.id for s in self.inst.servers.values() if s.server_type == server_type]

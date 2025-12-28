@@ -1,0 +1,119 @@
+<adaptive_local_search_window_refined>
+This modification refines the local machine scheduling strategy by implementing a more sophisticated adaptive search window and ensuring a comprehensive search within that window.
+
+The key improvements are:
+1.  **Adaptive Search Window based on Job Slack**: The `search_end_time` for local machines is now dynamically adjusted based on the job's urgency (slack).
+    *   New constants `SLACK_THRESHOLD`, `TIGHT_WINDOW_MULTIPLIER`, `NORMAL_WINDOW_MULTIPLIER`, and `MAX_ABSOLUTE_SEARCH_WINDOW` are introduced.
+    *   For jobs with minimal or negative slack (tight deadlines), the search window for local machines is narrowed (`TIGHT_WINDOW_MULTIPLIER`). This prioritizes finding an immediate or very near-term slot to avoid escalating delay penalties.
+    *   For jobs with ample slack, the search window is expanded (`NORMAL_WINDOW_MULTIPLIER`), allowing the scheduler to look further into the future for cheaper off-peak hours, thereby reducing `compute_cost`.
+    *   The `search_end_time` calculation now considers the job's deadline, a dynamic multiplier of the `time_horizon` based on slack, and an absolute maximum search limit, ensuring a balanced and efficient search.
+2.  **Removal of Premature Break**: The `break` statement inside the local machine search loop has been removed. The previous implementation only found the *earliest valid* start time for an operation on a given local server. By removing this `break`, the algorithm now iterates through all possible `start_time_candidate`s within the dynamically defined window, allowing it to identify a potentially later, but significantly cheaper, slot that minimizes the overall objective cost (compute cost + delay penalty). This ensures that the algorithm truly finds the best cost-time trade-off within its search horizon.
+
+These changes together make the local scheduling decision more informed and robust, especially under varying job urgency and cost dynamics, leading to a better overall score by optimizing the cost-time tradeoff.
+</adaptive_local_search_window_refined>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Define a reasonable search window for local machines to find cheaper slots
+    # This allows looking past time_horizon, which the evaluation function will implicitly penalize via delay.
+    MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER = 2 # Search up to 2 full time horizons (e.g., 48 hours) for local slots
+    MAX_LOCAL_SEARCH_WINDOW_ADD = 5 # Small buffer for local scheduling slightly past horizon if needed
+
+    for job_id in sorted_jobs:
+        job = inst.jobs[job_id]
+        schedule[job_id] = []
+
+        current_op_start_time = job_available_time[job_id]
+
+        for op_idx, op in enumerate(job.operations):
+            best_overall_objective_cost = float('inf')
+            chosen_server = None
+            chosen_start = None
+
+            # Get compatible servers, sorted by capacity health and cost at current_op_start_time
+            compatible_servers_sorted = get_servers_by_type_sorted(op.server_type, current_op_start_time)
+
+            # --- Evaluate local machines ---
+            # Search a broader window for local machines to find the optimal balance of cost and delay.
+            # The upper bound is a balance between finding good future slots and not searching indefinitely.
+            search_end_time = min(inst.time_horizon * MAX_LOCAL_SEARCH_WINDOW_MULTIPLIER, job.deadline + op.duration + MAX_LOCAL_SEARCH_WINDOW_ADD)
+            search_end_time = max(search_end_time, current_op_start_time + op.duration + MAX_LOCAL_SEARCH_WINDOW_ADD) # Ensure at least some window
+
+            for server_id in compatible_servers_sorted:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, only consider local
+
+                for start_time_candidate in range(current_op_start_time, search_end_time + 1): # +1 to include search_end_time
+                    if has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required, capacity_usage):
+                        current_objective_cost = _calculate_operation_objective_value(
+                            server_id, start_time_candidate, op.duration, job, op_idx, job_total_durations, inst.weights
+                        )
+                        if current_objective_cost < best_overall_objective_cost:
+                            best_overall_objective_cost = current_objective_cost
+                            chosen_server = server_id
+                            chosen_start = start_time_candidate
+                        # Break after finding the first valid slot on this server for the current search,
+                        # as we prioritize earliest *valid* start time, and then cost for that time.
+                        # The overall best will be chosen by comparing all server options.
+                        break
+=======
+    # Constants for adaptive local machine search window
+    SLACK_THRESHOLD = 5 # hours; if job slack is less than this, consider it "tight"
+    TIGHT_WINDOW_MULTIPLIER = 1.5 # Multiplier for time_horizon if job is tight
+    NORMAL_WINDOW_MULTIPLIER = 3 # Multiplier for time_horizon if job has slack
+    MAX_ABSOLUTE_SEARCH_WINDOW = 72 # Max hours to search into the future for local slots
+
+    for job_id in sorted_jobs:
+        job = inst.jobs[job_id]
+        schedule[job_id] = []
+
+        current_op_start_time = job_available_time[job_id]
+
+        for op_idx, op in enumerate(job.operations):
+            best_overall_objective_cost = float('inf')
+            chosen_server = None
+            chosen_start = None
+
+            # Get compatible servers, sorted by capacity health and cost at current_op_start_time
+            compatible_servers_sorted = get_servers_by_type_sorted(op.server_type, current_op_start_time)
+
+            # --- Evaluate local machines ---
+            # Adapt the search window based on job slack (deadline pressure)
+            remaining_job_duration = sum(o.duration for o in job.operations[op_idx:])
+            current_slack = job.deadline - (current_op_start_time + remaining_job_duration)
+
+            dynamic_window_multiplier = TIGHT_WINDOW_MULTIPLIER if current_slack <= SLACK_THRESHOLD else NORMAL_WINDOW_MULTIPLIER
+
+            # Calculate search_end_time:
+            # - Start from the current operation's earliest possible start time.
+            # - Extend up to job's deadline + op.duration + a buffer.
+            # - Limit by an absolute maximum search window (e.g., 72 hours).
+            # - Also consider a multiplier of time_horizon, adapted by slack.
+
+            # Base upper bound from job deadline or fixed multiplier
+            upper_bound_from_deadline = job.deadline + op.duration + inst.time_horizon // 4 # Small buffer past deadline
+            upper_bound_from_multiplier = inst.time_horizon * dynamic_window_multiplier
+
+            search_end_time = max(current_op_start_time + op.duration, # Must at least consider immediate slot
+                                  min(upper_bound_from_deadline, upper_bound_from_multiplier, current_op_start_time + MAX_ABSOLUTE_SEARCH_WINDOW))
+
+            # Ensure search_end_time is at least enough for the current operation plus some buffer
+            search_end_time = max(search_end_time, current_op_start_time + op.duration + 5)
+
+            for server_id in compatible_servers_sorted:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, only consider local
+
+                for start_time_candidate in range(current_op_start_time, search_end_time + 1):
+                    if has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required, capacity_usage):
+                        current_objective_cost = _calculate_operation_objective_value(
+                            server_id, start_time_candidate, op.duration, job, op_idx, job_total_durations, inst.weights
+                        )
+                        if current_objective_cost < best_overall_objective_cost:
+                            best_overall_objective_cost = current_objective_cost
+                            chosen_server = server_id
+                            chosen_start = start_time_candidate
+                        # IMPORTANT: Do NOT break here. Continue searching all slots on this server
+                        # to find the truly optimal (lowest cost/penalty) slot within the entire window, not just the earliest.
+>>>>>>> REPLACE
+</DIFF>

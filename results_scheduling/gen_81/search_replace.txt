@@ -1,0 +1,13 @@
+<cloud_cost_delay_aware_scheduling>
+Refactors the cloud scheduling logic to be more strategic for non-critical jobs. Instead of immediately scheduling on the cheapest cloud server, this change introduces a limited lookahead window. Within this window, it evaluates potential cloud start times and servers by considering both compute cost and the projected total delay penalty for the job. This aims to select a cloud slot that minimizes the overall objective (cost + 5 * delay_penalty). Critical jobs will still prioritize immediate availability on cloud to minimize completion time.
+
+Specifically, the modifications are:
+1.  **Introduce `CLOUD_SEARCH_WINDOW` constants**: Define different lookahead window sizes for "CRITICAL" jobs (short window for urgency) and other jobs (longer window for cost optimization).
+2.  **Delay-Aware Cloud Scheduling**: When local capacity is unavailable, for non-critical jobs, the scheduler now iterates through potential start times within its assigned cloud search window.
+3.  **Comprehensive Cloud Cost-Benefit Analysis**: For each potential cloud start time within the window, a combined objective value is calculated. This value accounts for the current operation's compute cost and the *projected total delay penalty for the entire job*, including future operations, if this operation starts at that time.
+4.  **Optimal Cloud Slot Selection**: The cloud server and start time that result in the minimum combined objective value are chosen. Critical jobs still prioritize the earliest possible start on the cheapest cloud.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+                    # 2. If no local machine was chosen,
