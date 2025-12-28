@@ -56,7 +56,7 @@ class Instance:
     machine_failures: Optional[List[MachineFailure]] = None
 
 
-def load_machines(csv_path: str = "data/machines.csv") -> Tuple[Dict[str, Server], Dict[str, Dict[int, float]]]:
+def load_machines(csv_path: str = "more_data/machines.csv") -> Tuple[Dict[str, Server], Dict[str, Dict[int, float]]]:
     """
     Load machine configurations from CSV.
     
@@ -210,7 +210,7 @@ def generate_random_failures(
     return random_failures
 
 
-def load_machine_failures(csv_path: str = "data/machine_failures.csv", 
+def load_machine_failures(csv_path: str = "more_data/machine_failures.csv", 
                           scenario: Optional[str] = None) -> List[MachineFailure]:
     """
     Load machine failure scenarios from CSV.
@@ -279,7 +279,7 @@ def create_instance_from_csv(
     effective_scenario = scenario if scenario is not None else (job_scenario if job_scenario is not None else "normal")
     
     # Determine base path - data is in parent directory since we're in helpers/
-    base_path = Path(__file__).parent.parent / "data"
+    base_path = Path(__file__).parent.parent / "more_data"
     
     # Load machines (same for all scenarios)
     servers, server_cost = load_machines(str(base_path / "machines.csv"))
@@ -320,7 +320,7 @@ def get_available_scenarios() -> Dict[str, List[str]]:
     Returns:
         Dictionary with 'jobs' and 'failures' keys containing available scenarios
     """
-    base_path = Path(__file__).parent.parent / "data"
+    base_path = Path(__file__).parent.parent / "more_data"
     
     # Find job scenarios
     job_scenarios = []

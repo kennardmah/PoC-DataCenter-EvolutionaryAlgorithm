@@ -1,29 +1,30 @@
-"""Constructor-based job-shop scheduling for government data center"""
+# Modified initial.py with ONLINE scheduling support
+# Key change: incremental, event-driven scheduling without future job knowledge
 
 from dataclasses import dataclass
 from typing import Dict, List, Any, Optional
-import copy
-import os
-
+import math
+from collections import defaultdict
 
 # =============================================================================
-# PROBLEM DEFINITION
+# DATA STRUCTURES (unchanged)
 # =============================================================================
 
 TIME_HORIZON = 24
+
 @dataclass
 class Server:
     id: str
     server_type: str
-    capacity: int  # Available capacity units
-    is_cloud: bool = False  # Cloud machines have infinite capacity but 5x cost
+    capacity: int
+    is_cloud: bool = False
 
 
 @dataclass
 class Operation:
     server_type: str
     duration: int
-    capacity_required: int = 1  # Capacity units consumed during execution
+    capacity_required: int = 1
 
 
 @dataclass
@@ -34,7 +35,7 @@ class Job:
     deadline: int
     delay_weight: float
     operations: List[Operation]
-    arrival_time: int = 0  # Time when job becomes available for scheduling
+    arrival_time: int = 0
 
 
 @dataclass
@@ -42,10 +43,11 @@ class MachineFailure:
     machine_id: str
     failure_start: int
     failure_end: int
-    capacity_reduction: int  # Amount of capacity lost during failure
-    failure_rate: float = 1.0  # Exponential failure rate (1.0 = instant, <1.0 = gradual)
-    recovery_rate: float = 1.0  # Exponential recovery rate (1.0 = instant, <1.0 = gradual)
-    reason: str = ""  # Description of failure
+    capacity_reduction: int
+    failure_rate: float = 1.0
+    recovery_rate: float = 1.0
+    reason: str = ""
+    is_random: bool = False
 
 
 @dataclass
@@ -58,31 +60,46 @@ class Instance:
     machine_failures: Optional[List[MachineFailure]] = None
 
 
+Schedule = Dict[str, List[Dict[str, Any]]]
+
+
+# =============================================================================
+# INSTANCE CREATION
+# =============================================================================
+
 def create_instance(
     scenario: str = "baseline",
-    failure_scenario: Optional[str] = None
+    failure_scenario: Optional[str] = None,
+    enable_random_failures: bool = True,
+    random_failure_rate: float = 6.0,
+    random_seed: Optional[int] = 42
 ) -> Instance:
     """
     Create the problem instance from CSV files.
-    
+
     Args:
-        scenario: Job scenario to load from CSV ('baseline', 'peak_load', 'emergency', 'light_load')
-        failure_scenario: Machine failure scenario ('earthquake_moderate', 'tsunami_warning', etc.)
-                         or None for no failures
-    
+        scenario: Job scenario to load from CSV
+        failure_scenario: Machine failure scenario or None for no failures
+        enable_random_failures: If True, add stochastic background failures
+        random_failure_rate: Mean hours between random failures per machine
+        random_seed: Random seed for reproducible failures (None for true randomness)
+
     Returns:
         Instance object with jobs, servers, and optional machine failures from CSV
     """
     from helpers.scenario_loader import create_instance_from_csv
-    return create_instance_from_csv(scenario, failure_scenario)
+    return create_instance_from_csv(
+        scenario=scenario,
+        failure_scenario=failure_scenario,
+        enable_random_failures=enable_random_failures,
+        random_failure_rate=random_failure_rate,
+        random_seed=random_seed
+    )
 
 
 # =============================================================================
 # FITNESS EVALUATION
 # =============================================================================
-
-Schedule = Dict[str, List[Dict[str, Any]]]  # job_id -> [{server, start}, ...]
-
 
 @dataclass
 class Fitness:
@@ -92,385 +109,307 @@ class Fitness:
     violations: List[str]
     job_completion_times: Dict[str, int]
     cloud_relocations: List[str] = None
-    
+
     def __post_init__(self):
         if self.cloud_relocations is None:
             self.cloud_relocations = []
-    
+
     def is_valid(self) -> bool:
         return len(self.violations) == 0
 
 
 def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
     """
-    Evaluate a schedule with capacity constraints and automatic cloud failover.
-    
-    When capacity violations occur (e.g., due to failures during job execution),
-    affected operations are automatically relocated to cloud backup resources.
-    This maintains validity but incurs higher costs (5x multiplier for cloud).
+    Evaluate a schedule with capacity constraints.
     """
-    import math
-    
     violations = []
     total_compute_cost = 0
     total_delay_penalty = 0
     job_completion_times = {}
-    cloud_relocations = []  # Track which operations were moved to cloud
-    
+    cloud_relocations = []
+
     # Track capacity usage per machine per timestep
-    # capacity_usage[server_id][time] = total capacity used
     capacity_usage = {s: {} for s in inst.servers}
-    
-    # Helper function to calculate available capacity with exponential failure/recovery
-    def get_available_capacity(server_id: str, time: int) -> int:
+
+    def get_available_capacity_at_time(server_id: str, time: int) -> int:
         """Calculate available capacity considering exponential failure/recovery."""
         base_capacity = inst.servers[server_id].capacity
-        
+
         if not inst.machine_failures:
             return base_capacity
-        
-        # Apply all failures affecting this machine at this time
+
         total_reduction = 0
         for failure in inst.machine_failures:
             if failure.machine_id != server_id:
                 continue
-            
-            # Before failure window
+
             if time < failure.failure_start:
                 continue
-            # After failure window
             elif time >= failure.failure_end:
-                # Exponential recovery
                 time_since_end = time - failure.failure_end
                 recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
                 reduction = failure.capacity_reduction * (1.0 - recovery_factor)
                 total_reduction += reduction
-            # During failure window
             else:
-                # Exponential failure onset
                 time_since_start = time - failure.failure_start
                 failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
                 reduction = failure.capacity_reduction * failure_factor
                 total_reduction += reduction
-        
-        available = max(0, base_capacity - int(total_reduction))
-        return available
-    
-    def get_cloud_server(server_type: str) -> Optional[str]:
-        """Find a cloud server of the given type."""
-        for server_id, server in inst.servers.items():
-            if server.is_cloud and server.server_type == server_type:
-                return server_id
-        return None
 
-    # First pass: validate basic structure and track capacity usage
+        return max(0, base_capacity - int(total_reduction))
+
+    # Process each job's operations
     for job_id, ops in schedule.items():
-        job = inst.jobs[job_id]
-        if len(ops) != len(job.operations):
-            violations.append(f"{job_id}: wrong number of operations")
+        if job_id not in inst.jobs:
+            violations.append(f"Unknown job {job_id}")
             continue
 
-        # Check first operation doesn't start before arrival
-        if ops and ops[0]["start"] < job.arrival_time:
-            violations.append(f"{job_id}: starts at {ops[0]['start']} before arrival at {job.arrival_time}")
+        job = inst.jobs[job_id]
+        current_time = 0
 
-        prev_end = None
-        for idx, op in enumerate(ops):
-            server_id = op["server"]
-            start = op["start"]
-            duration = job.operations[idx].duration
-            capacity_req = job.operations[idx].capacity_required
-            end = start + duration
+        for idx, op_sched in enumerate(ops):
+            if idx >= len(job.operations):
+                violations.append(f"{job_id}: too many operations")
+                continue
 
-            if prev_end is not None and start < prev_end:
-                violations.append(f"{job_id}: op {idx} starts before previous ends")
-            prev_end = end
+            operation = job.operations[idx]
+            server_id = op_sched["server"]
+            start = op_sched["start"]
+            duration = operation.duration
+            capacity_req = operation.capacity_required
 
-            required_type = job.operations[idx].server_type
-            actual_type = inst.servers[server_id].server_type
-            if required_type != actual_type:
-                violations.append(f"{job_id}: op {idx} requires {required_type}, got {actual_type}")
+            # Check server exists and type matches
+            if server_id not in inst.servers:
+                violations.append(f"{job_id} op {idx}: unknown server {server_id}")
+                continue
 
-            # Track capacity usage for each timestep
-            for t in range(start, end):
+            server = inst.servers[server_id]
+            if server.server_type != operation.server_type:
+                violations.append(
+                    f"{job_id} op {idx}: type mismatch ({server.server_type} != {operation.server_type})"
+                )
+                continue
+
+            # Check precedence
+            if start < current_time:
+                violations.append(f"{job_id} op {idx}: starts at {start} before previous ends at {current_time}")
+
+            current_time = start + duration
+
+            # Calculate compute cost
+            for t in range(start, start + duration):
+                hour = t % inst.time_horizon
+                cost_per_hour = inst.server_cost[server_id][hour]
+                total_compute_cost += cost_per_hour
+
+            # Track capacity usage
+            for t in range(start, start + duration):
                 if t not in capacity_usage[server_id]:
                     capacity_usage[server_id][t] = 0
                 capacity_usage[server_id][t] += capacity_req
 
-        completion = prev_end if prev_end else 0
-        job_completion_times[job_id] = completion
-        delay = max(0, completion - job.deadline)
+        # Record job completion time
+        job_completion_times[job_id] = current_time
+
+        # Calculate delay penalty
+        delay = max(0, current_time - job.deadline)
         total_delay_penalty += delay * job.delay_weight
 
-    # Second pass: detect capacity violations and relocate to cloud
-    capacity_violations = {}  # (server_id, time) -> exceeded amount
-    
+    # Check capacity constraints
     for server_id, usage_by_time in capacity_usage.items():
-        # Skip cloud servers (they have unlimited capacity)
-        if inst.servers[server_id].is_cloud:
-            continue
-            
-        for time, used_capacity in usage_by_time.items():
-            available_capacity = get_available_capacity(server_id, time)
-            if used_capacity > available_capacity:
-                excess = used_capacity - available_capacity
-                capacity_violations[(server_id, time)] = excess
-    
-    # If violations detected, relocate affected operations to cloud
-    if capacity_violations:
-        # Find operations that overlap with violation times
-        for job_id, ops in schedule.items():
-            job = inst.jobs[job_id]
-            for idx, op in enumerate(ops):
-                server_id = op["server"]
-                start = op["start"]
-                duration = job.operations[idx].duration
-                end = start + duration
-                
-                # Skip if already on cloud
-                if inst.servers[server_id].is_cloud:
-                    continue
-                
-                # Check if this operation overlaps with a capacity violation
-                needs_relocation = False
-                for t in range(start, end):
-                    if (server_id, t) in capacity_violations:
-                        needs_relocation = True
-                        break
-                
-                if needs_relocation:
-                    # Find cloud backup of same type
-                    cloud_server = get_cloud_server(inst.servers[server_id].server_type)
-                    if cloud_server:
-                        # Remove from local capacity tracking
-                        for t in range(start, end):
-                            if t in capacity_usage[server_id]:
-                                capacity_usage[server_id][t] -= job.operations[idx].capacity_required
-                        
-                        # Add to cloud capacity tracking
-                        for t in range(start, end):
-                            if t not in capacity_usage[cloud_server]:
-                                capacity_usage[cloud_server][t] = 0
-                            capacity_usage[cloud_server][t] += job.operations[idx].capacity_required
-                        
-                        # Update the schedule to reflect cloud relocation
-                        op["server"] = cloud_server
-                        op["relocated_to_cloud"] = True
-                        
-                        cloud_relocations.append(
-                            f"{job_id} op{idx}: {server_id} → {cloud_server} (failure during execution)"
-                        )
-
-    # Calculate costs (now including relocated operations on cloud)
-    for job_id, ops in schedule.items():
-        job = inst.jobs[job_id]
-        for idx, op in enumerate(ops):
-            server_id = op["server"]
-            start = op["start"]
-            duration = job.operations[idx].duration
-            
-            # Calculate cost
-            for t in range(start, start + duration):
-                total_compute_cost += inst.server_cost[server_id][t % inst.time_horizon]
-
-    # Final validation: check if capacity violations were resolved
-    for server_id, usage_by_time in capacity_usage.items():
-        if inst.servers[server_id].is_cloud:
+        server = inst.servers[server_id]
+        if server.is_cloud:
             continue  # Cloud has unlimited capacity
-            
-        for time, used_capacity in usage_by_time.items():
-            available_capacity = get_available_capacity(server_id, time)
-            if used_capacity > available_capacity:
+
+        for time, used in usage_by_time.items():
+            available = get_available_capacity_at_time(server_id, time)
+            if used > available:
                 violations.append(
-                    f"{server_id}: capacity exceeded at t={time} even after cloud relocation "
-                    f"(used: {used_capacity}, available: {available_capacity})"
+                    f"{server_id}: capacity exceeded at t={time} (used: {used}, available: {available})"
                 )
 
-    score = (inst.weights["compute_cost"] * total_compute_cost +
-             inst.weights["delay_penalty"] * total_delay_penalty +
-             len(violations) * 10000)
+    # Calculate weighted score
+    score = (
+        total_compute_cost * inst.weights["compute_cost"]
+        + total_delay_penalty * inst.weights["delay_penalty"]
+    )
 
-    return Fitness(round(score, 2), round(total_compute_cost, 2),
-                   round(total_delay_penalty, 2), violations, job_completion_times,
-                   cloud_relocations)
+    # Add penalty for violations
+    if violations:
+        score += 1e6 * len(violations)
+
+    return Fitness(
+        score=score,
+        compute_cost=total_compute_cost,
+        delay_penalty=total_delay_penalty,
+        violations=violations,
+        job_completion_times=job_completion_times,
+        cloud_relocations=cloud_relocations,
+    )
 
 
 # =============================================================================
-# SCHEDULE CONSTRUCTOR (TO BE EVOLVED)
+# ONLINE SCHEDULING CORE
+# =============================================================================
+
+
+def get_available_capacity(inst: Instance, server_id: str, time: int) -> int:
+    """Get available capacity at a specific time (for scheduling decisions)."""
+    base_capacity = inst.servers[server_id].capacity
+    if not inst.machine_failures:
+        return base_capacity
+
+    total_reduction = 0
+    for failure in inst.machine_failures:
+        if failure.machine_id != server_id:
+            continue
+        if time < failure.failure_start:
+            continue
+        elif time >= failure.failure_end:
+            time_since_end = time - failure.failure_end
+            recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+            reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+            total_reduction += reduction
+        else:
+            time_since_start = time - failure.failure_start
+            failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+            reduction = failure.capacity_reduction * failure_factor
+            total_reduction += reduction
+
+    return max(0, base_capacity - int(total_reduction))
+
+
+def has_capacity(inst, capacity_usage, server_id, start, duration, req):
+    for t in range(start, start + duration):
+        used = capacity_usage[server_id].get(t, 0)
+        if used + req > get_available_capacity(inst, server_id, t):
+            return False
+    return True
+
+
+def operation_objective(inst, server_id, start, op, job, remaining_duration):
+    compute = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                  for t in range(start, start + op.duration))
+    projected_completion = start + op.duration + remaining_duration
+    delay = max(0, projected_completion - job.deadline)
+    return (
+        compute * inst.weights['compute_cost']
+        + delay * job.delay_weight * inst.weights['delay_penalty']
+    )
+
+
+# =============================================================================
+# =============================================================================
+# SCHEDULE CONSTRUCTOR (ONLINE, EVOLVABLE)
 # =============================================================================
 
 # EVOLVE-BLOCK-START
-def construct_schedule(inst: Instance) -> Schedule:
-    """
-    Online FIFO scheduler - processes jobs as they arrive without future knowledge.
-    
-    ONLINE CONSTRAINTS:
-    - Jobs are unknown until they arrive (arrival_time)
-    - Failures are unknown until they occur
-    - Only capacity and costs over time are known upfront
-    
-    ALGORITHM:
-    1. Job arrives at its arrival_time
-    2. Check if local resources are available NOW
-    3. If available, use local resources (minimize cost)
-    4. If not available, use cloud resources (avoid delay)
-    
-    This greedy approach avoids delays but may incur higher cloud costs
-    compared to an optimal scheduler with perfect future knowledge.
 
-    Args:
-        inst: Problem instance with servers, jobs, server costs
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+# 
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable.
+# =============================================================================
 
-    Returns:
-        Schedule: Dict mapping job_id -> list of {"server": str, "start": int}
-    """
-    import math
-    
-    def get_servers_by_type(server_type: str, prefer_local: bool = True) -> List[str]:
-        """Get servers of a given type, optionally preferring local over cloud."""
-        servers = [s.id for s in inst.servers.values() if s.server_type == server_type]
-        if prefer_local:
-            # Sort: local machines first, then cloud
-            servers.sort(key=lambda s: inst.servers[s].is_cloud)
-        return servers
-    
-    def get_available_capacity(server_id: str, time: int) -> int:
-        """
-        Calculate available capacity at a specific time.
-        
-        NOTE: In true online setting, we wouldn't know about future failures.
-        However, for evaluation purposes, we include failure information to
-        accurately model the system state.
-        """
-        base_capacity = inst.servers[server_id].capacity
-        
-        if not inst.machine_failures:
-            return base_capacity
-        
-        # Apply all failures affecting this machine at this time
-        total_reduction = 0
-        for failure in inst.machine_failures:
-            if failure.machine_id != server_id:
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
                 continue
-            
-            # Before failure window
-            if time < failure.failure_start:
-                continue
-            # After failure window
-            elif time >= failure.failure_end:
-                # Exponential recovery
-                time_since_end = time - failure.failure_end
-                recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
-                reduction = failure.capacity_reduction * (1.0 - recovery_factor)
-                total_reduction += reduction
-            # During failure window
-            else:
-                # Exponential failure onset
-                time_since_start = time - failure.failure_start
-                failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
-                reduction = failure.capacity_reduction * failure_factor
-                total_reduction += reduction
-        
-        available = max(0, base_capacity - int(total_reduction))
-        return available
-    
-    def has_capacity(server_id: str, start: int, duration: int, capacity_req: int) -> bool:
-        """Check if server has enough capacity for the entire operation duration."""
-        for t in range(start, start + duration):
-            used = capacity_usage[server_id].get(t, 0)
-            available = get_available_capacity(server_id, t)
-            if used + capacity_req > available:
-                return False
-        return True
-    
-    # Track capacity usage per machine per timestep
-    capacity_usage = {s: {} for s in inst.servers}
-    
-    # Track when each job can start (max of arrival time and previous operation finish time)
-    job_available_time = {j: inst.jobs[j].arrival_time for j in inst.jobs}
-    
-    schedule = {}
-    
-    # ONLINE FIFO: Process jobs in ARRIVAL ORDER (first-come, first-served)
-    # In a true online setting, we don't know about future jobs, so we process
-    # them strictly as they arrive.
-    sorted_jobs = sorted(inst.jobs.keys(),
-                        key=lambda j: (inst.jobs[j].arrival_time, j))
-    
-    for job_id in sorted_jobs:
-        job = inst.jobs[job_id]
-        schedule[job_id] = []
-        
-        for op in job.operations:
-            # Get compatible servers (local first, then cloud)
-            compatible = get_servers_by_type(op.server_type, prefer_local=True)
-            
-            scheduled = False
-            earliest_start = job_available_time[job_id]
-            
-            # GREEDY DECISION: Try local machines, finding next available slot
-            best_local_start = None
-            best_local_server = None
-            
-            for server_id in compatible:
-                if inst.servers[server_id].is_cloud:
-                    continue  # Skip cloud for now, try local first
-                
-                # Find the earliest time this server can accommodate the operation
-                for start_time in range(earliest_start, inst.time_horizon):
-                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
-                        if best_local_start is None or start_time < best_local_start:
-                            best_local_start = start_time
-                            best_local_server = server_id
-                        break  # Found earliest slot on this server
-            
-            # Schedule on best local server if found
-            if best_local_server is not None:
-                # Reserve capacity
-                for t in range(best_local_start, best_local_start + op.duration):
-                    if t not in capacity_usage[best_local_server]:
-                        capacity_usage[best_local_server][t] = 0
-                    capacity_usage[best_local_server][t] += op.capacity_required
-                
-                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
-                job_available_time[job_id] = best_local_start + op.duration
-                scheduled = True
-            
-            # If no local machine available within time horizon, use cloud immediately
-            # This is the key online trade-off: pay more (cloud) to avoid delays
-            if not scheduled:
-                for server_id in compatible:
-                    if not inst.servers[server_id].is_cloud:
-                        continue  # Only cloud now
-                    
-                    # Cloud has infinite capacity, schedule immediately
-                    start_time = earliest_start
-                    
-                    # Reserve capacity (cloud has effectively infinite)
-                    for t in range(start_time, start_time + op.duration):
-                        if t not in capacity_usage[server_id]:
-                            capacity_usage[server_id][t] = 0
-                        capacity_usage[server_id][t] += op.capacity_required
-                    
-                    schedule[job_id].append({"server": server_id, "start": start_time})
-                    job_available_time[job_id] = start_time + op.duration
-                    scheduled = True
-                    break
-            
-            # Fallback: if still not scheduled (shouldn't happen with cloud), use first compatible
-            if not scheduled:
-                server_id = compatible[0]
-                start_time = earliest_start
-                schedule[job_id].append({"server": server_id, "start": start_time})
-                job_available_time[job_id] = start_time + op.duration
-    
-    return schedule
 
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+
+        _, chosen_server, chosen_start = best
+
+        # reserve capacity
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
 
 # EVOLVE-BLOCK-END
 
 
-# This part remains fixed (not evolved)
+# =============================================================================
+# EVENT-DRIVEN ONLINE EXECUTION LOOP (NOT EVOLVABLE - ENFORCES ONLINE CONSTRAINT)
+# =============================================================================
+
+
+def construct_schedule(inst: Instance) -> Schedule:
+    """
+    STRICT ONLINE SCHEDULER - NO FUTURE KNOWLEDGE
+    
+    This function enforces the online constraint and is NOT evolved.
+    Only schedule_job_online (above) can be modified during evolution.
+    
+    CRITICAL ONLINE CONSTRAINT:
+    When scheduling a job arriving at time T, you can ONLY access:
+    - Jobs that have already been scheduled (arrival_time < T)
+    - The current job (arrival_time == T)
+    
+    You CANNOT access or analyze jobs with arrival_time > T
+    
+    Implementation: Process jobs in arrival order, one at a time.
+    """
+    schedule = {}
+    capacity_usage = defaultdict(dict)
+
+    # Create list of (arrival_time, job) tuples and sort ONLY by arrival time
+    # Note: We must access inst.jobs to know when they arrive, but we
+    # process them strictly in order without lookahead
+    job_arrivals = [(job.arrival_time, job) for job in inst.jobs.values()]
+    job_arrivals.sort(key=lambda x: x[0])  # Sort only by arrival time
+    
+    # Process each job as it arrives (strict temporal order)
+    for arrival_time, job in job_arrivals:
+        # At this moment, only this job and earlier jobs exist in our world
+        # Jobs arriving later are "in the future" and unknown
+        schedule_job_online(inst, job, schedule, capacity_usage, arrival_time)
+
+    return schedule
+
+
+# =============================================================================
+# RUN SCHEDULING (ENTRY POINT FOR EVALUATION)
+# =============================================================================
+
 def run_scheduling(
     scenario: str = "baseline",
     failure_scenario: Optional[str] = None,
@@ -481,7 +420,7 @@ def run_scheduling(
 ):
     """
     Run the schedule constructor and return results.
-    
+
     Args:
         scenario: Job scenario to load from CSV (for single-scenario mode)
         failure_scenario: Machine failure scenario from CSV or None (for single-scenario mode)
@@ -490,32 +429,30 @@ def run_scheduling(
         scenario_weights: Weight for each scenario in final score (for multi-scenario mode)
         failure_scenarios: Mapping of scenario name to failure scenario (for multi-scenario mode)
     """
-    from helpers.scenario_loader import create_instance_from_csv
-    
     if multi_scenario and scenarios:
         # Multi-scenario evaluation
         results = {}
         weighted_score = 0.0
-        
+
         for scenario_name in scenarios:
             # Get failure scenario for this scenario (if any)
             fail_scenario = None
             if failure_scenarios and scenario_name in failure_scenarios:
                 fail_scenario = failure_scenarios[scenario_name]
-            
+
             # Create instance and run scheduling
-            inst = create_instance_from_csv(scenario=scenario_name, failure_scenario=fail_scenario)
+            inst = create_instance(scenario=scenario_name, failure_scenario=fail_scenario)
             schedule = construct_schedule(inst)
             fitness = evaluate(inst, schedule)
             score = float(fitness.score)
-            
+
             # Store results
             results[scenario_name] = (schedule, fitness, score)
-            
+
             # Add weighted contribution
             weight = scenario_weights.get(scenario_name, 1.0) if scenario_weights else 1.0
             weighted_score += weight * score
-        
+
         # Return multi-scenario results
         return {
             "scenarios": results,
@@ -524,7 +461,7 @@ def run_scheduling(
         }
     else:
         # Single scenario evaluation (backward compatibility)
-        inst = create_instance_from_csv(scenario=scenario, failure_scenario=failure_scenario)
+        inst = create_instance(scenario=scenario, failure_scenario=failure_scenario)
         schedule = construct_schedule(inst)
         fitness = evaluate(inst, schedule)
         return schedule, fitness, float(fitness.score)
