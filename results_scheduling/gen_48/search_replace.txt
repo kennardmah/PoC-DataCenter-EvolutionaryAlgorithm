@@ -1,0 +1,81 @@
+<refine_local_selection>
+A refined local machine selection logic that first finds the earliest possible start time on each compatible local server, then selects the best among these options based on earliest start, then lowest cost, and finally server ID for deterministic tie-breaking. This ensures a more globally optimal local placement for each operation while adhering to precedence and capacity constraints.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+            scheduled = False
+            best_local_start = None
+            best_local_server = None
+            min_local_cost = float('inf') # Track cost for tie-breaking
+
+            # 1. Try to schedule on a local machine (prefer local to minimize cost)
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+            for server_id in local_servers:
+                # Find the earliest time this local server can accommodate the operation
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_cost = _calculate_operation_compute_cost(server_id, start_time, op.duration)
+
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                            min_local_cost = current_op_cost
+                        elif start_time == best_local_start:
+                            # Tie-breaking: if same earliest start, choose lower cost
+                            if current_op_cost < min_local_cost:
+                                best_local_server = server_id
+                                min_local_cost = current_op_cost
+                        break  # Found earliest slot on this server, no need to look further for THIS server
+
+            # Schedule on best local server if found
+            if best_local_server is not None:
+                # Reserve capacity
+                for t in range(best_local_start, best_local_start + op.duration):
+                    if t not in capacity_usage[best_local_server]:
+                        capacity_usage[best_local_server][t] = 0
+                    capacity_usage[best_local_server][t] += op.capacity_required
+
+                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
+                current_op_start_time = best_local_start + op.duration
+                job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+                scheduled = True
+=======
+            scheduled = False
+
+            # --- Start: Refined local machine search ---
+            local_servers_for_type = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+
+            # Store all valid local placement candidates (start_time, cost_for_op, server_id)
+            # This allows sorting based on these criteria to pick the truly "best" local slot.
+            local_candidates = []
+
+            for server_id in local_servers_for_type:
+                # Find the earliest time this specific server can accommodate the operation
+                for start_time_candidate in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time_candidate, op.duration, op.capacity_required):
+                        cost_candidate = _calculate_operation_compute_cost(server_id, start_time_candidate, op.duration)
+                        local_candidates.append((start_time_candidate, cost_candidate, server_id))
+                        break # Found the earliest slot on *this specific server*, move to next server
+
+            # Now, select the best local candidate based on multi-criteria:
+            # 1. Earliest start_time (ascending)
+            # 2. Lowest cost_for_op (ascending)
+            # 3. Smallest server_id (lexicographical ascending, for determinism)
+            if local_candidates:
+                local_candidates.sort() # Python's tuple sort naturally handles this multi-criteria sorting
+
+                best_local_start, min_local_cost, best_local_server = local_candidates[0]
+
+                # Reserve capacity for the chosen local slot
+                for t in range(best_local_start, best_local_start + op.duration):
+                    if t not in capacity_usage[best_local_server]:
+                        capacity_usage[best_local_server][t] = 0
+                    capacity_usage[best_local_server][t] += op.capacity_required
+
+                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
+                current_op_start_time = best_local_start + op.duration
+                job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+                scheduled = True
+            # --- End: Refined local machine search ---
+>>>>>>> REPLACE
+</DIFF>

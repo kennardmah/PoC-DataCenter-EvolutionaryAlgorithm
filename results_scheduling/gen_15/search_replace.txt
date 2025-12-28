@@ -1,0 +1,20 @@
+<refine_op_cost_return_type>
+Modify the `_get_op_schedule_cost` helper function to return a tuple containing both the total objective cost and the immediate weighted compute cost of the operation. This refactoring enables a more granular tie-breaking mechanism in the subsequent scheduling logic, allowing the scheduler to pick the lowest immediate cost option if multiple choices yield the same overall objective score.
+</refine_op_cost_return_type>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _get_op_schedule_cost(server_id: str, start_time: int, op_duration: int, capacity_req: int, job_id: str, current_op_index: int) -> float:
+        """
+        Calculates the estimated cost of scheduling an operation on a given server at a given start time.
+        This includes compute cost and an estimate of future delay penalty for the entire job.
+        """
+        job = inst.jobs[job_id]
+
+        # Calculate compute cost for this operation
+        op_compute_cost = 0.0
+        for t in range(start_time, start_time + op_duration):
+            op_compute_cost += inst.server_cost[server_id][t % inst.time_horizon]
+
+        # Estimate remaining duration of the job after this operation (including this op)
+        remaining_op_durations = sum(o.duration for o in job.operations[current_op_index + 1:])

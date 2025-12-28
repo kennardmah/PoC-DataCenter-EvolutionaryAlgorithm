@@ -1,0 +1,51 @@
+<job_dataclass_update>
+Update Job dataclass with total_duration and priority_score fields.
+</job_dataclass_update>
+
+<DIFF>
+<<<<<<< SEARCH
+    operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
+=======
+    operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
+
+    # These will be populated during schedule construction
+    total_duration: int = 0
+    priority_score: int = 0
+>>>>>>> REPLACE
+</DIFF>
+
+<intelligent_op_scheduler>
+Refactor the operation scheduling logic to be cost-aware, evaluating local and cloud options based on the full objective function (compute cost + weighted delay penalty). This integrates "Cost-Time Windows" and "Smart Local/Cloud Tradeoff" by searching for the minimum cost slot for each operation.
+
+The previous approach picked the earliest local slot, then immediately jumped to cloud if no local slot was found (still picking earliest possible). This revision will:
+1.  Pre-calculate job `total_duration` and `priority_score`.
+2.  Define a helper `_get_op_schedule_cost` to estimate the combined compute and delay penalty for an operation's placement.
+3.  For each operation, systematically evaluate all feasible local server + start time combinations within the time horizon to find the one with the lowest *compute cost*.
+4.  Then, compare this 'best local' candidate (using `_get_op_schedule_cost` to include future delay impact) against an immediate cloud option (also using `_get_op_schedule_cost`).
+5.  Select the option that minimizes the total objective cost. This balances avoiding delays (heavily weighted) with compute cost savings (e.g., off-peak hours) more effectively.
+</intelligent_op_scheduler>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Track when each job can start (max of arrival time and previous operation finish time)
+    job_available_time = {j: inst.jobs[j].arrival_time for j in inst.jobs}
+
+    schedule = {}
+
+    # Pre-calculate total duration for each job
+    job_durations = {job_id: sum(op.duration for op in job.operations) for job_id, job in inst.jobs.items()}
+
+    # Priority mapping for jobs (lower value = higher priority)
+    PRIORITY_MAP = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+    # Prioritize jobs based on a multi-criteria heuristic:
+    # 1. Job Priority (CRITICAL, HIGH, MEDIUM, LOW) - lower integer value is higher priority
+    # 2. Effective deadline (deadline - total_duration - arrival_time) - tighter deadlines first
+    # 3. Delay weight (higher delay weight first) - multiplied by -1 to sort descending
+    # 4. Arrival time (earlier is better, for secondary tie-breaking)
+    # 5. Job ID (for deterministic tie-breaking)
+    sorted_jobs = sorted(inst.jobs.keys(),
+                         key=lambda j_id: (
+                             PRIORITY_MAP.get(inst.jobs

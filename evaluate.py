@@ -112,23 +112,28 @@ def _validate_single_schedule(
                 return False, msg
             prev_end = start + duration
 
-    # Check server capacity (no overlaps)
-    server_intervals = {s: [] for s in inst.servers}
+    # Check server capacity constraints
+    capacity_usage = {s: {} for s in inst.servers}
     for job_id, ops in schedule.items():
         job = inst.jobs[job_id]
         for idx, op_sched in enumerate(ops):
             server = op_sched["server"]
             start = op_sched["start"]
-            end = start + job.operations[idx].duration
-            server_intervals[server].append((start, end, job_id))
-
-    for server, intervals in server_intervals.items():
-        intervals.sort()
-        for i in range(len(intervals) - 1):
-            _, end1, job1 = intervals[i]
-            start2, _, job2 = intervals[i + 1]
-            if start2 < end1:
-                msg = f"{server}: overlap between {job1} (ends {end1}) and {job2} (starts {start2})"
+            duration = job.operations[idx].duration
+            capacity_req = job.operations[idx].capacity_required
+            
+            # Track capacity usage for each timestep
+            for t in range(start, start + duration):
+                if t not in capacity_usage[server]:
+                    capacity_usage[server][t] = 0
+                capacity_usage[server][t] += capacity_req
+    
+    # Verify capacity not exceeded at any timestep
+    for server, usage_by_time in capacity_usage.items():
+        server_capacity = inst.servers[server].capacity
+        for time, used in usage_by_time.items():
+            if used > server_capacity:
+                msg = f"{server}: capacity exceeded at t={time} (used: {used}, available: {server_capacity})"
                 return False, msg
 
     # Check non-negative start times

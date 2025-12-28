@@ -1,0 +1,41 @@
+<scheduler_class_refactor_v2>
+Refactors the scheduler into a class, implementing multi-criteria job prioritization, cost-aware local server selection, proactive failure avoidance, and a refined local/cloud tradeoff strategy.
+
+This change aims to address several high-impact improvements:
+1.  **Priority-Aware Ordering**: Jobs are dynamically prioritized at each scheduling step based on a refined urgency metric that considers job priority (CRITICAL, HIGH, etc.), remaining duration, deadline, and delay weight. This ensures that the most critical and time-sensitive jobs are always given precedence.
+2.  **Cost-Time Windows & Smart Local/Cloud Tradeoff**: The `_find_best_slot_for_operation` method no longer simply picks the earliest available local slot. Instead, it evaluates a `total_weighted_score` for each potential local slot, combining compute cost, potential delay penalties, and a penalty for overlapping with forecasted machine failures.
+3.  **Proactive Failure Avoidance**: A `failure_penalty` term is introduced for local machines. If a local server is predicted to experience capacity reduction during an operation's scheduled time, a penalty is applied, encouraging the scheduler to use more stable resources or cloud if the risk is high, even for a slightly higher immediate cost, to prevent future disruptions and more severe penalties.
+4.  **Adaptive Local/Cloud Decision**: The decision to use a local machine versus a cloud machine is now more nuanced. After finding the best local option, its `total_weighted_score` is compared against the immediate cloud option. For `CRITICAL` and `HIGH` priority jobs, a `cloud_preference_threshold` is applied, making the scheduler more willing to use costly cloud resources if the best local alternative is sufficiently worse (e.g., due to delays or failure risks). This prioritizes meeting deadlines and maintaining stability for vital workloads.
+5.  **Dynamic Scheduling Flow**: The main `schedule_all_jobs` loop processes jobs in an event-driven manner. It repeatedly selects the most urgent job that is "ready" (its previous operations are scheduled, and its arrival time has passed) and schedules its next operation. This dynamic reprioritization ensures that the scheduler reacts efficiently to the evolving state of the system and job queues.
+
+The original `construct_schedule` function, which was a simple FIFO, is entirely replaced by an instantiation and call to the new `Scheduler` class. The internal helper functions are moved into the class as methods to encapsulate state and logic.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def construct_schedule(inst: Instance) -> Schedule:
+    """
+    Online FIFO scheduler - processes jobs as they arrive without future knowledge.
+
+    ONLINE CONSTRAINTS:
+    - Jobs are unknown until they arrive (arrival_time)
+    - Failures are unknown until they occur
+    - Only capacity and costs over time are known upfront
+
+    ALGORITHM:
+    1. Job arrives at its arrival_time
+    2. Check if local resources are available NOW
+    3. If available, use local resources (minimize cost)
+    4. If not available, use cloud resources (avoid delay)
+
+    This greedy approach avoids delays but may incur higher cloud costs
+    compared to an optimal scheduler with perfect future knowledge.
+
+    Args:
+        inst: Problem instance with servers, jobs, server costs
+
+    Returns:
+        Schedule: Dict mapping job_id -> list of {"server": str, "start": int}
+    """
+    import math
+
+    def get_servers_by_type(server_type: str, prefer_local: bool = True

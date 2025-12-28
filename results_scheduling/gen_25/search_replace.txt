@@ -1,0 +1,40 @@
+<move_math_import_global>
+Moves the `import math` statement from within the `construct_schedule` function to the global scope within the `EVOLVE-BLOCK-START` section. This ensures `math` is available to any new classes or functions introduced, and aligns with standard Python practice for module imports.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional
+import copy
+import os
+
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+=======
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional
+import copy
+import os
+import math # Added for exponential functions
+
+
+# =============================================================================
+# PROBLEM DEFINITION
+# =============================================================================
+>>>>>>> REPLACE
+</DIFF>
+
+<cost_aware_local_cloud_scheduler>
+A priority-aware scheduler that dynamically evaluates local and cloud options for each operation, considering compute cost, delay penalties, and proactive failure risk. It uses a lookahead window for local resource search, tailored by job priority, and intelligently decides between local and cloud based on a weighted score. This improves upon the basic FIFO by adding cost and risk awareness at the operation level.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_schedule(inst: Instance) -> Schedule:
+    """
+    Online FIFO scheduler - processes jobs as they arrive without future knowledge.
+
+    ONLINE CONSTRAINTS:

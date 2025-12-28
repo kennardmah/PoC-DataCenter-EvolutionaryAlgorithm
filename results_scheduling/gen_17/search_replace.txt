@@ -1,0 +1,26 @@
+<job_dataclass_attributes>
+Add `total_duration` and `priority_score` attributes to the `Job` dataclass.
+
+The existing scheduling logic in `construct_schedule` calculates and assigns `job.total_duration` and `job.priority_score` dynamically to `Job` objects. While Python allows this, defining these attributes explicitly in the `Job` dataclass improves type safety, code clarity, and consistency, especially when other parts of the code (like the `_get_op_schedule_cost` function being reintroduced) rely on these attributes being present. This is a best practice for dataclasses.
+</job_dataclass_attributes>
+
+<DIFF>
+<<<<<<< SEARCH
+    operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
+=======
+    operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
+    total_duration: int = 0 # Pre-calculated total duration of all operations in the job
+    priority_score: int = 0 # Numeric representation of job priority for sorting
+>>>>>>> REPLACE
+</DIFF>
+
+<intelligent_op_scheduling>
+Refactor the operation scheduling loop to prioritize finding the *earliest* possible start time on local machines, then compare this best local option (based on a holistic total objective cost) against an immediate cloud option.
+
+The previous version of the scheduler (score -6169.00) used a complex `_get_op_schedule_cost` for every potential slot, which performed worse than the simpler `op_cost` minimization for local (score -6016.20). However, both were worse than the initial simpler 'earliest available' strategy (-5693.00). This suggests that delaying jobs for small local cost savings is detrimental due to high delay penalties.
+
+This change aims to combine the strengths:
+1.  **Job Prioritization**: Keep the existing effective multi-criteria job sorting.
+2.  **Operation Scheduling - Local**: For each operation, first identify the *earliest possible start time* on each compatible local machine. This prioritizes avoiding delays

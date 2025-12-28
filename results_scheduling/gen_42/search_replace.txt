@@ -1,0 +1,17 @@
+<cost_delay_aware_scheduling>
+This enhancement refactors the core operation scheduling logic. Instead of a simple "first available local, then cloud" greedy choice, it now evaluates all possible local and cloud placements within the time horizon to find the one that minimizes a combined score of compute cost and projected delay penalty. This allows for smarter trade-offs, potentially scheduling a job slightly later on a cheaper local machine if the delay penalty is low, or proactively moving to cloud for critical jobs even if a local slot exists, if the combined score (cost + delay) is better. Tie-breaking prioritizes local over cloud, then earlier start times, then server ID for determinism. This also includes a proactive penalty for scheduling on local machines during forecasted failure windows, making it more robust in earthquake scenarios.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    for job_id in sorted_jobs:
+        job = inst.jobs[job_id]
+        schedule[job_id] = []
+
+        # `current_op_start_time` tracks the earliest an operation of THIS job can start,
+        # considering its own arrival_time and preceding operations of the SAME job.
+        current_op_start_time = job_available_time[job_id]
+
+        for op_idx, op in enumerate(job.operations): # Added op_idx for future potential use, keeping op as loop variable.
+            # Get compatible servers (local first, then cloud)
+            compatible = get_servers_by_type(op.server

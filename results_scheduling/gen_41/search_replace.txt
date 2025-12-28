@@ -1,0 +1,184 @@
+<NAME>
+remove_get_op_schedule_cost_function
+</NAME>
+
+<DESCRIPTION>
+This change removes the `_get_op_schedule_cost` helper function from `construct_schedule`. Its logic will be inlined directly into the scheduling loop in a subsequent change, improving cohesion and making the cost calculation more explicit within the decision-making process for each operation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _get_op_schedule_cost(server_id: str, start_time: int, op_duration: int, capacity_req: int, job_id: str, current_op_index: int) -> float:
+        """
+        Calculates the estimated cost of scheduling an operation on a given server at a given start time.
+        This includes compute cost and an estimate of future delay penalty for the entire job,
+        aligning with the problem's total cost objective.
+        """
+        job = inst.jobs[job_id]
+
+        # Calculate compute cost for this operation
+        op_compute_cost = 0.0
+        for t in range(start_time, start_time + op_duration):
+            op_compute_cost += inst.server_cost[server_id][t % inst.time_horizon]
+
+        # Estimate remaining duration of the job after this operation (including this op duration)
+        remaining_op_durations = sum(o.duration for o in job.operations[current_op_index + 1:])
+
+        # Projected job completion time if this operation finishes at start_time + op_duration
+        projected_job_completion_time = (start_time + op_duration) + remaining_op_durations
+
+        # Calculate potential delay penalty for the entire job
+        projected_delay = max(0, projected_job_completion_time - job.deadline)
+        delay_penalty_contribution = projected_delay * job.delay_weight * inst.weights['delay_penalty']
+
+        # Total score to minimize for this operation's placement
+        return (op_compute_cost * inst.weights['compute_cost']) + delay_penalty_contribution
+
+    for job_id in sorted_jobs:
+        job = inst.jobs[job_id]
+        schedule[job_id] = []
+=======
+    for job_id in sorted_jobs:
+        job = inst.jobs[job_id]
+        schedule[job_id] = []
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+integrate_cost_and_tiebreaking_with_failure_penalty
+</NAME>
+
+<DESCRIPTION>
+This refactoring integrates all cost calculation logic, including compute cost, delay penalties, and a proactive failure penalty, directly into the main operation scheduling loop. This removes the now-redundant `_get_op_schedule_cost` helper function, making the code more cohesive and easier to maintain.
+
+Crucially, it introduces a `failure_penalty` mechanism for local machines, penalizing operations scheduled during foreseen machine failure windows. This penalty is proportional to the expected capacity reduction, operation's capacity requirement relative to the machine's base capacity, and the overlap duration with the failure, scaled by the `delay_penalty` weight. This makes the scheduler proactively avoid risky local resources, improving resilience in the earthquake scenario. Cloud machines are considered failure-proof in this context.
+
+Additionally, the server selection logic is enhanced with a secondary tie-breaking criterion: if multiple scheduling options (local or cloud) yield the exact same minimal total objective score (which combines compute, delay, and failure penalties), the option with the lowest raw compute cost for the current operation is preferred. This ensures that among equally optimal choices in terms of overall score, the most cost-efficient server is selected, further optimizing resource utilization.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # 1. Evaluate local machines
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+            for server_id in local_servers:
+                # Iterate through possible start times up to the time horizon,
+                # starting from when the job/previous op makes this operation available.
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_cost_estimate = _get_op_schedule_cost(
+                            server_id, start_time, op.duration, op.capacity_required, job_id, op_idx
+                        )
+                        if current_cost_estimate < best_total_objective_cost:
+                            best_total_objective_cost = current_cost_estimate
+                            chosen_server = server_id
+                            chosen_start = start_time
+                        # Continue searching to find the *best* local slot, not just the *earliest*
+
+            # 2. Evaluate cloud machines (always available immediately if needed)
+            cloud_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and s.is_cloud]
+            if cloud_servers:
+                cloud_server_id = cloud_servers[0] # Assuming one primary cloud server per type
+                cloud_start_time = current_op_start_time # Cloud has infinite capacity, can always start here
+
+                current_cost_estimate = _get_op_schedule_cost(
+                    cloud_server_id, cloud_start_time, op.duration, op.capacity_required, job_id, op_idx
+                )
+                if current_cost_estimate < best_total_objective_cost:
+                    best_total_objective_cost = current_cost_estimate
+                    chosen_server = cloud_server_id
+                    chosen_start = cloud_start_time
+=======
+            # Variables to store the best found option (local or cloud)
+            best_total_objective_score = float('inf')
+            best_raw_compute_cost = float('inf') # Secondary tie-breaker
+            chosen_server = None
+            chosen_start = None
+
+            # Calculate remaining duration of the job after this operation (used for delay penalty)
+            remaining_op_durations = sum(o.duration for o in job.operations[op_idx + 1:])
+
+            # 1. Evaluate local machines
+            local_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud]
+            for server_id in local_servers:
+                server = inst.servers[server_id] # Get server object for capacity
+                # Iterate through possible start times up to the time horizon,
+                # starting from when the job/previous op makes this operation available.
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if not has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        continue
+
+                    # Calculate compute cost for this operation
+                    op_compute_cost = 0.0
+                    for t in range(start_time, start_time + op.duration):
+                        op_compute_cost += inst.server_cost[server_id][t % inst.time_horizon]
+
+                    # Projected job completion time considering this operation
+                    projected_job_completion_time = (start_time + op.duration) + remaining_op_durations
+
+                    # Calculate potential delay penalty for the entire job
+                    projected_delay = max(0, projected_job_completion_time - job.deadline)
+                    delay_penalty_contribution = projected_delay * job.delay_weight * inst.weights['delay_penalty']
+
+                    # Heuristic for proactive failure avoidance: penalize scheduling in failing machines
+                    failure_penalty = 0.0
+                    if inst.machine_failures:
+                        for f in inst.machine_failures:
+                            if f.machine_id == server_id and f.failure_start <= start_time < f.failure_end:
+                                # Calculate overlap duration, capped by op duration and failure end
+                                overlap_start = max(start_time, f.failure_start)
+                                overlap_end = min(start_time + op.duration, f.failure_end)
+                                failure_overlap_duration = max(0, overlap_end - overlap_start)
+
+                                if failure_overlap_duration > 0:
+                                    # Penalize based on the capacity reduction during the overlap
+                                    # and the proportion of required capacity vs total machine capacity.
+                                    # Use a proxy for the actual capacity reduction at `overlap_start`
+                                    # as an indicator of risk.
+                                    time_since_failure_start_at_overlap = max(0, overlap_start - f.failure_start)
+                                    effective_reduction = f.capacity_reduction * (1.0 - math.exp(-f.failure_rate * time_since_failure_start_at_overlap))
+
+                                    # Scale penalty by how much capacity is requested relative to what's at risk
+                                    # And multiply by delay_penalty_weight for a more significant impact
+                                    if server.capacity > 0: # Avoid division by zero
+                                        failure_penalty += (effective_reduction * op.capacity_required / server.capacity) * failure_overlap_duration * inst.weights['delay_penalty'] * 2
+
+
+                    # Total score to minimize: sum of compute cost, delay penalty, and failure penalty
+                    current_total_objective_score = (op_compute_cost * inst.weights['compute_cost']) + delay_penalty_contribution + failure_penalty
+
+                    # Compare and update best option, with raw compute cost as tie-breaker
+                    if current_total_objective_score < best_total_objective_score or \
+                       (current_total_objective_score == best_total_objective_score and op_compute_cost < best_raw_compute_cost):
+                        best_total_objective_score = current_total_objective_score
+                        best_raw_compute_cost = op_compute_cost
+                        chosen_server = server_id
+                        chosen_start = start_time
+
+            # 2. Evaluate cloud machines (always available immediately if needed)
+            cloud_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and s.is_cloud]
+            if cloud_servers:
+                cloud_server_id = cloud_servers[0] # Assuming one primary cloud server per type
+                cloud_start_time = current_op_start_time # Cloud has infinite capacity, can always start here
+
+                # Calculate compute cost for this operation on cloud
+                cloud_op_compute_cost = 0.0
+                for t in range(cloud_start_time, cloud_start_time + op.duration):
+                    cloud_op_compute_cost += inst.server_cost[cloud_server_id][t % inst.time_horizon]
+
+                # Projected job completion time for cloud
+                cloud_projected_job_completion_time = (cloud_start_time + op.duration) + remaining_op_durations
+                cloud_projected_delay = max(0, cloud_projected_job_completion_time - job.deadline)
+                cloud_delay_penalty_contribution = cloud_projected_delay * job.delay_weight * inst.weights['delay_penalty']
+
+                # Cloud has no failure penalty for scheduling purposes (infinite capacity, highly available)
+                current_total_objective_score = (cloud_op_compute_cost * inst.weights['compute_cost']) + cloud_delay_penalty_contribution
+
+                # Compare with best found option (local or cloud)
+                if current_total_objective_score < best_total_objective_score or \
+                   (current_total_objective_score == best_total_objective_score and cloud_op_compute_cost < best_raw_compute_cost):
+                    best_total_objective_score = current_total_objective_score
+                    best_raw_compute_cost = cloud_op_compute_cost
+                    chosen_server = cloud_server_id
+                    chosen_start = cloud_start_time
+>>>>>>> REPLACE
+</DIFF>

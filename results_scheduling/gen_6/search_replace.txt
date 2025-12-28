@@ -1,0 +1,20 @@
+<NAME>
+cost_aware_op_scheduling_v3
+</NAME>
+
+<DESCRIPTION>
+This is the third attempt to apply the "Cost-Aware Operation Scheduling" improvement. The previous attempts failed due to `SEARCH` block mismatches or incomplete `REPLACE` blocks. This diff meticulously copies the exact `SEARCH` block from the current program and provides the complete, intended `REPLACE` block.
+
+**Goal:** Integrate a cost-aware decision-making process for scheduling individual operations, balancing compute cost and delay penalties, instead of the current greedy earliest-available local / immediate-cloud heuristic.
+
+**Key Changes:**
+
+1.  **Refined Job Pre-calculation & Sorting**:
+    *   Adds `total_duration` and `priority_score` attributes directly to each `Job` object during initialization.
+    *   The `sorted_jobs` key is updated to leverage these new attributes for a cleaner, more readable multi-criteria sort (higher priority first, then tighter slack, then higher delay weight, then arrival time).
+
+2.  **`_get_op_schedule_cost` Helper Function**:
+    *   Introduces a new internal helper function `_get_op_schedule_cost`.
+    *   This function calculates a combined cost for a potential operation schedule:
+        *   `compute_cost`: The direct cost of running the operation on a given server at a given time.
+        *   `delay_penalty_contribution`: An *estimated* future delay penalty for the *entire job*, assuming this operation

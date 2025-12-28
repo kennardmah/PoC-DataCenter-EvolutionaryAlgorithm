@@ -1,0 +1,45 @@
+<NAME>
+optimal_cloud_server_selection
+</NAME>
+
+<DESCRIPTION>
+This refinement improves the cloud server selection logic. Previously, when considering cloud resources, the system simply picked the first compatible cloud server of a given type (`cloud_servers[0]`) without evaluating if other cloud servers of the same type might offer a lower cost. Given that `inst.server_cost` can vary hourly, even for cloud servers, there might be a more cost-effective cloud option available, especially at `current_op_start_time`.
+
+The updated code now iterates through all available cloud servers of the required type. For each cloud server, it calculates the estimated total objective cost using the `_get_op_schedule_cost` function (which accounts for both compute cost and potential future delay penalties). It then selects the cloud server that yields the minimum total objective cost. This ensures that when resorting to cloud resources, the most economical cloud option is chosen, contributing to a lower overall `Total Cost`.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            cloud_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and s.is_cloud]
+            if cloud_servers:
+                cloud_server_id = cloud_servers[0] # Assuming one primary cloud server per type
+                cloud_start_time = current_op_start_time # Cloud has infinite capacity, can always start here
+
+                current_op_total_cost = _get_op_schedule_cost(
+                    cloud_server_id, cloud_start_time, op.duration, op.capacity_required, job_id, op_idx
+                )
+                if current_op_total_cost < best_total_objective_cost:
+                    best_total_objective_cost = current_op_total_cost
+                    chosen_server = cloud_server_id
+                    chosen_start = cloud_start_time
+=======
+            cloud_servers = [s.id for s in inst.servers.values() if s.server_type == op.server_type and s.is_cloud]
+            best_cloud_server = None
+            best_cloud_cost = float('inf')
+
+            for cloud_server_candidate_id in cloud_servers:
+                # Cloud has infinite capacity, can schedule immediately at current_op_start_time
+                cloud_start_time = current_op_start_time
+                current_op_total_cost = _get_op_schedule_cost(
+                    cloud_server_candidate_id, cloud_start_time, op.duration, op.capacity_required, job_id, op_idx
+                )
+                if current_op_total_cost < best_cloud_cost:
+                    best_cloud_cost = current_op_total_cost
+                    best_cloud_server = cloud_server_candidate_id
+
+            if best_cloud_server is not None and best_cloud_cost < best_total_objective_cost:
+                best_total_objective_cost = best_cloud_cost
+                chosen_server = best_cloud_server
+                chosen_start = current_op_start_time
+>>>>>>> REPLACE
+</DIFF>

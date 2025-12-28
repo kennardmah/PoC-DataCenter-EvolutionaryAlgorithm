@@ -1,0 +1,16 @@
+Evaluating program: results_scheduling/gen_36/main.py
+Saving results to: results_scheduling/gen_36/results
+Run 1/1 completed in 0.03 seconds
+Detailed scheduling data saved to results_scheduling/gen_36/results/extra.json
+Correctness and error status saved to results_scheduling/gen_36/results/correct.json
+Metrics saved to results_scheduling/gen_36/results/metrics.json
+Evaluation and Validation completed successfully.
+Metrics:
+  combined_score: -6880.4
+  public: {'multi_scenario': True, 'weighted_score': 6880.4, 'scenarios': {'normal': {'schedule_str': '  J1: M5@t=0 → M2@t=2 (done: t=5)\n  J10: M5@t=11 → M2@t=13 → M3@t=16 (done: t=18)\n  J11: M5@t=13 → M2@t=14 → M3@t=16 (done: t=18)\n  J12: M4@t=14 → M1@t=16 → M2@t=18 (done: t=19)\n  J13: M5@t=22 → C2@t=23 → C4@t=26 (done: t=28)\n  J14: M5@t=22 → C2@t=23 → C3@t=25 (done: t=26)\n  J2: M5@t=1 → M1@t=2 (done: t=7)\n  J3: M5@t=2 → M3@t=3 → M2@t=22 (done: t=23)\n  J4: M2@t=3 → M3@t=5 (done: t=6)\n  J5: M5@t=10 → M1@t=11 → M2@t=14 (done: t=16)\n  J6: M5@t=10 → M2@t=11 → M3@t=13 (done: t=15)\n  J7: M4@t=10 → M2@t=12 → M3@t=13 (done: t=14)\n  J8: M4@t=10 → M4@t=13 (done: t=15)\n  J9: M5@t=10 → M3@t=12 → M2@t=16 (done: t=18)', 'num_jobs': 14, 'is_valid': True}, 'earthquake': {'schedule_str': '  E1: M5@t=10 → M1@t=13 → M3@t=16 (done: t=18)\n  E2: M4@t=10 → M2@t=11 → C3@t=13 (done: t=14)\n  E3: M5@t=10 → M2@t=11 → M3@t=14 (done: t=16)\n  E4: M3@t=11 → M1@t=15 (done: t=17)\n  E5: M4@t=11 → M2@t=13 → M3@t=15 (done: t=16)\n  E6: M5@t=12 → M2@t=13 → M4@t=18 (done: t=19)\n  E7: M1@t=20 → C3@t=23 (done: t=25)\n  E8: M5@t=22 → C3@t=24 (done: t=27)\n  E9: M4@t=18 → M2@t=20 → M3@t=22 (done: t=23)\n  J1: M5@t=0 → M2@t=2 (done: t=5)\n  J10: M5@t=11 → M2@t=13 → M3@t=16 (done: t=18)\n  J11: M5@t=13 → M2@t=14 → M3@t=18 (done: t=20)\n  J12: M4@t=16 → M1@t=18 → M2@t=20 (done: t=21)\n  J13: M5@t=22 → C2@t=23 → C4@t=26 (done: t=28)\n  J14: M5@t=22 → C2@t=23 → C3@t=25 (done: t=26)\n  J2: M5@t=1 → M1@t=2 (done: t=7)\n  J3: M5@t=2 → M3@t=3 → M2@t=22 (done: t=23)\n  J4: M2@t=3 → M3@t=5 (done: t=6)\n  J5: M5@t=10 → M1@t=15 → M2@t=18 (done: t=20)\n  J6: M5@t=10 → M2@t=11 → M3@t=18 (done: t=20)\n  J7: M4@t=10 → M2@t=12 → C3@t=13 (done: t=14)\n  J8: M4@t=13 → M4@t=16 (done: t=18)\n  J9: M5@t=10 → M3@t=20 → C2@t=24 (done: t=26)', 'num_jobs': 23, 'is_valid': True}}}
+  private: {'scenarios': {'normal': {'score': 5265.0, 'compute_cost': 4820.0, 'delay_penalty': 89.0, 'num_violations': 0}, 'earthquake': {'score': 13342.0, 'compute_cost': 9842.0, 'delay_penalty': 700.0, 'num_violations': 0}}}
+  execution_time_mean: 0.029608133998408448
+  execution_time_std: 0.0
+  num_valid_runs: 1
+  num_invalid_runs: 0
+  all_validation_errors: []

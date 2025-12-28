@@ -1,0 +1,131 @@
+database_config:
+  archive_size: 40
+  db_path: results_scheduling/evolution_db.sqlite
+  elite_selection_ratio: 0.3
+  embedding_model: text-embedding-3-small
+  enforce_island_separation: true
+  exploitation_alpha: 1.0
+  exploitation_ratio: 0.2
+  island_elitism: true
+  migration_interval: 10
+  migration_rate: 0.1
+  num_archive_inspirations: 4
+  num_beams: 5
+  num_islands: 2
+  num_top_k_inspirations: 2
+  parent_selection_lambda: 10.0
+  parent_selection_strategy: weighted
+evolution_config:
+  code_embed_sim_threshold: 0.995
+  embedding_model: gemini-embedding-001
+  init_program_path: initial.py
+  job_type: local
+  language: python
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.0
+  llm_kwargs:
+    max_tokens: 8192
+    temperatures:
+    - 0.0
+    - 0.7
+    - 1.0
+  llm_models:
+  - gemini-2.5-flash
+  max_novelty_attempts: 3
+  max_parallel_jobs: 5
+  max_patch_attempts: 3
+  max_patch_resamples: 3
+  meta_llm_kwargs:
+    max_tokens: 8192
+    temperatures:
+    - 0.0
+  meta_llm_models:
+  - gemini-2.5-flash
+  meta_max_recommendations: 5
+  meta_rec_interval: 10
+  novelty_llm_kwargs:
+    max_tokens: 8192
+    temperatures:
+    - 0.0
+  novelty_llm_models:
+  - gemini-2.5-flash
+  num_generations: 300
+  patch_type_probs:
+  - 0.6
+  - 0.3
+  - 0.1
+  patch_types:
+  - diff
+  - full
+  - cross
+  results_dir: results_scheduling
+  task_sys_msg: "You are an expert in combinatorial optimization and operations research,\
+    \ specializing in multi-objective job-shop scheduling for mission-critical government\
+    \ data center.\n\n## OPTIMIZATION OBJECTIVE\n\nYour goal: Design a `construct_schedule(inst:\
+    \ Instance) -> Schedule` function that minimizes:\n\n**Total Cost = compute_cost\
+    \ + 5 \xD7 delay_penalty**\n\nThis is evaluated across TWO scenarios with weighted\
+    \ scoring:\n- **Normal operations (80% weight)**: 16 jobs over 24 hours\n- **Earthquake\
+    \ emergency (20% weight)**: 26 jobs (normal + 10 emergency) with partial machine\
+    \ failures\n\n## PROBLEM STRUCTURE\n\n**Resources:**\n- 5 Local Machines (finite\
+    \ capacity, lower cost): M1-M5\n  - M1: GPU (cap=20) - \xA580-140/h | M2: CPU\
+    \ (cap=40) - \xA520-55/h\n  - M3: HighMem (cap=10) - \xA560-110/h | M4: Secure\
+    \ (cap=5) - \xA550-80/h  \n  - M5: Ingest (cap=30) - \xA515-35/h\n- 5 Cloud Machines\
+    \ (unlimited capacity, 5\xD7 cost): C1-C5\n  - Cloud is backup for overflow or\
+    \ failure mitigation\n\n**Jobs & Operations:**\n- Each job has 2-5 sequential\
+    \ operations (must execute in order)\n- Operations specify: machine_type, duration,\
+    \ capacity_required\n- Jobs have: arrival_time, deadline, priority (CRITICAL/HIGH/MEDIUM/LOW),\
+    \ delay_weight\n- Government workloads: census, fraud detection, emergency response,\
+    \ geospatial, intel, health, climate, social services\n\n**Machine Failures (earthquake\
+    \ scenario):**\n- Gradual capacity reduction with exponential failure/recovery\
+    \ curves\n- Example: M1 capacity drops from 20 \u2192 10, M3 from 10 \u2192 5\n\
+    - Operations can auto-relocate to cloud if local capacity exceeded (costly but\
+    \ maintains validity)\n\n**Hourly Cost Dynamics:**\n- Prices vary by hour (demand-based):\
+    \ off-peak (t=0-5) cheaper, peak (t=8-18) more expensive\n- Strategic timing can\
+    \ reduce costs without violating deadlines\n\n## HARD CONSTRAINTS (MUST SATISFY)\n\
+    \n1. **Precedence**: Operations within a job execute sequentially (op[i] must\
+    \ finish before op[i+1] starts)\n2. **Machine Type**: Each operation assigned\
+    \ to correct machine type (or cloud equivalent)\n3. **Capacity**: Sum of concurrent\
+    \ operations on local machine \u2264 available capacity at each timestep\n   -\
+    \ Cloud machines have unlimited capacity (999999)\n   - Account for failure-induced\
+    \ capacity reductions\n4. **Arrival**: Jobs cannot start before their arrival_time\n\
+    5. **Non-negative**: All start times \u2265 0\n\n## ALGORITHMIC STRATEGIES TO\
+    \ EXPLORE\n\n**Baseline to Beat:** Online FIFO scheduler (greedy, no lookahead)\n\
+    \n**High-Impact Improvements:**\n1. **Priority-Aware Ordering**: Sort by urgency\
+    \ metric (deadline - total_duration - arrival_time, weighted by delay_penalty)\n\
+    2. **Cost-Time Windows**: Schedule low-priority jobs in off-peak hours (t=0-5,\
+    \ t=20-24) to exploit cheaper rates\n3. **Smart Local/Cloud Tradeoff**: \n   -\
+    \ Use local when capacity available (minimize cost)\n   - Preemptively use cloud\
+    \ for tight-deadline jobs if local queue is long\n   - Balance immediate cost\
+    \ vs. future delay penalties\n4. **Lookahead Scheduling**: Consider downstream\
+    \ job queue when making placement decisions\n5. **Capacity-Aware Placement**:\
+    \ Distribute load across compatible machine types to reduce contention\n\n**Advanced\
+    \ Meta-Heuristics:**\n- Simulated Annealing with temperature schedule\n- Genetic\
+    \ Algorithms with crossover/mutation on job orderings\n- Tabu Search with move\
+    \ diversification\n- Constraint Programming (CP-SAT solver from OR-Tools)\n- Dynamic\
+    \ Programming for small subproblems\n- Local Search with 2-opt, swap, or shift\
+    \ neighborhoods\n\n**Failure Resilience:**\n- In earthquake scenario, proactively\
+    \ avoid machines with upcoming failures\n- Build slack into critical job schedules\n\
+    - Use cloud as safety buffer for high-priority operations\n\n## EVALUATION CRITERIA\n\
+    \nYour algorithm will be tested on:\n1. **Correctness**: Must satisfy all hard\
+    \ constraints (evaluated first)\n2. **Multi-Scenario Performance**: Weighted score\
+    \ across normal (80%) + earthquake (20%)\n3. **Cost Efficiency**: Minimize compute_cost\
+    \ (smart local/cloud usage, off-peak timing)\n4. **Deadline Adherence**: Minimize\
+    \ delay_penalty (especially for CRITICAL/HIGH priority)\n5. **Robustness**: Handle\
+    \ machine failures gracefully without excessive cloud costs\n\n## IMPLEMENTATION\
+    \ NOTES\n\n- You're editing `construct_schedule()` in initial.py (between EVOLVE-BLOCK\
+    \ markers)\n- Helper functions available: `get_available_capacity(server_id, time)`,\
+    \ `get_servers_by_type(type)`\n- Input: Instance object with servers, jobs, server_cost,\
+    \ time_horizon, weights, machine_failures\n- Output: Dict mapping job_id \u2192\
+    \ list of {\"server\": str, \"start\": int}\n\n**Think creatively.** This is an\
+    \ NP-hard problem - intelligent heuristics outperform brute force. Consider the\
+    \ interplay between cost optimization, deadline pressure, capacity constraints,\
+    \ and failure scenarios."
+  use_text_feedback: false
+job_config:
+  conda_env: null
+  eval_program_path: evaluate.py
+  extra_cmd_args: {}
+  time: null
+results_directory: results_scheduling
+timestamp: '2025-12-28T14:03:20.978869'

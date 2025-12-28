@@ -1,0 +1,140 @@
+<NAME>
+simplify_slot_selection
+</NAME>
+
+<DESCRIPTION>
+The current `_find_best_slot_for_operation` attempts a complex cost-benefit analysis involving projected job completion times, delay penalties, and failure penalties to pick the "best" local server, or decide between local and cloud. This approach has led to a worse performance score (-6148.00) compared to a simpler local-first strategy from a previous iteration (-5693.00).
+
+This mutation simplifies the slot selection logic to prioritize immediate local machine utilization, which was a key characteristic of the better-performing prior program. The updated logic will:
+1.  **Search for the *earliest possible* available slot on *any local machine* first.** It iterates through local servers and time steps to find the absolute earliest `start_time` where an operation can be placed on a local server.
+2.  **If a local slot is found, it is chosen.** This prioritizes local resources to minimize compute cost, even if it might imply a slightly longer wait than an immediate cloud placement, or if other local slots have a theoretically 'better' weighted score. This implicitly trades off potential micro-optimizations for local usage, as the primary goal is cost reduction.
+3.  **Only if *no local slot can be found at all* within the `time_horizon`**, the operation is then scheduled on a compatible cloud machine immediately at its `earliest_start` time. Cloud is treated as an unlimited, last-resort resource to avoid hard constraints violations and ensure progress.
+
+This change aims to reduce the scheduler's complexity and align it with a more aggressive "local-first, cloud-if-absolutely-necessary" strategy, which has proven effective for cost optimization in this problem context. The proactive failure avoidance from the previous version is removed from the immediate slot selection, as the simpler approach implies that any available local slot is preferred over cloud to control costs, unless absolutely none exist. The overall `evaluate` function will still detect and penalize/relocate operations scheduled onto failed machines, ensuring robustness.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _find_best_slot_for_operation(self, job: Job, op: Operation, earliest_start: int) -> Dict[str, Any]:
+
+        best_server = None
+        best_start_time = -1
+        min_total_weighted_score = float('inf')
+
+        cloud_server_id = self.cloud_servers_by_type.get(op.server_type)
+
+        # Search for local slots across the entire time horizon
+        # A full horizon search ensures finding the cheapest/least impact local slot
+        search_window_start = earliest_start
+        search_window_end = self.inst.time_horizon
+
+        local_compatible_servers = self.local_servers_by_type.get(op.server_type, [])
+
+        # First, find the best local slot
+        for server_id in local_compatible_servers:
+            server = self.inst.servers[server_id]
+
+            for start_time in range(search_window_start, search_window_end):
+                if not self._has_capacity_for_op(server_id, start_time, op.duration, op.capacity_required):
+                    continue
+
+                op_cost = self._calculate_operation_cost(server_id, start_time, op.duration)
+                potential_completion_time = start_time + op.duration
+
+                # Project job completion time considering remaining operations
+                scheduled_ops_count = len(self.schedule.get(job.id, []))
+                remaining_op_durations = sum(o.duration for o in job.operations[scheduled_ops_count + 1:])
+                projected_job_completion_time = potential_completion_time + remaining_op_durations
+
+                delay = max(0, projected_job_completion_time - job.deadline)
+                delay_penalty = delay * job.delay_weight * self.inst.weights["delay_penalty"]
+
+                # Proactive failure avoidance: penalize scheduling in failing machines
+                failure_penalty = 0.0
+                if self.inst.machine_failures:
+                    for f in self.inst.machine_failures:
+                        if f.machine_id == server_id and f.failure_start <= start_time < f.failure_end:
+                            # Calculate overlap duration
+                            overlap_start = max(start_time, f.failure_start)
+                            overlap_end = min(start_time + op.duration, f.failure_end)
+                            failure_overlap_duration = max(0, overlap_end - overlap_start)
+
+                            if failure_overlap_duration > 0:
+                                # Estimate average reduction during overlap and penalize based on that
+                                # Here, we use the full capacity_reduction as a proxy for max impact for a simple heuristic.
+
+                                # Penalize more if the operation's capacity requirement is a significant portion of server capacity
+                                capacity_impact_ratio = op.capacity_required / server.capacity if server.capacity > 0 else 0
+
+                                # This penalty encourages avoidance, scaled by the problem's delay penalty weight
+                                failure_penalty += f.capacity_reduction * capacity_impact_ratio * failure_overlap_duration * self.inst.weights["delay_penalty"] * 5
+                                # The multiplier (5) makes failure avoidance aggressive, directly tying it to the delay cost.
+
+                total_weighted_score = (op_cost * self.inst.weights["compute_cost"]) + delay_penalty + failure_penalty
+
+                if total_weighted_score < min_total_weighted_score:
+                    min_total_weighted_score = total_weighted_score
+                    best_server = server_id
+                    best_start_time = start_time
+
+        # Calculate cloud option score (always available at earliest_start, no failure penalty)
+        cloud_total_score = float('inf')
+        if cloud_server_id:
+            cloud_op_cost = self._calculate_operation_cost(cloud_server_id, earliest_start, op.duration)
+            cloud_potential_completion_time = earliest_start + op.duration
+
+            # Project job completion time considering remaining operations
+            scheduled_ops_count = len(self.schedule.get(job.id, []))
+            remaining_op_durations = sum(o.duration for o in job.operations[scheduled_ops_count + 1:])
+            cloud_projected_job_completion_time = cloud_potential_completion_time + remaining_op_durations
+
+            cloud_delay = max(0, cloud_projected_job_completion_time - job.deadline)
+            cloud_delay_penalty = cloud_delay * job.delay_weight * self.inst.weights["delay_penalty"]
+            cloud_total_score = (cloud_op_cost * self.inst.weights["compute_cost"]) + cloud_delay_penalty
+
+        # Final Decision: Choose the option with the lowest total weighted score
+        if best_server is None or (cloud_server_id and cloud_total_score < min_total_weighted_score):
+            # Prefer cloud if no local option found or if cloud is strictly better
+            if cloud_server_id:
+                return {"server": cloud_server_id, "start": earliest_start}
+            elif best_server: # Fallback if cloud server is somehow not found but local was
+                 return {"server": best_server, "start": best_start_time}
+            else:
+                 # This scenario indicates a critical issue where no server, local or cloud, is available for the type.
+                 # This should ideally not happen if cloud is guaranteed for all types.
+                 raise ValueError(f"No compatible server (local or cloud) found for job {job.id}, operation {op.server_type} (earliest_start: {earliest_start})")
+        else:
+            return {"server": best_server, "start": best_start_time}
+=======
+    def _find_best_slot_for_operation(self, job: Job, op: Operation, earliest_start: int) -> Dict[str, Any]:
+
+        # Initialize variables for tracking the earliest local slot found
+        earliest_local_start = self.inst.time_horizon + 1 # Initialize with a time beyond horizon
+        selected_local_server = None
+
+        local_compatible_servers = self.local_servers_by_type.get(op.server_type, [])
+
+        # First, search for the earliest available slot on any local machine
+        for server_id in local_compatible_servers:
+            # Find the earliest time this specific local server can accommodate the operation
+            for current_start_time in range(earliest_start, self.inst.time_horizon):
+                if self._has_capacity_for_op(server_id, current_start_time, op.duration, op.capacity_required):
+                    # Found an available slot. Check if this is earlier than the best found so far.
+                    if current_start_time < earliest_local_start:
+                        earliest_local_start = current_start_time
+                        selected_local_server = server_id
+                    break # Found the earliest slot for THIS server, move to the next local server
+
+        # Decision: If an earliest local slot was found, use it. Otherwise, use cloud immediately.
+        if selected_local_server is not None:
+            return {"server": selected_local_server, "start": earliest_local_start}
+        else:
+            # No local machine available within the time horizon. Fallback to cloud immediately.
+            cloud_server_id = self.cloud_servers_by_type.get(op.server_type)
+            if cloud_server_id:
+                return {"server": cloud_server_id, "start": earliest_start}
+            else:
+                # This should only happen if there are no cloud servers defined for this type.
+                raise ValueError(f"No compatible cloud server found for type {op.server_type} for job {job.id}, operation.")
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,177 @@
+<NAME>holistic_local_slot_selection</NAME>
+
+<DESCRIPTION>
+This edit refines the selection of local machine slots for an operation. Previously, the search for a local slot was limited by an aggressive `latest_start_time_to_meet_deadline` calculation, and the decision between local options was based solely on the immediate `op_cost`. This meant that a locally cheap but delayed slot might be preferred, or local options that *could* be acceptable were prematurely excluded from consideration.
+
+The changes are:
+1.  **Expanded Local Search Window**: The calculation for `latest_start_time_to_meet_deadline` and its use in `search_end_time` are removed. The local search now iterates up to `inst.time_horizon`, allowing the `_get_op_schedule_cost` function to *penalize* delays rather than hard-blocking options, which is a more flexible approach.
+2.  **Holistic Local Cost Comparison**: The `best_schedule_option`'s cost metric is now explicitly named `evaluated_score` to reflect its comprehensive nature (compute cost + delay penalty). More importantly, the decision to pick a local server is now based on comparing the `_get_op_schedule_cost` for each potential local slot. This ensures that when choosing a local machine, the scheduler considers both immediate compute costs and the impact on the job's overall deadline adherence.
+
+This allows the scheduler to find more optimal local slots by considering the full objective function (cost + delay penalty) rather than just immediate compute cost, and by relaxing artificial search window limits that prevent exploring valid, albeit delayed, local options.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            best_schedule_option = {
+                "server": None,
+                "start": -1,
+                "cost": float('inf'),
+                "is_cloud": False
+            }
+
+            # Calculate the latest start time for this operation to meet the job's deadline
+            # considering remaining operations
+            remaining_duration = sum(j_op.duration for j_op in job.operations[op_idx+1:])
+            latest_start_time_to_meet_deadline = job.deadline - remaining_duration - op.duration
+
+            # Search for the best local slot
+            for server_id in compatible_local_servers:
+                # Search window: from current_op_start_time up to the time horizon,
+                # but also consider job deadline for this specific operation.
+                search_end_time = min(inst.time_horizon, latest_start_time_to_meet_deadline + 1)
+
+                for start_time in range(current_op_start_time, search_end_time):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        op_cost = 0
+                        for t in range(start_time, start_time + op.duration):
+                            op_cost += inst.server_cost[server_id][t % inst.time_horizon]
+
+                        if op_cost < best_schedule_option["cost"]:
+                            best_schedule_option["server"] = server_id
+                            best_schedule_option["start"] = start_time
+                            best_schedule_option["cost"] = op_cost
+                            best_schedule_option["is_cloud"] = False
+=======
+            best_schedule_option = {
+                "server": None,
+                "start": -1,
+                "evaluated_score": float('inf'), # Tracks the full weighted score (compute + delay penalty)
+                "is_cloud": False
+            }
+
+            # Search for the best local slot
+            for server_id in compatible_local_servers:
+                # Search window: from current_op_start_time up to the time horizon.
+                # Delay penalties will be naturally incorporated by _get_op_schedule_cost.
+                for start_time in range(current_op_start_time, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        current_op_total_weighted_score = _get_op_schedule_cost(
+                            server_id, start_time, op.duration, op.capacity_required, job_id, op_idx
+                        )
+
+                        if current_op_total_weighted_score < best_schedule_option["evaluated_score"]:
+                            best_schedule_option["server"] = server_id
+                            best_schedule_option["start"] = start_time
+                            best_schedule_option["evaluated_score"] = current_op_total_weighted_score
+                            best_schedule_option["is_cloud"] = False
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>cloud_comparison_with_holistic_score</NAME>
+
+<DESCRIPTION>
+This change improves the decision-making process for choosing between a local server and a cloud server when scheduling an operation. Previously, the cloud selection logic for high-priority jobs or deadline violations was somewhat arbitrary, and the `best_schedule_option["cost"]` was still updated with only the immediate `cloud_op_cost`.
+
+The changes are:
+1.  **Consistent Cloud Cost Evaluation**: When considering a cloud option, its `cloud_op_total_weighted_score` is now calculated using the `_get_op_schedule_cost` function, ensuring it's evaluated against the same metric as local options.
+2.  **Smarter Cloud Decision Logic**: The criteria for preferring cloud are enhanced:
+    *   If no local slot was found, the cloud is chosen (as before, but using the holistic score).
+    *   If the cloud offers a strictly better `evaluated_score`, it's chosen.
+    *   For `CRITICAL` or `HIGH` priority jobs, a `cloud_preference_threshold` is applied. This means the cloud can be preferred even if its holistic score is *slightly* higher than the best local, to ensure timely execution for urgent workloads. The threshold `1.1` makes cloud acceptable if its total weighted score is up to 10% more than the best local. This prioritizes avoiding delays for critical tasks.
+3.  **Correct `best_schedule_option` Update**: The `evaluated_score` in `best_schedule_option` is correctly updated with the comprehensive `cloud_op_total_weighted_score` if the cloud is selected.
+
+This ensures a more balanced and priority-aware decision between local and cloud resources, optimizing for the total weighted objective function (cost + delay penalty).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # If no local slot found or if local option causes deadline violation, consider cloud
+            if best_schedule_option["server"] is None or \
+               (best_schedule_option["start"] + op.duration > job.deadline and job.deadline < inst.time_horizon):
+
+                cloud_server_id = None
+                for s_id in get_servers_by_type(op.server_type, prefer_local=False):
+                    if inst.servers[s_id].is_cloud:
+                        cloud_server_id = s_id
+                        break
+
+                if cloud_server_id:
+                    # Cloud has unlimited capacity, can schedule immediately at current_op_start_time
+                    cloud_start_time = current_op_start_time
+                    cloud_op_cost = 0
+                    for t in range(cloud_start_time, cloud_start_time + op.duration):
+                        cloud_op_cost += inst.server_cost[cloud_server_id][t % inst.time_horizon]
+
+                    # Prioritize cloud if it resolves deadline issues or is just better
+                    # This is a heuristic to decide if cloud is preferred over a *very late* local slot
+                    # For critical jobs, cloud might be preferred even if local is available later
+                    if best_schedule_option["server"] is None or \
+                       cloud_start_time + op.duration <= job.deadline or \
+                       job.priority_score >= priority_map["HIGH"] : # High priority jobs might preemptively go to cloud
+                        best_schedule_option["server"] = cloud_server_id
+                        best_schedule_option["start"] = cloud_start_time
+                        best_schedule_option["cost"] = cloud_op_cost
+                        best_schedule_option["is_cloud"] = True
+
+            # Execute the best chosen option (local or cloud)
+            final_server = best_schedule_option["server"]
+            final_start = best_schedule_option["start"]
+
+            # Fallback if no option was found (should not happen with cloud)
+            if final_server is None:
+                # This indicates a problem if cloud was not found, or it was deemed worse
+                # For robustness, we'll force the first cloud server at earliest_start
+                cloud_server_id = None
+                for s_id in get_servers_by_type(op.server_type, prefer_local=False):
+                    if inst.servers[s_id].is_cloud:
+                        cloud_server_id = s_id
+                        break
+                final_server = cloud_server_id if cloud_server_id else compatible_local_servers[0] # Fallback to local if no cloud for some reason
+                final_start = current_op_start_time
+=======
+            # If no local slot found or if cloud offers a better overall score, consider cloud
+            cloud_server_id = None
+            for s_id in get_servers_by_type(op.server_type, prefer_local=False):
+                if inst.servers[s_id].is_cloud:
+                    cloud_server_id = s_id
+                    break
+
+            if cloud_server_id:
+                cloud_start_time = current_op_start_time # Cloud can always start immediately
+                cloud_op_total_weighted_score = _get_op_schedule_cost(
+                    cloud_server_id, cloud_start_time, op.duration, op.capacity_required, job_id, op_idx
+                )
+
+                # Define a threshold for preferring cloud for high-priority jobs
+                cloud_preference_factor = 1.0
+                if job.priority_score >= priority_map["CRITICAL"]: # Even more aggressive for CRITICAL
+                     cloud_preference_factor = 1.2 # Prefer cloud even if local is 20% cheaper (total score)
+                elif job.priority_score >= priority_map["HIGH"]:
+                     cloud_preference_factor = 1.1 # Prefer cloud even if local is 10% cheaper (total score)
+
+                # Prioritize cloud if no local found, or cloud is significantly better,
+                # or for high-priority jobs, cloud is 'good enough' compared to local.
+                if best_schedule_option["server"] is None or \
+                   cloud_op_total_weighted_score < best_schedule_option["evaluated_score"] or \
+                   (best_schedule_option["evaluated_score"] > 0 and cloud_op_total_weighted_score < best_schedule_option["evaluated_score"] * cloud_preference_factor):
+                    best_schedule_option["server"] = cloud_server_id
+                    best_schedule_option["start"] = cloud_start_time
+                    best_schedule_option["evaluated_score"] = cloud_op_total_weighted_score
+                    best_schedule_option["is_cloud"] = True
+
+            # Execute the best chosen option (local or cloud)
+            final_server = best_schedule_option["server"]
+            final_start = best_schedule_option["start"]
+
+            # Fallback if no option was found (should only happen if no cloud servers exist for type)
+            if final_server is None:
+                # This indicates a severe configuration issue (e.g., no cloud server, no local server).
+                # For robustness, we'll force the first compatible local server at earliest_start.
+                # If even that doesn't exist, it's a critical error.
+                if compatible_local_servers:
+                    final_server = compatible_local_servers[0]
+                    final_start = current_op_start_time
+                else:
+                    raise ValueError(f"No compatible server (local or cloud) found for job {job_id}, operation {op_idx} type {op.server_type}")
+>>>>>>> REPLACE
+</DIFF>

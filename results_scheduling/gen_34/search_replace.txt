@@ -1,0 +1,239 @@
+<NAME>
+add_op_cost_helper
+</NAME>
+
+<DESCRIPTION>
+Introduces a helper function `_calculate_operation_cost` within `construct_schedule` to calculate the cost of a single operation on a given server and time window. This function is inserted directly after `get_available_capacity` and before `has_capacity`. This separation of concerns makes the cost calculation reusable and clearer for subsequent logic.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        available = max(0, base_capacity - int(total_reduction))
+        return available
+=======
+        available = max(0, base_capacity - int(total_reduction))
+        return available
+
+    def _calculate_operation_cost(server_id: str, start: int, duration: int) -> float:
+        """Calculate the compute cost for an operation on a specific server."""
+        cost = 0.0
+        for t in range(start, start + duration):
+            if t >= inst.time_horizon: # Ensure not to calculate cost beyond time horizon
+                break
+            cost += inst.server_cost[server_id][t % inst.time_horizon]
+        return cost
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+intelligent_op_scheduling
+</NAME>
+
+<DESCRIPTION>
+Replaces the basic greedy operation scheduling with a more intelligent multi-objective approach for each operation. It now comprehensively searches for the best available slot considering:
+1.  **Compute Cost**: Calculated for the specific operation on a given server and time.
+2.  **Delay Penalty**: Considers the impact on the job's deadline if the operation is delayed, incorporating `job.delay_weight`.
+3.  **Failure Avoidance**: Introduces a penalty for scheduling on local machines that are experiencing or are about to experience a capacity reduction due to a failure, encouraging proactive migration to other local machines or cloud.
+4.  **Local/Cloud Tradeoff**: For high-priority jobs (`CRITICAL` or `HIGH`), it allows for preemptive cloud usage if a local slot would cause significant delay or is not available soon enough, even if slightly more expensive. It still prioritizes finding the best local slot first within a window defined by the job's deadline.
+The logic ensures operations are scheduled to meet deadlines while minimizing the weighted total cost (compute + delay + failure penalty).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            scheduled = False
+            earliest_start = job_available_time[job_id]
+
+            # GREEDY DECISION: Try local machines, finding next available slot
+            best_local_start = None
+            best_local_server = None
+
+            for server_id in compatible:
+                if inst.servers[server_id].is_cloud:
+                    continue  # Skip cloud for now, try local first
+
+                # Find the earliest time this server can accommodate the operation
+                for start_time in range(earliest_start, inst.time_horizon):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        if best_local_start is None or start_time < best_local_start:
+                            best_local_start = start_time
+                            best_local_server = server_id
+                        break  # Found earliest slot on this server
+
+            # Schedule on best local server if found
+            if best_local_server is not None:
+                # Reserve capacity
+                for t in range(best_local_start, best_local_start + op.duration):
+                    if t not in capacity_usage[best_local_server]:
+                        capacity_usage[best_local_server][t] = 0
+                    capacity_usage[best_local_server][t] += op.capacity_required
+
+                schedule[job_id].append({"server": best_local_server, "start": best_local_start})
+                job_available_time[job_id] = best_local_start + op.duration
+                scheduled = True
+
+            # If no local machine available within time horizon, use cloud immediately
+            # This is the key online trade-off: pay more (cloud) to avoid delays
+            if not scheduled:
+                for server_id in compatible:
+                    if not inst.servers[server_id].is_cloud:
+                        continue  # Only cloud now
+
+                    # Cloud has infinite capacity, schedule immediately
+                    start_time = earliest_start
+
+                    # Reserve capacity (cloud has effectively infinite)
+                    for t in range(start_time, start_time + op.duration):
+                        if t not in capacity_usage[server_id]:
+                            capacity_usage[server_id][t] = 0
+                        capacity_usage[server_id][t] += op.capacity_required
+
+                    schedule[job_id].append({"server": server_id, "start": start_time})
+                    job_available_time[job_id] = start_time + op.duration
+                    scheduled = True
+                    break
+
+            # Fallback: if still not scheduled (shouldn't happen with cloud), use first compatible
+            if not scheduled:
+                server_id = compatible[0]
+                start_time = earliest_start
+                schedule[job_id].append({"server": server_id, "start": start_time})
+                job_available_time[job_id] = start_time + op.duration
+=======
+            earliest_start = job_available_time[job_id] # Earliest start for the current operation
+
+            best_schedule_option = {
+                "server": None,
+                "start": -1,
+                "score": float('inf'), # Combined weighted score of cost + delay penalty + failure penalty
+                "is_cloud": False
+            }
+
+            # Calculate the latest start time for this operation to meet the job's deadline
+            # considering remaining operations
+            remaining_duration = sum(j_op.duration for j_op in job.operations[op_idx+1:])
+            # latest_start_time_to_meet_deadline is inclusive
+            latest_start_time_to_meet_deadline = job.deadline - remaining_duration - op.duration
+
+            # Get local servers, sorted by id for deterministic tie-breaking (original function already returns sorted)
+            compatible_local_servers = [s_id for s_id in compatible if not inst.servers[s_id].is_cloud]
+
+            # Search for the best local slot
+            # Search window: from current_op_start_time up to the time horizon,
+            # clamped by the latest_start_time_to_meet_deadline
+            # We add +1 to latest_start_time_to_meet_deadline for range() to be inclusive of that time.
+            # However, we must ensure it doesn't exceed inst.time_horizon.
+            search_end_for_local = min(inst.time_horizon, latest_start_time_to_meet_deadline + 1)
+
+            for server_id in compatible_local_servers:
+                for start_time in range(earliest_start, search_end_for_local):
+                    if has_capacity(server_id, start_time, op.duration, op.capacity_required):
+                        op_cost = _calculate_operation_cost(server_id, start_time, op.duration)
+                        potential_completion_time = start_time + op.duration
+
+                        delay = max(0, potential_completion_time - job.deadline)
+                        # Scale delay penalty using the instance's weight for delay
+                        delay_penalty = delay * job.delay_weight * inst.weights["delay_penalty"]
+
+                        # Heuristic for proactive failure avoidance: penalize scheduling in failing machines
+                        failure_penalty = 0
+                        if inst.machine_failures:
+                            for f in inst.machine_failures:
+                                if f.machine_id == server_id and f.failure_start <= start_time < f.failure_end:
+                                    # Penalize more if capacity reduction is significant and failure rate is high
+                                    # This aims to represent the risk of the operation being impacted or needing relocation
+                                    # Calculate effective capacity reduction at start_time of the operation.
+                                    # This is a simplification; a more complex model would consider reduction over operation duration.
+                                    effective_reduction_at_start = f.capacity_reduction * (1.0 - math.exp(-f.failure_rate * max(0, start_time - f.failure_start)))
+                                    # Penalize based on how much capacity is lost relative to server's total and required by op
+                                    # Max capacity of 1 is to prevent division by zero or overly large penalty for small capacities
+                                    failure_penalty += effective_reduction_at_start * (op.capacity_required / max(1, inst.servers[server_id].capacity)) * inst.weights["delay_penalty"] * 2
+                                    # The multiplier '2' is a tunable parameter to increase sensitivity to failures.
+                                    break # Only apply the penalty once for the most relevant failure
+
+                        total_weighted_score = (op_cost * inst.weights["compute_cost"]) + delay_penalty + failure_penalty
+
+                        if total_weighted_score < best_schedule_option["score"]:
+                            best_schedule_option["score"] = total_weighted_score
+                            best_schedule_option["server"] = server_id
+                            best_schedule_option["start"] = start_time
+                            best_schedule_option["is_cloud"] = False
+
+            # After trying local, now evaluate cloud options
+            cloud_server_id = None
+            for s_id in compatible: # Iterate through all compatible servers to find a cloud one
+                if inst.servers[s_id].is_cloud:
+                    cloud_server_id = s_id
+                    break
+
+            if cloud_server_id:
+                # Cloud has unlimited capacity, can schedule immediately at earliest_start
+                cloud_start_time = earliest_start
+                cloud_op_cost = _calculate_operation_cost(cloud_server_id, cloud_start_time, op.duration)
+                cloud_potential_completion_time = cloud_start_time + op.duration
+                cloud_delay = max(0, cloud_potential_completion_time - job.deadline)
+                cloud_delay_penalty = cloud_delay * job.delay_weight * inst.weights["delay_penalty"]
+
+                # Cloud has no failure penalty as capacity is infinite
+                cloud_total_score = (cloud_op_cost * inst.weights["compute_cost"]) + cloud_delay_penalty
+
+                # Decision logic: when to prefer cloud over the best local option found
+                # 1. If no local slot was found.
+                # 2. If the best local slot violates the deadline, and cloud does not.
+                # 3. If cloud is significantly better (e.g., lower total score).
+                # 4. For CRITICAL/HIGH priority jobs, if cloud offers completion by deadline or much faster,
+                #    even if local is slightly cheaper but delays, prefer cloud.
+
+                # Determine if cloud is a strong candidate
+                # This threshold biases towards local unless cloud is much better or local is very bad.
+                # A higher job priority will make it more likely to pick cloud if it avoids delay.
+                cloud_advantage_factor = 1.0 # default: cloud must be strictly better
+                if job.priority_score >= PRIORITY_MAP["HIGH"]: # Critical or High priority
+                    cloud_advantage_factor = 0.8 # Cloud can be up to 20% more expensive than best local if it avoids critical delays
+
+                # Compare cloud with the best local option found so far
+                prefer_cloud = False
+                if best_schedule_option["server"] is None:
+                    prefer_cloud = True # No local option found
+                elif (best_schedule_option["start"] + op.duration > job.deadline and cloud_potential_completion_time <= job.deadline):
+                    prefer_cloud = True # Local misses deadline, but cloud meets it
+                elif cloud_total_score < best_schedule_option["score"] * cloud_advantage_factor:
+                    prefer_cloud = True # Cloud is significantly better based on weighted score
+
+                if prefer_cloud:
+                    best_schedule_option["server"] = cloud_server_id
+                    best_schedule_option["start"] = cloud_start_time
+                    best_schedule_option["score"] = cloud_total_score
+                    best_schedule_option["is_cloud"] = True
+
+            # Execute the best chosen option (local or cloud)
+            final_server = best_schedule_option["server"]
+            final_start = best_schedule_option["start"]
+
+            # Fallback if no option was found (should not happen with cloud as it always has capacity)
+            if final_server is None:
+                # This indicates a logic flaw if cloud_server_id was found but not chosen, or no cloud server exists.
+                # For robustness, forcefully schedule on the first compatible cloud server (if available),
+                # or first local server, at the earliest_start.
+                cloud_fallback_server = next((s_id for s_id in compatible if inst.servers[s_id].is_cloud), None)
+                if cloud_fallback_server:
+                    final_server = cloud_fallback_server
+                    final_start = earliest_start
+                elif compatible: # Fallback to first local if no cloud for some reason
+                    final_server = compatible[0]
+                    final_start = earliest_start
+                else:
+                    # Should ideally not happen if problem setup is valid
+                    raise ValueError(f"No compatible server found for operation {op_idx} of job {job_id}")
+
+
+            # Reserve capacity
+            for t in range(final_start, final_start + op.duration):
+                if t not in capacity_usage[final_server]:
+                    capacity_usage[final_server][t] = 0
+                capacity_usage[final_server][t] += op.capacity_required
+
+            schedule[job_id].append({"server": final_server, "start": final_start})
+            current_op_start_time = final_start + op.duration
+            job_available_time[job_id] = current_op_start_time # Update for next operations of this job
+>>>>>>> REPLACE
+</DIFF>

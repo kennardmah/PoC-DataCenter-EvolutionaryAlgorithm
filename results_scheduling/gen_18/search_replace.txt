@@ -1,0 +1,17 @@
+<add_job_dataclass_attributes>
+Adds `total_duration` and `priority_score` attributes to the `Job` dataclass. These attributes will be pre-calculated once for each job during schedule construction, enabling more sophisticated prioritization heuristics based on a job's total length and its mapped priority level without re-calculating them repeatedly. This is a foundational change for implementing more intelligent job ordering and operation placement.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
+=======
+    operations: List[Operation]
+    arrival_time: int = 0  # Time when job becomes available for scheduling
+
+    # These will be populated during schedule construction
+    total_duration: int = 0
+    priority_score: int = 0
+>>>>>>> REPLACE
+</DIFF>

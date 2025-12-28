@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "name '_calculate_operation_cost' is not defined"
+}

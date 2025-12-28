@@ -20,10 +20,6 @@ import os
 
 load_dotenv()  # Load environment variables from .env file
 
-# Verify Google API key is loaded
-if not os.getenv('GOOGLE_API_KEY'):
-    raise ValueError("GOOGLE_API_KEY not found in environment. Please add it to your .env file.")
-
 from shinka.core import EvolutionRunner, EvolutionConfig
 from shinka.database import DatabaseConfig
 from shinka.launch import LocalJobConfig
@@ -88,84 +84,122 @@ db_config = DatabaseConfig(
     **parent_config,
 )
 
-search_task_sys_msg = """You are an expert in combinatorial optimization, specifically job-shop scheduling and cost-aware computing. The goal is to minimize the weighted sum of compute cost and delay penalties for a government data center.
+search_task_sys_msg = """You are an expert in combinatorial optimization and operations research, specializing in multi-objective job-shop scheduling for mission-critical government data center.
 
-## Problem Description
-- 8 government jobs with ordered operations must be scheduled on 10 machines (5 local + 5 cloud):
-  
-  **Local Machines (limited capacity):**
-  - M1: GPU Compute (training/inference bottleneck) - ¥80-140/h
-  - M2: CPU Compute (control logic, feature engineering) - ¥20-55/h
-  - M3: High-Memory Analytics (graphs, large matrices) - ¥60-110/h
-  - M4: Secure/Isolated Compute (gov-only workloads) - ¥50-80/h
-  - M5: Data Ingest & Preprocessing (IO-heavy, staging) - ¥15-35/h
-  
-  **Cloud Machines (infinite capacity, 5x cost):**
-  - C1: Cloud GPU - ¥400-700/h
-  - C2: Cloud CPU - ¥100-275/h
-  - C3: Cloud HighMem - ¥300-550/h
-  - C4: Cloud Secure - ¥250-400/h
-  - C5: Cloud Ingest - ¥75-175/h
+## OPTIMIZATION OBJECTIVE
 
-- Each operation requires a specific machine type and has a duration
-- Machine costs vary by hour (demand-based pricing)
-- Jobs include: census processing, ML fraud detection, emergency response, geospatial analysis, classified intel, public health, climate modeling, social services
-- Jobs have deadlines and priority-weighted delay penalties (CRITICAL > HIGH > MEDIUM > LOW)
-- Local machines can only process one operation at a time (capacity constraint)
-- Cloud machines have infinite capacity but cost 5x more (use as overflow)
-- Operations within a job must be sequential (precedence constraints)
+Your goal: Design a `construct_schedule(inst: Instance) -> Schedule` function that minimizes:
 
-## Objective
-Minimize: compute_cost + 5 × delay_penalty
+**Total Cost = compute_cost + 5 × delay_penalty**
 
-## Current Best Approaches
-The baseline uses priority-based scheduling with local search. Key improvement directions:
+This is evaluated across TWO scenarios with weighted scoring:
+- **Normal operations (80% weight)**: 16 jobs over 24 hours
+- **Earthquake emergency (20% weight)**: 26 jobs (normal + 10 emergency) with partial machine failures
 
-1. **Smarter job ordering**: Consider slack time (deadline - processing time), cost opportunity windows
-2. **Cost-aware timing**: Shift operations to off-peak hours (0-5) when possible without violating deadlines
-3. **Local vs. Cloud tradeoff**: Use local machines when available, cloud overflow only when necessary or to avoid delays
-4. **Server load balancing**: Distribute work across compatible servers to reduce waiting
-5. **Look-ahead scheduling**: Consider downstream operations when making decisions
-6. **Meta-heuristics**: Try simulated annealing, genetic algorithms, or tabu search
-7. **Constraint programming**: Model as CP-SAT problem for optimal solutions
-8. **Machine failure resilience**: Handle machine unavailability by routing to cloud or rescheduling
+## PROBLEM STRUCTURE
 
-## Constraints (MUST satisfy)machine types (or their cloud equivalents)
-- Operations within a job must not overlap (precedence)
-- No two operations can use the same LOCAL machine at the same time (capacity)
-- Cloud machines have infinite capacity (can run multiple operations simultaneously)
-- Start times must be non-negative
-- Machine failures must be respected (cannot use failed machines during failure windows)
+**Resources:**
+- 5 Local Machines (finite capacity, lower cost): M1-M5
+  - M1: GPU (cap=20) - ¥80-140/h | M2: CPU (cap=40) - ¥20-55/h
+  - M3: HighMem (cap=10) - ¥60-110/h | M4: Secure (cap=5) - ¥50-80/h  
+  - M5: Ingest (cap=30) - ¥15-35/h
+- 5 Cloud Machines (unlimited capacity, 5× cost): C1-C5
+  - Cloud is backup for overflow or failure mitigation
 
-Be creative and try different algorithmic approaches. Consider the local vs. cloud cost tradeoff strategically
-Be creative and try different algorithmic approaches. The problem is NP-hard, so heuristics and meta-heuristics are appropriate."""
+**Jobs & Operations:**
+- Each job has 2-5 sequential operations (must execute in order)
+- Operations specify: machine_type, duration, capacity_required
+- Jobs have: arrival_time, deadline, priority (CRITICAL/HIGH/MEDIUM/LOW), delay_weight
+- Government workloads: census, fraud detection, emergency response, geospatial, intel, health, climate, social services
+
+**Machine Failures (earthquake scenario):**
+- Gradual capacity reduction with exponential failure/recovery curves
+- Example: M1 capacity drops from 20 → 10, M3 from 10 → 5
+- Operations can auto-relocate to cloud if local capacity exceeded (costly but maintains validity)
+
+**Hourly Cost Dynamics:**
+- Prices vary by hour (demand-based): off-peak (t=0-5) cheaper, peak (t=8-18) more expensive
+- Strategic timing can reduce costs without violating deadlines
+
+## HARD CONSTRAINTS (MUST SATISFY)
+
+1. **Precedence**: Operations within a job execute sequentially (op[i] must finish before op[i+1] starts)
+2. **Machine Type**: Each operation assigned to correct machine type (or cloud equivalent)
+3. **Capacity**: Sum of concurrent operations on local machine ≤ available capacity at each timestep
+   - Cloud machines have unlimited capacity (999999)
+   - Account for failure-induced capacity reductions
+4. **Arrival**: Jobs cannot start before their arrival_time
+5. **Non-negative**: All start times ≥ 0
+
+## ALGORITHMIC STRATEGIES TO EXPLORE
+
+**Baseline to Beat:** Online FIFO scheduler (greedy, no lookahead)
+
+**High-Impact Improvements:**
+1. **Priority-Aware Ordering**: Sort by urgency metric (deadline - total_duration - arrival_time, weighted by delay_penalty)
+2. **Cost-Time Windows**: Schedule low-priority jobs in off-peak hours (t=0-5, t=20-24) to exploit cheaper rates
+3. **Smart Local/Cloud Tradeoff**: 
+   - Use local when capacity available (minimize cost)
+   - Preemptively use cloud for tight-deadline jobs if local queue is long
+   - Balance immediate cost vs. future delay penalties
+4. **Lookahead Scheduling**: Consider downstream job queue when making placement decisions
+5. **Capacity-Aware Placement**: Distribute load across compatible machine types to reduce contention
+
+**Advanced Meta-Heuristics:**
+- Simulated Annealing with temperature schedule
+- Genetic Algorithms with crossover/mutation on job orderings
+- Tabu Search with move diversification
+- Constraint Programming (CP-SAT solver from OR-Tools)
+- Dynamic Programming for small subproblems
+- Local Search with 2-opt, swap, or shift neighborhoods
+
+**Failure Resilience:**
+- In earthquake scenario, proactively avoid machines with upcoming failures
+- Build slack into critical job schedules
+- Use cloud as safety buffer for high-priority operations
+
+## EVALUATION CRITERIA
+
+Your algorithm will be tested on:
+1. **Correctness**: Must satisfy all hard constraints (evaluated first)
+2. **Multi-Scenario Performance**: Weighted score across normal (80%) + earthquake (20%)
+3. **Cost Efficiency**: Minimize compute_cost (smart local/cloud usage, off-peak timing)
+4. **Deadline Adherence**: Minimize delay_penalty (especially for CRITICAL/HIGH priority)
+5. **Robustness**: Handle machine failures gracefully without excessive cloud costs
+
+## IMPLEMENTATION NOTES
+
+- You're editing `construct_schedule()` in initial.py (between EVOLVE-BLOCK markers)
+- Helper functions available: `get_available_capacity(server_id, time)`, `get_servers_by_type(type)`
+- Input: Instance object with servers, jobs, server_cost, time_horizon, weights, machine_failures
+- Output: Dict mapping job_id → list of {"server": str, "start": int}
+
+**Think creatively.** This is an NP-hard problem - intelligent heuristics outperform brute force. Consider the interplay between cost optimization, deadline pressure, capacity constraints, and failure scenarios."""
 
 
 evo_config = EvolutionConfig(
     task_sys_msg=search_task_sys_msg,
     patch_types=["diff", "full", "cross"],
     patch_type_probs=[0.6, 0.3, 0.1],
-    num_generations=400,
+    num_generations=300,
     max_parallel_jobs=5,
     max_patch_resamples=3,
     max_patch_attempts=3,
     job_type="local",
     language="python",
     llm_models=[
-        "gemini-2.0-flash-exp",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
+        "gemini-2.5-flash"
     ],
     llm_kwargs=dict(
         temperatures=[0.0, 0.7, 1.0],
         max_tokens=8192,
     ),
     meta_rec_interval=10,
-    meta_llm_models=["gemini-1.5-flash"],
+    meta_llm_models=["gemini-2.5-flash"],
     meta_llm_kwargs=dict(temperatures=[0.0], max_tokens=8192),
-    embedding_model="text-embedding-004",
+    embedding_model="gemini-embedding-001",
     code_embed_sim_threshold=0.995,
-    novelty_llm_models=["gemini-1.5-flash"],
+    novelty_llm_models=["gemini-2.5-flash"],
     novelty_llm_kwargs=dict(temperatures=[0.0], max_tokens=8192),
     llm_dynamic_selection="ucb1",
     llm_dynamic_selection_kwargs=dict(exploration_coef=1.0),

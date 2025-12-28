@@ -1,0 +1,23 @@
+<math_import_fix>
+Ensures the `math` module is imported at the top level of the modifiable block, making it accessible to the `Scheduler` class methods that use exponential functions for failure/recovery calculations. The previous code imported `math` locally within functions, but the new class structure requires it to be available at the class level.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional
+import copy
+import os
+=======
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional
+import copy
+import os
+import math # Added for exponential functions in Scheduler class
+>>>>>>> REPLACE
+</DIFF>
+
+<priority_aware_lookahead_scheduler>
+Replaces the basic Online FIFO scheduler with a more sophisticated Priority-Aware Adaptive Scheduler. This scheduler implements:
+1. **Dynamic Priority-Aware Ordering**: Jobs are sorted by an urgency metric that considers job priority (CRITICAL/HIGH/MEDIUM/LOW), time until deadline, and delay weight. This re-sorting happens dynamically.
+2. **Cost-Time Windows**: The `_find_best_slot_for_operation` method implicitly considers hourly costs by using `_calculate_operation_cost` which takes hourly rates into account when evaluating potential start times.
+3. **Smart Local/Cloud Tradeoff**: The scheduler first attempts to find a local machine slot within a lookahead window. If no suitable local slot is found, or if a cloud option offers a significantly

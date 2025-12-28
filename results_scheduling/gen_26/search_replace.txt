@@ -1,0 +1,60 @@
+<NAME>
+job_property_precomputation_and_sort
+</NAME>
+
+<DESCRIPTION>
+This enhancement pre-computes the `total_duration` and `priority_score` for each job once at the beginning of the `construct_schedule` function. These values are stored directly on the `Job` objects.
+
+The job prioritization logic (`sorted_jobs`) is then updated to leverage these pre-calculated properties. This ensures that:
+1.  Calculations for total duration and priority mapping are not repeated within the sort key lambda function, improving efficiency.
+2.  The job sorting is more explicit and directly uses the enriched `Job` object attributes, making the code cleaner and easier to understand.
+3.  The multi-criteria prioritization remains effective, ordering jobs by priority level, then by slack (effective deadline), then by delay weight, and finally by arrival time and ID for tie-breaking.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Pre-calculate total duration for each job
+    job_durations = {job_id: sum(op.duration for op in job.operations) for job_id, job in inst.jobs.items()}
+
+    # Priority mapping for jobs (lower value = higher priority)
+    PRIORITY_MAP = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+    # Prioritize jobs based on a multi-criteria heuristic:
+    # 1. Job Priority (CRITICAL, HIGH, MEDIUM, LOW) - lower integer value is higher priority
+    # 2. Effective deadline (deadline - total_duration - arrival_time) - tighter deadlines first
+    # 3. Delay weight (higher delay weight first) - multiplied by -1 to sort descending
+    # 4. Arrival time (earlier is better, for secondary tie-breaking)
+    # 5. Job ID (for deterministic tie-breaking)
+    sorted_jobs = sorted(inst.jobs.keys(),
+                         key=lambda j_id: (
+                             PRIORITY_MAP.get(inst.jobs[j_id].priority, 99),
+                             inst.jobs[j_id].deadline - job_durations[j_id] - inst.jobs[j_id].arrival_time,
+                             -inst.jobs[j_id].delay_weight, # Sort by higher delay weight first
+                             inst.jobs[j_id].arrival_time,
+                             j_id
+                         ))
+=======
+    # Priority mapping for jobs (lower value = higher priority)
+    PRIORITY_MAP = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+    # Pre-calculate total duration and priority score for each job
+    for job_id, job in inst.jobs.items():
+        job.total_duration = sum(op.duration for op in job.operations)
+        job.priority_score = PRIORITY_MAP.get(job.priority, 99) # Default to lowest priority
+
+    # Prioritize jobs based on a multi-criteria heuristic:
+    # 1. Job Priority (CRITICAL, HIGH, MEDIUM, LOW) - lower integer value is higher priority
+    # 2. Effective deadline (deadline - total_duration - arrival_time) - tighter deadlines first
+    # 3. Delay weight (higher delay weight first) - multiplied by -1 to sort descending
+    # 4. Arrival time (earlier is better, for secondary tie-breaking)
+    # 5. Job ID (for deterministic tie-breaking)
+    sorted_jobs = sorted(inst.jobs.keys(),
+                         key=lambda j_id: (
+                             inst.jobs[j_id].priority_score,
+                             inst.jobs[j_id].deadline - inst.jobs[j_id].total_duration - inst.jobs[j_id].arrival_time,
+                             -inst.jobs[j_id].delay_weight, # Sort by higher delay weight first (negate for ascending sort)
+                             inst.jobs[j_id].arrival_time,
+                             j_id
+                         ))
+>>>>>>> REPLACE
+</DIFF>

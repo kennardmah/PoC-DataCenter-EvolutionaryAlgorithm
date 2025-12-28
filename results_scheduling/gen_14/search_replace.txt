@@ -1,0 +1,67 @@
+<NAME>
+refine_scheduler_init_v2
+</NAME>
+
+<DESCRIPTION>
+This edit corrects and refines the `Scheduler` class's `__init__` method for server categorization. The previous attempt likely failed due to an incomplete `SEARCH` block.
+
+The key improvements are:
+1.  **Accurate Cloud Server Storage:** `self.cloud_servers_by_type` is now correctly defined as `Dict[str, List[str]]` to store *all* cloud server IDs for each server type, preventing overwrites if multiple cloud servers of the same type exist.
+2.  **Comprehensive Server Type Map:** `self.server_types_map` is now populated by first adding all local servers, and then *extending* it with all cloud servers (from the newly correct `self.cloud_servers_by_type` structure). This ensures that `_find_best_slot_for_operation` has a complete list of all compatible servers (local first, then all cloud options) to consider when making placement decisions.
+
+This change is essential to enable future optimizations that require iterating over all available cloud resources for cost efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Precompute server types and cloud servers
+        self.server_types_map: Dict[str, List[str]] = {}
+        self.cloud_servers_by_type: Dict[str, str] = {}
+        for server_id, server in inst.servers.items():
+            if server.server_type not in self.server_types_map:
+                self.server_types_map[server.server_type] = []
+            if server.is_cloud:
+                self.cloud_servers_by_type[server.server_type] = server_id
+            else:
+                self.server_types_map[server.server_type].append(server_id)
+        # Add cloud servers to the list of compatible servers, always at the end
+        for s_type in self.server_types_map:
+            if s_type in self.cloud_servers_by_type:
+                self.server_types_map[s_type].append(self.cloud_servers_by_type[s_type])
+
+        # Precompute job total durations and priority values
+        self.job_total_durations: Dict[str, int] = {
+            job_id: sum(op.duration for op in job.operations)
+            for job_id, job in inst.jobs.items()
+        }
+
+        self.priority_values = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+=======
+        # Precompute server types and cloud servers
+        self.server_types_map: Dict[str, List[str]] = {}
+        self.cloud_servers_by_type: Dict[str, List[str]] = {} # Changed to List[str]
+        for server_id, server in inst.servers.items():
+            if server.server_type not in self.server_types_map:
+                self.server_types_map[server.server_type] = []
+            if server.server_type not in self.cloud_servers_by_type: # Ensure list exists for cloud type
+                self.cloud_servers_by_type[server.server_type] = []
+
+            if server.is_cloud:
+                self.cloud_servers_by_type[server.server_type].append(server_id) # Append all cloud servers
+            else:
+                self.server_types_map[server.server_type].append(server_id)
+
+        # Add all cloud servers to the end of the compatible server list for their type
+        for s_type in self.server_types_map:
+            if s_type in self.cloud_servers_by_type:
+                self.server_types_map[s_type].extend(self.cloud_servers_by_type[s_type]) # Use extend for all cloud servers
+
+        # Precompute job total durations and priority values
+        self.job_total_durations: Dict[str, int] = {
+            job_id: sum(op.duration for op in job.operations)
+            for job_id, job in inst.jobs.items()
+        }
+
+        self.priority_values = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+>>>>>>> REPLACE
+</DIFF>
