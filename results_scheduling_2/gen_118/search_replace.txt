@@ -1,0 +1,121 @@
+<NAME>
+dynamic_cloud_deterrence
+</NAME>
+
+<DESCRIPTION>
+This edit implements dynamic cloud cost adjustment based on real-time local server congestion (Recommendation 2).
+When an operation is considered for a cloud machine, the cloud deterrence factor is dynamically adjusted:
+- If local machines compatible with the operation type are heavily congested (below a `LOCAL_CONGESTION_THRESHOLD_RATIO` of their nominal capacity), the cloud deterrence is reduced (`CLOUD_DETERRENCE_MODIFIER_CONGESTED`), making cloud resources relatively cheaper and more attractive. This encourages shifting load to the cloud when local resources are constrained, which is crucial during emergencies or high load periods.
+- If local machines are largely abundant (above a `LOCAL_ABUNDANCE_THRESHOLD_RATIO` of their nominal capacity), the cloud deterrence is increased (`CLOUD_DETERRENCE_MODIFIER_ABUNDANT`), making local resources more attractive. This conserves cloud costs when local capacity can comfortably handle the load.
+This heuristic aims to balance local vs. cloud cost tradeoffs more intelligently, improving capacity contention and failure resilience by making cloud a more responsive overflow mechanism.
+The congestion is calculated based on the *currently available* capacity (considering failures) minus *already scheduled* capacity usage for the specific operation type at the proposed start time.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        if _is_cloud_server:
+            deterrence = CLOUD_DETERRENCE_RATE_PER_UNIT_DURATION * _operation.duration
+            if _job.priority == 'emergency':
+                # Apply base discount for emergency jobs
+                deterrence *= (1.0 - CLOUD_EMERGENCY_DISCOUNT_FACTOR)
+
+            # Apply any additional override factor (e.g., from emergency threshold trigger)
+            deterrence *= _cloud_deterrence_override_factor
+
+            op_compute_cost += deterrence
+
+        # Projected completion time for THE ENTIRE JOB if this operation starts at _proposed_start.
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+=======
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Congestion parameters for dynamic cloud deterrence (Recommendation 2)
+    LOCAL_CONGESTION_THRESHOLD_RATIO = 0.3     # If local available capacity is below 30% of nominal
+    LOCAL_ABUNDANCE_THRESHOLD_RATIO = 0.7      # If local available capacity is above 70% of nominal
+    CLOUD_DETERRENCE_MODIFIER_CONGESTED = 0.5  # Cloud deterrence becomes 50% of normal
+    CLOUD_DETERRENCE_MODIFIER_ABUNDANT = 1.5   # Cloud deterrence becomes 150% of normal
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        if _is_cloud_server:
+            deterrence_modifier_by_congestion = 1.0 # Default no modification
+
+            # Calculate current local capacity for the operation type at the proposed start time
+            local_capacity_for_op_type_available = 0
+            total_nominal_capacity_for_op_type = 0
+            for s_id, s_obj in _inst.servers.items():
+                if not s_obj.is_cloud and s_obj.server_type == _operation.server_type:
+                    # Capacity truly available (base - failures - already scheduled)
+                    available_at_t = get_available_capacity(_inst, s_id, _proposed_start)
+                    used_at_t = capacity_usage[s_id].get(_proposed_start, 0)
+                    local_capacity_for_op_type_available += max(0, available_at_t - used_at_t)
+                    total_nominal_capacity_for_op_type += s_obj.capacity # Sum of base capacities
+
+            if total_nominal_capacity_for_op_type > 0:
+                effective_capacity_ratio = local_capacity_for_op_type_available / total_nominal_capacity_for_op_type
+
+                if effective_capacity_ratio < LOCAL_CONGESTION_THRESHOLD_RATIO:
+                    deterrence_modifier_by_congestion = CLOUD_DETERRENCE_MODIFIER_CONGESTED
+                elif effective_capacity_ratio > LOCAL_ABUNDANCE_THRESHOLD_RATIO:
+                    deterrence_modifier_by_congestion = CLOUD_DETERRENCE_MODIFIER_ABUNDANT
+
+            # Apply all deterrence factors
+            deterrence = CLOUD_DETERRENCE_RATE_PER_UNIT_DURATION * _operation.duration
+            if _job.priority == 'emergency':
+                deterrence *= (1.0 - CLOUD_EMERGENCY_DISCOUNT_FACTOR)
+
+            deterrence *= _cloud_deterrence_override_factor # From emergency threshold logic
+            deterrence *= deterrence_modifier_by_congestion # From dynamic congestion logic
+
+            op_compute_cost += deterrence
+
+        # Projected completion time for THE ENTIRE JOB if this operation starts at _proposed_start.
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+>>>>>>> REPLACE
+</DIFF>

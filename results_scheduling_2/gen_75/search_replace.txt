@@ -1,0 +1,27 @@
+<adaptive_local_search_window_constants>
+Introduce new constants to control the adaptive local search window for local servers and parameters for an emergency cloud decision threshold. These constants facilitate implementing Recommendation 2 ("Implement Adaptive Local Search Window Based on Job Urgency") and further refining the emergency logic. The constants `BASE_LOCAL_SEARCH_WINDOW_HOURS`, `HIGH_PRIORITY_LOCAL_SEARCH_WINDOW_HOURS`, and `EMERGENCY_LOCAL_SEARCH_WINDOW_HOURS` will allow the scheduler to dynamically adjust its search depth for local slots based on job priority. `EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD` and `EMERGENCY_CLOUD_COST_REDUCTION_FACTOR` will enable a more nuanced cloud decision for critical jobs facing significant local delays.
+</adaptive_local_search_window_constants>
+
+<DIFF>
+<<<<<<< SEARCH
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight and priority
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+=======
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight and priority
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+
+# How far into the future local machines search for an optimal slot (in hours).
+BASE_LOCAL_SEARCH_WINDOW_HOURS = 24 # Default window size for local server search
+HIGH_PRIORITY_LOCAL_SEARCH_WINDOW_HOURS = 36 # Expanded window for high priority jobs
+EMERGENCY_LOCAL_SEARCH_WINDOW_HOURS = 72 # Even larger window for emergency jobs
+
+# If an emergency job's best local option causes this much delay (or more),
+# consider cloud with reduced cost.
+EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+
+# Additional cost reduction factor for cloud if triggered by emergency threshold.
+EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+>>>>>>> REPLACE
+</DIFF>
+
+<adaptive_

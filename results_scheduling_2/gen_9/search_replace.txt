@@ -1,0 +1,69 @@
+<NAME>
+local_slot_optimization_windowed
+</NAME>
+
+<DESCRIPTION>
+The previous attempt failed because the `SEARCH` block did not precisely match the target code. This is a common issue with `diff` formats.
+
+This corrected change re-implements the idea of optimizing local machine slot selection beyond just picking the *first* available. Instead of a simple greedy pick, it now searches within a defined `LOCAL_SEARCH_WINDOW_HOURS` for the *best* available slot (minimizing the objective function, which combines compute cost and delay penalty).
+
+Specifically, it changes the behavior for local machines:
+1.  **Introduces `LOCAL_SEARCH_WINDOW_HOURS`**: A parameter defining how many hours into the future the scheduler will look for optimal slots on local machines.
+2.  **Windowed Search for Local Machines**: For each local machine, it iterates through all feasible start times within `current_start` and `current_start + LOCAL_SEARCH_WINDOW_HOURS` (or up to the job's overall deadline horizon, whichever is sooner).
+3.  **Optimal Slot Selection per Local Machine**: It calculates the `operation_objective` for each feasible slot within this window and keeps track of the best one found for that *specific* local server.
+4.  **Overall Best Selection**: After evaluating all local servers within their windows, and also considering the immediate cloud option, it chooses the overall best `(cost, server_id, start)` tuple for the current operation.
+
+This heuristic aims to achieve a better balance between cost and delay by allowing local machines to consider slightly later, but potentially much cheaper or more efficient, slots rather than just the earliest possible one. This should improve the total cost in scenarios with fluctuating local machine costs or capacities.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+=======
+        LOCAL_SEARCH_WINDOW_HOURS = 8 # How far to look ahead for local machine slots
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for best available slot within a window
+            best_local_option_for_server = (float('inf'), None, None)
+            # Limit search window to avoid excessively long calculations, capped by job deadline
+            search_end_time = min(job.deadline + op.duration + 1, current_start + LOCAL_SEARCH_WINDOW_HOURS + op.duration + 1) # Ensure op can fit
+
+            for start in range(current_start, search_end_time):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    # Keep track of the best slot found for *this* local server
+                    if cost < best_local_option_for_server[0]:
+                        best_local_option_for_server = (cost, server_id, start)
+
+            # If a feasible local option was found for this server, compare it with the overall best
+            if best_local_option_for_server[1] is not None:
+                best = min(best, best_local_option_for_server)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,102 @@
+<NAME>
+refined_cost_priority_cloud
+</NAME>
+
+<DESCRIPTION>
+This edit refines the cost calculation and priority handling within the `schedule_job_online` function, specifically by:
+
+1.  **Introduced Tunable Parameters**: Defined new constants `PRIORITY_DELAY_MULTIPLIERS`, `BASE_CLOUD_DETERRENCE_PER_HOUR`, and `CLOUD_EMERGENCY_DISCOUNT_FACTOR` directly within `schedule_job_online`. This allows for flexible tuning of delay penalties for different job priorities and introduces a configurable base cost for cloud usage, which can be discounted for emergency jobs.
+    *   `PRIORITY_DELAY_MULTIPLIERS`: Enhanced values for `emergency` and `high` priority jobs to apply a stronger penalty to delays, making sure critical jobs are prioritized for on-time completion. These multipliers are applied *only* to the delay component, not to the base compute cost, which helps maintain a clear distinction in cost components.
+    *   `BASE_CLOUD_DETERRENCE_PER_HOUR`: A new parameter for a fixed hourly cost to discourage cloud usage unless necessary, scaled by the global `compute_cost` weight.
+    *   `CLOUD_EMERGENCY_DISCOUNT_FACTOR`: A discount applied to the cloud deterrence for `emergency` jobs, making cloud resources more accessible for critical tasks, especially during failures.
+2.  **Enhanced `_calculate_placement_score`**:
+    *   **New Parameters**: The helper function `_calculate_placement_score` now accepts `_is_cloud_server`, `_base_cloud_deterrence_per_hour`, and `_cloud_emergency_discount_factor` as arguments, allowing it to apply the dynamic cloud deterrence logic.
+    *   **Dynamic Cloud Cost**: Implemented logic to add `BASE_CLOUD_DETERRENCE_PER_HOUR` to cloud operations, with a reduction for 'emergency' jobs using `CLOUD_EMERGENCY_DISCOUNT_FACTOR`. This actively discourages non-emergency cloud usage while providing flexibility for urgent tasks.
+    *   **Removed Redundant Tie-breaker**: The small `_proposed_start * 0.001` factor was removed. The `min` function used for `best_op_candidate` already handles tie-breaking by prioritizing earlier start times when objective costs are identical, making this factor redundant and potentially introducing minor, unintended cost variations.
+3.  **Updated `schedule_job_online` Logic**: All calls to `_calculate_placement_score` are updated to pass the new parameters and the renamed priority dictionary, ensuring consistency and proper application of the new cost model.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    # Define priority multipliers for delay penalties
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 5.0, # Highest priority, severe penalty for delay
+        'high': 2.0,
+        'medium': 1.0,
+        'low': 0.5,       # Lower priority, more flexible with delay
+    }
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _remaining_ops_duration: int,
+        _priority_multipliers: Dict[str, float]
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost and the impact on the job's overall delay penalty.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Projected completion time for THE ENTIRE JOB
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+
+        # Delay penalty for THE ENTIRE JOB
+        delay = max(0, projected_job_completion - _job.deadline)
+
+        # Apply priority multiplier to delay penalty
+        priority_factor = _priority_multipliers.get(_job.priority, 1.0)
+        delay_penalty = delay * _job.delay_weight * priority_factor * _inst.weights['delay_penalty']
+
+        # Total score for this specific operation placement
+        total_score = (
+            op_compute_cost * _inst.weights['compute_cost']
+            + delay_penalty
+        )
+
+        # Tie-breaker: prefer earlier starts slightly if costs are otherwise equal
+        total_score += _proposed_start * 0.001
+
+        return total_score
+
+    schedule[job.id] = []
+    # current_start tracks the earliest an operation can start based on previous operations in this job
+    op_start_time_predecessor = max(job.arrival_time, current_time)
+
+    MAX_LOCAL_SEARCH_HORIZON = inst.time_horizon * 2 # Search up to 2 full cycles for local machines
+
+    for idx, op in enumerate(job.operations):
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Evaluate Cloud Options First ---
+        # Cloud servers are always immediately available and have unlimited capacity
+        for server_id, server in inst.servers.items():
+            if server.is_cloud and server.server_type == op.server_type:
+                # Cloud operations can start immediately after predecessor
+                proposed_start = op_start_time_predecessor
+
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, remaining_operations_duration, PRIORITY_MULTIPLIERS
+                )
+
+                if score < best_score:
+                    best_score = score
+                    chosen_server_id = server_id
+                    chosen_start_time =

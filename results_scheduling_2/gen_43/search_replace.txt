@@ -1,0 +1,11 @@
+<NAME>
+enhanced_lookahead_simulation_time
+</NAME>
+
+<DESCRIPTION>
+This edit refines the job scheduling logic by introducing an enhanced lookahead simulation for the remaining operations of a job. Previously, the projection of a job's total completion time relied on a simple sum of durations for future operations, which is often inaccurate due to machine availability and scheduling constraints.
+
+The key changes are:
+1.  **Introduce `SIMULATION_LOCAL_SEARCH_WINDOW_HOURS`**: A new constant is defined to control how far into the future the internal simulation searches for available slots on local machines. This balances simulation accuracy with computational cost.
+2.  **Define `_simulate_remaining_operations`**: A new nested helper function is added within `schedule_job_online`. This function performs a simplified, greedy scheduling for the *remaining* operations of the current job. It takes a deep copy of the `capacity_usage` to avoid side effects on the real schedule. For each simulated operation, it finds the earliest available slot either on a cloud machine (immediate) or a local machine within the defined `SIMULATION_LOCAL_SEARCH_WINDOW_HOURS`. The function returns the total `estimated_elapsed_time_for_remaining_ops`.
+3.  **Integrate Simulation into `_calculate_placement_score`**: The main `_calculate_placement_score` now receives the `estimated_elapsed_time_for_remaining_ops` from this simulation. This replaces the naive sum of durations, leading to a much more accurate `projected

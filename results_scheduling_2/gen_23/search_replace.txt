@@ -1,0 +1,202 @@
+<local_search_window_reworked>
+Implement the `LOCAL_SEARCH_WINDOW_HOURS` for local servers and remove the greedy `break` statement. This change was previously attempted but failed due to an incorrect `SEARCH` block. This re-submission ensures the `SEARCH` block matches the current code exactly.
+
+The core idea is to improve local server scheduling by searching within a defined time window (`LOCAL_SEARCH_WINDOW_HOURS`) for the *best* available slot, rather than simply picking the first one found. This is a direct implementation of "Recommendation 1: Implement an Operation-level Local Search Window for Local Servers."
+
+**Changes:**
+1.  **Add `LOCAL_SEARCH_WINDOW_HOURS` constant**: A new constant `LOCAL_SEARCH_WINDOW_HOURS = 12` is introduced at the beginning of the evolvable block.
+2.  **Modify local server search loop**: The `range` for local server slot searching is changed from `job.deadline + inst.time_horizon` to `op_start_time_for_job + LOCAL_SEARCH_WINDOW_HOURS`. This focuses the search on a more relevant window.
+3.  **Remove greedy `break`**: The `break` statement inside the local server loop is removed. This ensures that *all* compatible slots within `LOCAL_SEARCH_WINDOW_HOURS` are evaluated, and the `best_op_candidate` will retain the truly lowest cost option found, rather than just the first valid one.
+
+These changes allow for a more thorough evaluation of local machine availability, leading to potentially better (lower cost) and more resilient schedules, especially in scenarios with fluctuating capacity or high contention.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# Constants for the scheduler (can be tuned)
+PRIORITY_WEIGHTS = {
+    "urgent": 5.0,  # Higher weight for urgent jobs
+    "high": 2.0,
+    "medium": 1.0,
+    "low": 0.5,
+}
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+
+
+def operation_objective(inst, server_id, start, op, job, remaining_duration, is_cloud: bool):
+    compute_cost_raw = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                           for t in range(start, start + op.duration))
+
+    projected_completion = start + op.duration + remaining_duration
+    delay = max(0, projected_completion - job.deadline)
+
+    priority_multiplier = PRIORITY_WEIGHTS.get(job.priority, 1.0) # Default to 1.0 for unknown priorities
+
+    # Apply priority multiplier to both compute and delay costs
+    # This makes high-priority jobs more expensive if not scheduled optimally
+    compute_cost_weighted = compute_cost_raw * inst.weights['compute_cost'] * priority_multiplier
+    delay_penalty_weighted = delay * job.delay_weight * inst.weights['delay_penalty'] * priority_multiplier
+
+    total_cost = compute_cost_weighted + delay_penalty_weighted
+
+    # Add cloud deterrence if using a cloud server
+    if is_cloud:
+        total_cost += CLOUD_DETERRENCE_PER_HOUR * op.duration * inst.weights['compute_cost']
+
+    return total_cost
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    # op_start_time_for_job tracks the earliest an operation of THIS job can start,
+    # considering its arrival time and the completion of its previous operation.
+    op_start_time_for_job = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        # Remaining duration includes subsequent operations of this job to project total job completion time
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Initialize best option for this operation.
+        # Tuple format: (total_objective_cost, projected_start_time, server_id, is_cloud_choice)
+        # Tie-breaking priority: lower cost, then earlier start, then server_id (alphabetical),
+        # then prefer local (False) over cloud (True).
+        # We initialize with a high cost, very late start, an empty server ID, and preference for cloud (True)
+        # to ensure any valid option is better.
+        best_op_candidate = (float('inf'), float('inf'), "", True)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud servers: always available immediately at op_start_time_for_job
+                cost = operation_objective(inst, server_id, op_start_time_for_job, op, job, remaining_duration, is_cloud=True)
+                best_op_candidate = min(best_op_candidate, (cost, op_start_time_for_job, server_id, True))
+            else:
+                # Local servers: search forward for the FIRST available slot within a wide horizon.
+                # The search horizon is extended up to the job's deadline plus the time horizon.
+                # This prioritizes getting local capacity quickly if available within a reasonable period.
+                for start in range(op_start_time_for_job, job.deadline + inst.time_horizon):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = operation_objective(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        # For local, take the first valid slot found on this server that minimizes cost.
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+                        break  # IMPORTANT: Take first available slot on this server (greedy approach from P1)
+
+        # Unpack the chosen best option
+        _, chosen_start, chosen_server, _ = best_op_candidate
+
+        # Error handling if no slot found (should not happen if cloud is always an option).
+        if chosen_server is None:
+            raise RuntimeError(f"No suitable server found for operation {idx} of job {job.id}. This indicates an unfulfillable operation or severe resource contention beyond the search window.")
+
+        # Reserve capacity for the chosen slot
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        # Update op_start_time_for_job for the next operation of this job
+        op_start_time_for_job = chosen_start + op.duration
+=======
+# Constants for the scheduler (can be tuned)
+PRIORITY_WEIGHTS = {
+    "urgent": 5.0,  # Higher weight for urgent jobs
+    "high": 2.0,
+    "medium": 1.0,
+    "low": 0.5,
+}
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+
+# New constant: Define a reasonable window to search for local slots.
+# This prevents searching indefinitely far into the future and bounds computation.
+# A value of 12 hours is chosen heuristically to balance exploration and performance.
+LOCAL_SEARCH_WINDOW_HOURS = 12
+
+
+def operation_objective(inst, server_id, start, op, job, remaining_duration, is_cloud: bool):
+    compute_cost_raw = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                           for t in range(start, start + op.duration))
+
+    projected_completion = start + op.duration + remaining_duration
+    delay = max(0, projected_completion - job.deadline)
+
+    priority_multiplier = PRIORITY_WEIGHTS.get(job.priority, 1.0) # Default to 1.0 for unknown priorities
+
+    # Apply priority multiplier to both compute and delay costs
+    # This makes high-priority jobs more expensive if not scheduled optimally
+    compute_cost_weighted = compute_cost_raw * inst.weights['compute_cost'] * priority_multiplier
+    delay_penalty_weighted = delay * job.delay_weight * inst.weights['delay_penalty'] * priority_multiplier
+
+    total_cost = compute_cost_weighted + delay_penalty_weighted
+
+    # Add cloud deterrence if using a cloud server
+    if is_cloud:
+        total_cost += CLOUD_DETERRENCE_PER_HOUR * op.duration * inst.weights['compute_cost']
+
+    return total_cost
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    # op_start_time_for_job tracks the earliest an operation of THIS job can start,
+    # considering its arrival time and the completion of its previous operation.
+    op_start_time_for_job = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        # Remaining duration includes subsequent operations of this job to project total job completion time
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Initialize best option for this operation.
+        # Tuple format: (total_objective_cost, projected_start_time, server_id, is_cloud_choice)
+        # Tie-breaking priority: lower cost, then earlier start, then server_id (alphabetical),
+        # then prefer local (False) over cloud (True).
+        # We initialize with a high cost, very late start, an empty server ID, and preference for cloud (True)
+        # to ensure any valid option is better.
+        best_op_candidate = (float('inf'), float('inf'), "", True)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud servers: always available immediately at op_start_time_for_job
+                cost = operation_objective(inst, server_id, op_start_time_for_job, op, job, remaining_duration, is_cloud=True)
+                best_op_candidate = min(best_op_candidate, (cost, op_start_time_for_job, server_id, True))
+            else:
+                # Local servers: search forward for the best available slot within the defined window.
+                # This ensures we don't just take the *first* available, but the *best* within a reasonable horizon.
+                for start in range(op_start_time_for_job, op_start_time_for_job + LOCAL_SEARCH_WINDOW_HOURS):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = operation_objective(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        # For local, consider all valid slots within the window and pick the best.
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+                        # IMPORTANT: DO NOT break here; we want to find the *best* slot within the window, not just the first.
+
+        # Unpack the chosen best option
+        _, chosen_start, chosen_server, _ = best_op_candidate
+
+        # Error handling if no slot found (should not happen if cloud is always an option).
+        if chosen_server is None:
+            raise RuntimeError(f"No suitable server found for operation {idx} of job {job.id}. This indicates an unfulfillable operation or severe resource contention beyond the search window.")
+
+        # Reserve capacity for the chosen slot
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        # Update op_start_time_for_job for the next operation of this job
+        op_start_time_for_job = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

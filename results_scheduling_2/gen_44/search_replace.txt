@@ -1,0 +1,49 @@
+<fine_tune_parameters>
+Refine scheduling parameters for better cost-delay balance
+</DESCRIPTION>
+The current program's performance has plateaued, suggesting that the existing parameter values might be locally optimal or are not creating enough differentiation to improve the score. This edit proposes a targeted adjustment to the scheduler's parameters to encourage better utilization of local resources while still allowing for flexible cloud usage when critical.
+
+Specifically:
+1.  **Increased `CLOUD_DETERRENCE_BASE`**: The base cost for using cloud machines is increased from `75.0` to `100.0`. This makes cloud options less attractive for general jobs, pushing the scheduler to find more local slots, which are typically cheaper. This aligns with the strategy of prioritizing local resources when feasible.
+2.  **Unchanged `CLOUD_EMERGENCY_DISCOUNT`**: The `CLOUD_EMERGENCY_DISCOUNT` remains at `0.8`. With the increased `CLOUD_DETERRENCE_BASE`, the effective deterrence for emergency jobs will slightly increase from `15.0` (`75 * (1-0.8)`) to `20.0` (`100 * (1-0.8)`). This ensures that while cloud remains a viable and relatively cheap option for emergencies, there's still a moderate cost incentive to use local if a very good, non-delaying slot becomes available. This is a subtle shift to balance cloud usage even for emergency jobs.
+3.  **No Change to `PRIORITY_MULTIPLIERS`**: The priority multipliers for delay penalties remain unchanged. The current values for `emergency` (8.0) and `high` (3.0) already provide a strong incentive to avoid delays for critical jobs. Keeping these stable allows the cloud deterrence adjustment to be the primary variable under test.
+
+These changes aim to re-balance the trade-offs between local and cloud costs, and delay penalties, without drastically altering the core logic, which has shown some stability.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Define priority multipliers for delay penalties
+    # Tuned to make higher priorities significantly more sensitive to delays.
+    # Emergency jobs will incur a much higher cost if delayed.
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 8.0, # Highest urgency, highest penalty for delay (from Prog 1)
+        'high': 3.0,      # (from Prog 1)
+        'medium': 1.0,
+        'low': 0.5,
+    }
+
+    # Base cost to deter cloud usage (added to compute cost if cloud is used).
+    # This encourages the scheduler to prefer cheaper local machines.
+    CLOUD_DETERRENCE_BASE = 75.0 # (from Prog 1)
+    # Discount for emergency jobs using cloud: reduces the deterrence,
+    # making cloud a more palatable option for urgent tasks.
+    CLOUD_EMERGENCY_DISCOUNT = 0.8 # Reduce cloud deterrence by 80% for emergency jobs (from Prog 1)
+=======
+    # Define priority multipliers for delay penalties
+    # Tuned to make higher priorities significantly more sensitive to delays.
+    # Emergency jobs will incur a much higher cost if delayed.
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 8.0, # Highest urgency, highest penalty for delay
+        'high': 3.0,
+        'medium': 1.0,
+        'low': 0.5,
+    }
+
+    # Base cost to deter cloud usage (added to compute cost if cloud is used).
+    # This encourages the scheduler to prefer cheaper local machines.
+    CLOUD_DETERRENCE_BASE = 100.0 # Increased to further discourage casual cloud usage
+    # Discount for emergency jobs using cloud: reduces the deterrence,
+    # making cloud a more palatable option for urgent tasks.
+    CLOUD_EMERGENCY_DISCOUNT = 0.8 # Keeps cloud relatively cheap for emergency jobs
+>>>>>>> REPLACE
+</DIFF>

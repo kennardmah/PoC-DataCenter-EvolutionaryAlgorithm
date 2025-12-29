@@ -1,0 +1,41 @@
+<best_fit_local_search>
+Introduce a "best-fit" heuristic for local servers instead of "first-fit." Previously, the scheduler would take the very first available time slot it found on any local server that matched the operation type. This edit modifies the logic so that for each compatible local server, the scheduler searches its entire specified horizon (up to `job.deadline + inst.time_horizon`) to find the *single best* time slot that minimizes the calculated objective cost. This "best-fit on server" candidate is then compared against all other local server candidates and any available cloud options, and the overall best is chosen. This change allows the scheduler to make more informed decisions about local resource allocation, potentially leading to better resource utilization and lower overall costs by avoiding suboptimal early placements.
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Evaluate Local Options (greedy search for first available) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                # Local servers: search forward for the *first* available slot within a reasonable horizon
+                # The horizon extends up to the job's deadline plus one time_horizon to allow for some flexibility
+                # but prevents excessively long searches.
+                search_end_time = job.deadline + inst.time_horizon # From the current best program's approach
+
+                for start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = _calculate_placement_score(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+                        break  # CRITICAL: Take the first available slot on this server (greedy heuristic)
+=======
+        # --- Evaluate Local Options (search for best available slot within horizon) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                # Initialize best slot for this specific local server
+                best_slot_on_this_server = (float('inf'), float('inf')) # (cost, start_time)
+
+                # Local servers: search forward for the *best* available slot within a reasonable horizon.
+                # The horizon extends up to the job's deadline plus one time_horizon.
+                search_end_time = job.deadline + inst.time_horizon
+
+                for start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = _calculate_placement_score(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        # Keep track of the best slot found on *this specific server*
+                        best_slot_on_this_server = min(best_slot_on_this_server, (cost, start))
+
+                # After checking all slots for this local server, if a valid slot was found,
+                # compare it against the overall best candidate.
+                if best_slot_on_this_server[0] != float('inf'):
+                    best_op_candidate = min(best_op_candidate, (best_slot_on_this_server[0], best_slot_on_this_server[1], server_id, False))
+>>>>>>> REPLACE
+</DIFF>

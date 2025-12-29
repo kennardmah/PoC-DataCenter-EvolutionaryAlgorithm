@@ -1,0 +1,131 @@
+<NAME>
+dynamic_cloud_deterrence_and_priority_tuning_v2
+</NAME>
+
+<DESCRIPTION>
+This edit refines the objective function by implementing a dynamic cloud deterrence mechanism and further tuning priority multipliers.
+
+1.  **Dynamic Cloud Deterrence**: The previous fixed `CLOUD_DETERRENCE_BASE` is replaced with `CLOUD_DETERRENCE_RATE_PER_UNIT_DURATION`. This makes the cloud penalty scale proportionally to the duration of the operation, providing a more granular and realistic cost representation for using cloud resources. This directly addresses Recommendation 2 (cloud cost deterrence) by making it more effective based on resource usage.
+2.  **Tuned Priority Multipliers**: The `PRIORITY_MULTIPLIERS` for 'emergency' and 'high' priority jobs are further increased. This makes delays for these critical jobs even more costly, encouraging the scheduler to prioritize their completion more aggressively, potentially leveraging cloud resources when local capacity is constrained. This aligns with Recommendation 2 for enhancing objective function with dynamic priority multipliers.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # --- Tunable Parameters ---
+    # Priority multipliers for delay penalties: higher values make delays more costly for critical jobs.
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 10.0, # High impact for emergency
+        'high': 4.0,       # Increased from previous iteration
+        'medium': 1.0,
+        'low': 0.5,
+    }
+
+    # Base cost to deter cloud usage, making local preferred.
+    CLOUD_DETERRENCE_BASE = 100.0 # Increased from previous iteration
+
+    # Reduction factor for cloud deterrence specifically for emergency jobs.
+    # E.g., 0.8 means cloud deterrence is 80% cheaper for emergency jobs.
+    CLOUD_EMERGENCY_DISCOUNT_FACTOR = 0.8
+
+    # How far into the future local machines search for an optimal slot (in hours).
+    LOCAL_SEARCH_WINDOW_HOURS = 24 # From recommendation 1.
+
+    # If an emergency job's best local option causes this much delay (or more),
+    # consider cloud with reduced cost.
+    EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0 # New parameter for emergency cloud cost adjustment
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        if _is_cloud_server:
+            deterrence = CLOUD_DETERRENCE_BASE
+            if _job.priority == 'emergency':
+                # Apply base discount for emergency jobs
+                deterrence *= (1.0 - CLOUD_EMERGENCY_DISCOUNT_FACTOR)
+
+            # Apply any additional override factor (e.g., from emergency threshold trigger)
+            deterrence *= _cloud_deterrence_override_factor
+
+            op_compute_cost += deterrence
+=======
+    # --- Tunable Parameters ---
+    # Priority multipliers for delay penalties: higher values make delays more costly for critical jobs.
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 12.0, # Increased for higher urgency (tuned)
+        'high': 5.0,       # Increased (tuned)
+        'medium': 1.0,
+        'low': 0.5,
+    }
+
+    # Cost per unit of duration to deter cloud usage, making local preferred.
+    CLOUD_DETERRENCE_RATE_PER_UNIT_DURATION = 25.0 # Dynamic cost based on duration
+
+    # Reduction factor for cloud deterrence specifically for emergency jobs.
+    # E.g., 0.8 means cloud deterrence is 80% cheaper for emergency jobs.
+    CLOUD_EMERGENCY_DISCOUNT_FACTOR = 0.8
+
+    # How far into the future local machines search for an optimal slot (in hours).
+    LOCAL_SEARCH_WINDOW_HOURS = 24
+
+    # If an emergency job's best local option causes this much delay (or more),
+    # consider cloud with reduced cost.
+    EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        if _is_cloud_server:
+            deterrence = CLOUD_DETERRENCE_RATE_PER_UNIT_DURATION * _operation.duration
+            if _job.priority == 'emergency':
+                # Apply base discount for emergency jobs
+                deterrence *= (1.0 - CLOUD_EMERGENCY_DISCOUNT_FACTOR)
+
+            # Apply any additional override factor (e.g., from emergency threshold trigger)
+            deterrence *= _cloud_deterrence_override_factor
+
+            op_compute_cost += deterrence
+>>>>>>> REPLACE
+
+</DIFF>

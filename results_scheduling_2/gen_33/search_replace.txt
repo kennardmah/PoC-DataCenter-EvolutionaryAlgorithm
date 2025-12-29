@@ -1,0 +1,161 @@
+<standardized_cloud_deterrence>
+This edit standardizes and refines the cloud deterrence calculation within the objective function, explicitly incorporating job priority scaling.
+
+Key changes:
+1.  **Renamed Constant**: `CLOUD_DETERRENCE_RATE_PER_UNIT_DURATION` is renamed to `CLOUD_BASE_DETERRENCE_PER_UNIT_DURATION` for improved clarity.
+2.  **Priority-Scaled Cloud Deterrence**: The base cloud deterrence cost is now explicitly multiplied by the `priority_factor`. This means higher-priority jobs will incur a proportionally higher penalty for using cloud resources, aligning the cloud cost more directly with the job's overall importance, as suggested by the "Priority-Weighted Objective Functions" pattern.
+3.  **Emergency Discount Preservation**: The `CLOUD_EMERGENCY_DISCOUNT_FACTOR` is still applied to emergency jobs *after* the priority scaling, ensuring that critical jobs still receive a reduced cloud penalty when necessary.
+4.  **Tuned Constant**: The `CLOUD_BASE_DETERRENCE_PER_UNIT_DURATION` is slightly increased from 25.0 to 35.0 to encourage stronger preference for local resources, as per the spirit of previous recommendations.
+5.  **Clarity in Cost Calculation**: `op_compute_cost_raw` is introduced to clearly separate the raw compute cost from the added cloud deterrence, making the cost components more transparent.
+
+This change aims to provide a more consistent and strategically aligned cost model for cloud usage, where resource allocation decisions are better informed by both monetary cost and job urgency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Cost per unit of duration to deter cloud usage, making local preferred.
+    CLOUD_DETERRENCE_RATE_PER_UNIT_DURATION = 25.0 # Dynamic cost based on duration
+
+    # Reduction factor for cloud deterrence specifically for emergency jobs.
+    # E.g., 0.8 means cloud deterrence is 80% cheaper for emergency jobs.
+    CLOUD_EMERGENCY_DISCOUNT_FACTOR = 0.8
+
+    # How far into the future local machines search for an optimal slot (in hours).
+    LOCAL_SEARCH_WINDOW_HOURS = 24
+
+    # If an emergency job's best local option causes this much delay (or more),
+    # consider cloud with reduced cost.
+    EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        if _is_cloud_server:
+            deterrence = CLOUD_DETERRENCE_RATE_PER_UNIT_DURATION * _operation.duration
+            if _job.priority == 'emergency':
+                # Apply base discount for emergency jobs
+                deterrence *= (1.0 - CLOUD_EMERGENCY_DISCOUNT_FACTOR)
+
+            # Apply any additional override factor (e.g., from emergency threshold trigger)
+            deterrence *= _cloud_deterrence_override_factor
+
+            op_compute_cost += deterrence
+
+        # Projected completion time for THE ENTIRE JOB if this operation starts at _proposed_start.
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+
+        # Calculate the delay penalty for THE ENTIRE JOB.
+        delay = max(0, projected_job_completion - _job.deadline)
+
+        # Apply priority multiplier to the delay penalty to reflect job urgency.
+        priority_factor = PRIORITY_MULTIPLIERS.get(_job.priority, 1.0)
+        delay_penalty = delay * _job.delay_weight * priority_factor * _inst.weights['delay_penalty']
+
+        # Total score for this specific operation placement.
+        total_score = (
+            op_compute_cost * _inst.weights['compute_cost']
+            + delay_penalty
+        )
+
+        # Tie-breaker: prefer earlier starts slightly if costs are otherwise equal.
+        total_score += _proposed_start * 0.0001 # Small coefficient for tie-breaking
+
+        return total_score
+=======
+    # Cost per unit of duration to deter cloud usage, making local preferred.
+    # Tuned to be slightly higher, and will be scaled by priority.
+    CLOUD_BASE_DETERRENCE_PER_UNIT_DURATION = 35.0
+
+    # Reduction factor for cloud deterrence specifically for emergency jobs.
+    # E.g., 0.8 means cloud deterrence is 80% cheaper for emergency jobs.
+    CLOUD_EMERGENCY_DISCOUNT_FACTOR = 0.8
+
+    # How far into the future local machines search for an optimal slot (in hours).
+    LOCAL_SEARCH_WINDOW_HOURS = 24
+
+    # If an emergency job's best local option causes this much delay (or more),
+    # consider cloud with reduced cost.
+    EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic, priority-weighted cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost_raw = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Apply priority multiplier to the delay penalty to reflect job urgency.
+        priority_factor = PRIORITY_MULTIPLIERS.get(_job.priority, 1.0)
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        cloud_deterrence_cost = 0.0
+        if _is_cloud_server:
+            # Base deterrence scaled by duration and general priority
+            cloud_deterrence_cost = CLOUD_BASE_DETERRENCE_PER_UNIT_DURATION * _operation.duration * priority_factor
+
+            if _job.priority == 'emergency':
+                # Apply base discount for emergency jobs after general priority scaling
+                cloud_deterrence_cost *= (1.0 - CLOUD_EMERGENCY_DISCOUNT_FACTOR)
+
+            # Apply any additional override factor (e.g., from emergency threshold trigger)
+            cloud_deterrence_cost *= _cloud_deterrence_override_factor
+
+        # Projected completion time for THE ENTIRE JOB if this operation starts at _proposed_start.
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+
+        # Calculate the delay penalty for THE ENTIRE JOB.
+        delay = max(0, projected_job_completion - _job.deadline)
+
+        delay_penalty = delay * _job.delay_weight * priority_factor * _inst.weights['delay_penalty']
+
+        # Total score for this specific operation placement.
+        total_score = (
+            (op_compute_cost_raw + cloud_deterrence_cost) * _inst.weights['compute_cost']
+            + delay_penalty
+        )
+
+        # Tie-breaker: prefer earlier starts slightly if costs are otherwise equal.
+        total_score += _proposed_start * 0.0001 # Small coefficient for tie-breaking
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "name 'simple_operation_cost' is not defined"
+}

@@ -1,0 +1,137 @@
+<NAME>
+best_of_n_local_search_and_priority_tuning_v2
+</NAME>
+
+<DESCRIPTION>
+This edit corrects the previous unsuccessful attempt and implements the intended changes to refine the local server selection strategy and tune key parameters for improved performance in both normal and emergency scenarios.
+
+1.  **Best-of-N Local Server Search (Recommendation 1):** The core modification in `schedule_job_online` is to replace the "first-fit" approach for local servers with a "best-of-N" strategy. Instead of immediately `break`ing after finding the first available slot, the scheduler now iterates through `LOCAL_N_SLOTS_TO_EVALUATE` (set to 3) earliest available slots for *each* local server. It collects these candidates and then selects the best one (lowest score) for that specific server. Finally, it compares these "best-per-server" local options against each other and the cloud option to find the absolute best overall. This provides a slightly deeper, yet still efficient, local search, aiming for better quality placements.
+
+2.  **Increased Urgent Priority Weight:** The `PRIORITY_WEIGHTS["urgent"]` is increased from `5.0` to `12.0`. This makes delays for 'urgent' jobs significantly more costly, pushing the scheduler to prioritize their timely completion, potentially by utilizing cloud resources if local options introduce significant delays.
+
+3.  **Adjusted Cloud Deterrence:** `CLOUD_DETERRENCE_PER_HOUR` is increased from `0.5` to `5.0`. This makes cloud usage proportionally more expensive per unit of duration, further encouraging the utilization of local (cheaper) resources when possible, but balanced by the increased urgency of high-priority jobs.
+
+These changes are designed to strike a better balance between cost, deadline adherence, and resilience, especially for critical jobs during emergencies.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# Constants for the scheduler (can be tuned)
+PRIORITY_WEIGHTS = {
+    "urgent": 5.0,  # Higher weight for urgent jobs
+    "high": 2.0,
+    "medium": 1.0,
+    "low": 0.5,
+}
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+=======
+# Constants for the scheduler
+LOCAL_N_SLOTS_TO_EVALUATE = 3 # Number of earliest available slots to evaluate for each local server
+PRIORITY_WEIGHTS = {
+    "urgent": 12.0,  # Significantly increased weight for urgent jobs
+    "high": 2.0,
+    "medium": 1.0,
+    "low": 0.5,
+}
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight
+CLOUD_DETERRENCE_PER_HOUR = 5.0 # Increased significantly to favor local
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # We initialize with a high cost, very late start, an empty server ID, and preference for cloud (True)
+        # to ensure any valid option is better.
+        best_op_candidate = (float('inf'), float('inf'), "", True)
+
+        # --- Evaluate Cloud Options First (immediate availability) ---
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud servers: always available immediately at op_start_time_for_job
+                cost = operation_objective(inst, server_id, op_start_time_for_job, op, job, remaining_duration, is_cloud=True)
+                best_op_candidate = min(best_op_candidate, (cost, op_start_time_for_job, server_id, True))
+                # For cloud, we typically pick the cheapest/first one of compatible type since capacity is infinite and start time is fixed.
+                # If there are multiple cloud servers of the same type with different costs, the min will handle it.
+
+        # --- Evaluate Local Options (greedy search for first available) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                # Local servers: search forward for the FIRST available slot within a wide horizon.
+                # The search horizon is extended up to the job's deadline plus the time horizon.
+                # This prioritizes getting local capacity quickly if available within a reasonable period.
+                for start in range(op_start_time_for_job, job.deadline + inst.time_horizon):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = operation_objective(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        # For local, take the first valid slot found on this server that minimizes cost.
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+                        break  # IMPORTANT: Take first available slot on this server (greedy approach from P1)
+
+        # Unpack the chosen best option
+        _, chosen_start, chosen_server, _ = best_op_candidate
+
+        # Error handling if no slot found (should not happen if cloud is always an option).
+        if chosen_server is None:
+            # Fallback for robustness: try to assign to *any* compatible cloud server
+            # if somehow all previous logic failed. This should be rare with unlimited cloud.
+            for server_id, server in inst.servers.items():
+                if server.is_cloud and server.server_type == op.server_type:
+                    chosen_server = server_id
+                    chosen_start = op_start_time_for_job
+                    break
+            if chosen_server is None: # Still no cloud, critical error
+                raise RuntimeError(f"Could not schedule operation {idx} for job {job.id}: No compatible server (local or cloud) found after exhaustive search.")
+=======
+        # We initialize with a high cost, very late start, an empty server ID, and preference for cloud (True)
+        # to ensure any valid option is better.
+        best_op_candidate = (float('inf'), float('inf'), "", True) # (cost, start_time, server_id, is_cloud_flag)
+
+        # --- Evaluate all compatible servers (Cloud and Local) ---
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud servers: always available immediately at op_start_time_for_job
+                proposed_start = op_start_time_for_job
+                cost = operation_objective(inst, server_id, proposed_start, op, job, remaining_duration, is_cloud=True)
+                best_op_candidate = min(best_op_candidate, (cost, proposed_start, server_id, True))
+            else:
+                # Local servers: search forward for the best of N available slots
+                best_local_server_slot = (float('inf'), float('inf'), "") # (cost, start_time, server_id)
+                found_slots_count = 0
+                search_end_time = job.deadline + inst.time_horizon # Search window
+
+                for start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = operation_objective(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        # Keep track of the best of the 'N' earliest found slots for this specific local server
+                        if cost < best_local_server_slot[0]:
+                            best_local_server_slot = (cost, start, server_id)
+                        found_slots_count += 1
+                        if found_slots_count >= LOCAL_N_SLOTS_TO_EVALUATE:
+                            break # Found enough slots for this server, move to next server or cloud
+
+                # If a suitable local slot was found for this server, compare it with the overall best.
+                if best_local_server_slot[2] is not None: # Check if a slot was actually found
+                    best_op_candidate = min(best_op_candidate, (best_local_server_slot[0], best_local_server_slot[1], best_local_server_slot[2], False))
+
+        # Unpack the chosen best option
+        _, chosen_start, chosen_server, _ = best_op_candidate
+
+        # Error handling if no slot found (should not happen if cloud is always an option).
+        if chosen_server is None:
+            # Fallback for robustness: try to assign to *any* compatible cloud server
+            # if somehow all previous logic failed. This should be rare with unlimited cloud.
+            for server_id, server in inst.servers.items():
+                if server.is_cloud and server.server_type == op.server_type:
+                    chosen_server = server_id
+                    chosen_start = op_start_time_for_job
+                    break
+            if chosen_server is None: # Still no cloud, critical error
+                raise RuntimeError(f"No suitable server found for operation {idx} of job {job.id}: No compatible server (local or cloud) found after exhaustive search.")
+>>>>>>> REPLACE
+</DIFF>

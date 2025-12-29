@@ -1,0 +1,172 @@
+<NAME>
+best_fit_local_cloud_search_re_attempt
+</NAME>
+
+<DESCRIPTION>
+This is a re-attempt to implement the objective-driven "best-fit" search strategy for both local and cloud servers. The previous submission failed due to an exact mismatch in the `SEARCH` block. This version corrects the `SEARCH` block to precisely match the current program's state.
+
+**Correction in `SEARCH` block:**
+The previous attempt's `SEARCH` block included `MAX_LOCAL_SEARCH_WINDOW_HOURS = 48` and a modified `search_end_time` for local servers. The provided error message indicates that the current code instead uses `for start in range(current_start, job.deadline + inst.time_horizon)` for local server search, without an explicit `MAX_LOCAL_SEARCH_WINDOW_HOURS` variable in that context. The `SEARCH` block has been updated to reflect this exact state.
+
+**Logic in `REPLACE` block (reiterating the core improvement):**
+The core idea remains the same:
+1.  **Introduce Tuning Parameters:** Define `PRIORITY_MULTIPLIERS`, `CLOUD_DETERRENCE_BASE`, `CLOUD_EMERGENCY_DISCOUNT`, and `MAX_LOCAL_SEARCH_HORIZON` to make the scheduling logic more configurable and responsive to different priorities and failure scenarios.
+2.  **Refactor Objective Calculation:** Create a nested helper function `_calculate_placement_score` to encapsulate the complex cost evaluation, including dynamic cloud deterrence and priority-based delay penalties. This improves readability and maintainability.
+3.  **"Best-Fit" for Local Servers:** Instead of taking the first available slot (`break`), the scheduler now iterates through all feasible start times within a defined `MAX_LOCAL_SEARCH_HORIZON` for *each* compatible local server. It calculates the score for each slot and only adds the *best* option for that specific local server to a `candidate_options` list.
+4.  **"Best-Fit" for Cloud Servers:** All compatible cloud server options are now evaluated using `_calculate_placement_score` and added to the `candidate_options` list.
+5.  **Global Best Selection:** Finally, the scheduler selects the single overall best option (server and start time) from *all* accumulated `candidate_options` (local and cloud) based on their calculated scores. A tie-breaker (`_proposed_start * 0.0001`) ensures that the earliest available start is preferred if multiple options have identical scores.
+
+This comprehensive "best-fit" search strategy aims to achieve a more globally optimal placement for each operation by considering a wider range of options and their associated costs, leading to a lower total cost (compute + delay penalty).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+
+        _, chosen_server, chosen_start = best
+
+        # reserve capacity
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+=======
+    # Define parameters for the scheduling heuristic
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 8.0,
+        'high': 3.0,
+        'medium': 1.0,
+        'low': 0.5,
+    }
+
+    CLOUD_DETERRENCE_BASE = 75.0
+    CLOUD_EMERGENCY_DISCOUNT = 0.8
+
+    # Define a maximum horizon to search for available slots on local machines.
+    MAX_LOCAL_SEARCH_HORIZON = inst.time_horizon * 2 + 12
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        if _is_cloud_server:
+            deterrence = CLOUD_DETERRENCE_BASE
+            if _job.priority == 'emergency':
+                deterrence *= (1.0 - CLOUD_EMERGENCY_DISCOUNT)
+            op_compute_cost += deterrence
+
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+
+        delay = max(0, projected_job_completion - _job.deadline)
+
+        priority_factor = PRIORITY_MULTIPLIERS.get(_job.priority, 1.0)
+        delay_penalty = delay * _job.delay_weight * priority_factor * _inst.weights['delay_penalty']
+
+        total_score = (
+            op_compute_cost * _inst.weights['compute_cost']
+            + delay_penalty
+        )
+
+        total_score += _proposed_start * 0.0001 # Tie-breaker
+
+        return total_score
+
+    schedule[job.id] = []
+    op_start_time_predecessor = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        candidate_options = [] # List to store (score, server_id, start_time) for all feasible options
+
+        # --- Evaluate Cloud Options ---
+        for server_id, server in inst.servers.items():
+            if server.is_cloud and server.server_type == op.server_type:
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration
+                )
+                candidate_options.append((score, server_id, proposed_start))
+                # No break here; allow all compatible cloud options to be evaluated.
+
+        # --- Evaluate Local Options (Best-Fit within Search Horizon) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                best_local_score_for_this_server = float('inf')
+                best_local_start_for_this_server = None
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration
+                        )
+                        if score < best_local_score_for_this_server:
+                            best_local_score_for_this_server = score
+                            best_local_start_for_this_server = proposed_start
+                        # Continue searching to find the *best* local slot.
+
+                if best_local_start_for_this_server is not None: # If a feasible slot was found on this local server
+                    candidate_options.append((best_local_score_for_this_server, server_id, best_local_start_for_this_server))
+
+        # --- Final Selection and Capacity Reservation ---
+        if not candidate_options:
+             raise Exception(f"Could not schedule operation {idx} for job {job.id}: No compatible server (local or cloud) found with capacity.")
+
+        best_score, chosen_server_id, chosen_start_time = min(candidate_options, key=lambda x: x[0])
+
+        # Reserve capacity for the chosen operation in the `capacity_usage` dictionary.
+        for t in range(chosen_start_time, chosen_start_time + op.duration):
+            capacity_usage[chosen_server_id][t] = capacity_usage[chosen_server_id].get(t, 0) + op.capacity_required
+
+        # Add the scheduled operation to the job's schedule.
+        schedule[job.id].append({"server": chosen_server_id, "start": chosen_start_time})
+
+        # Update the start time for the next operation in this job.
+        # It must start after the current operation finishes.
+        op_start_time_predecessor = chosen_start_time + op.duration
+>>>>>>> REPLACE
+</DIFF>

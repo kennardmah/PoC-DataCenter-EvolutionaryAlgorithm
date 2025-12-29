@@ -1,0 +1,77 @@
+<NAME>
+add_local_search_n_slots
+</NAME>
+
+<DESCRIPTION>
+Introduces a new tunable parameter, `LOCAL_SEARCH_N_SLOTS`, as a class attribute within `OperationPlacementEvaluator`. This parameter controls the depth of the "best-of-N" local search strategy, specifying how many of the earliest available slots on each local server should be evaluated. This balances search thoroughness with computational efficiency, allowing the scheduler to consider slightly better local placements without excessive overhead.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        LOCAL_SEARCH_WINDOW_HOURS = 24
+        EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+        EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+=======
+        LOCAL_SEARCH_WINDOW_HOURS = 24
+        EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+        EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+        LOCAL_SEARCH_N_SLOTS = 3 # Number of earliest available slots to evaluate per local server
+>>>>>>> REPLACE
+
+</DIFF>
+
+<NAME>
+implement_best_of_n_local_search
+</NAME>
+
+<DESCRIPTION>
+This edit refines the local server search strategy from a simple "first-fit" to a "best-of-N-earliest-fit" approach. For each compatible local server, the scheduler now identifies up to `LOCAL_SEARCH_N_SLOTS` of the earliest available consecutive time slots within the defined search window. It calculates the placement score for each of these `N` potential slots and then selects the single best-scoring option among them for that specific server. This "best-for-this-server" candidate is then compared against all other local server candidates (which also found their "best-of-N") and the immediate cloud placement, ensuring the overall optimal decision is made based on a more thorough local exploration. This provides a slightly deeper, yet still efficient, local search, which can lead to better resource utilization and cost optimization by preventing suboptimal early placements on local machines.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            else:
+                search_end_time = op_start_time_for_job + evaluator.LOCAL_SEARCH_WINDOW_HOURS
+
+                for proposed_start in range(op_start_time_for_job, search_end_time + 1):
+                    if evaluator._has_capacity(server_id, proposed_start, op.duration, op.capacity_required):
+                        score = evaluator._calculate_placement_score(
+                            job, op, proposed_start, server_id, False,
+                            remaining_operations_duration
+                        )
+                        if score < best_overall_candidate[0]:
+                            best_overall_candidate = (score, proposed_start, server_id, False)
+                        if score < best_local_candidate[0]:
+                            best_local_candidate = (score, proposed_start, server_id)
+                        break
+=======
+            else: # Local server
+                current_local_server_candidates = [] # Store (score, start_time, server_id) for this local server
+                search_end_time = op_start_time_for_job + evaluator.LOCAL_SEARCH_WINDOW_HOURS
+
+                for proposed_start in range(op_start_time_for_job, search_end_time + 1):
+                    if evaluator._has_capacity(server_id, proposed_start, op.duration, op.capacity_required):
+                        score = evaluator._calculate_placement_score(
+                            job, op, proposed_start, server_id, False,
+                            remaining_operations_duration
+                        )
+                        current_local_server_candidates.append((score, proposed_start, server_id))
+                        # If we have collected enough earliest candidates, stop searching further for this server
+                        if len(current_local_server_candidates) >= evaluator.LOCAL_SEARCH_N_SLOTS:
+                            break
+
+                # After checking all possible slots (or N earliest) for this local server,
+                # pick the best one found among the collected candidates for THIS server.
+                if current_local_server_candidates:
+                    best_for_this_local_server = min(current_local_server_candidates, key=lambda x: x[0])
+
+                    # Update overall best candidate if this local server's best is better
+                    if best_for_this_local_server[0] < best_overall_candidate[0]:
+                        best_overall_candidate = (best_for_this_local_server[0], best_for_this_local_server[1], best_for_this_local_server[2], False)
+
+                    # Also update the best_local_candidate (used for the emergency trigger logic)
+                    if best_for_this_local_server[0] < best_local_candidate[0]:
+                        best_local_candidate = (best_for_this_local_server[0], best_for_this_local_server[1], best_for_this_local_server[2])
+>>>>>>> REPLACE
+
+</DIFF>

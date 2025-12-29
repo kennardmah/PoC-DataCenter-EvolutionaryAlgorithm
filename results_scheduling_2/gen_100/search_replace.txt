@@ -1,0 +1,70 @@
+<NAME>
+dynamic_cloud_factor_param
+</NAME>
+
+<DESCRIPTION>
+This edit modifies the `_calculate_placement_score` helper function to accept an additional parameter `_dynamic_cloud_multiplier`. This factor will be used to dynamically adjust the cloud deterrence penalty based on real-time local capacity availability. This sets the stage for implementing dynamic cloud deterrence in the scheduling logic. The `_dynamic_cloud_multiplier` defaults to 1.0 to maintain current behavior if not explicitly provided.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _priority_multipliers: Dict[str, float],
+        _cloud_deterrence_base: float,
+        _cloud_emergency_discount: float
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        if _is_cloud_server:
+            deterrence = _cloud_deterrence_base
+            if _job.priority == 'emergency':
+                # Apply discount for emergency jobs to prioritize their speed.
+                deterrence *= (1.0 - _cloud_emergency_discount)
+            op_compute_cost += deterrence
+=======
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _priority_multipliers: Dict[str, float],
+        _cloud_deterrence_base: float,
+        _cloud_emergency_discount: float,
+        _dynamic_cloud_multiplier: float = 1.0 # New parameter for dynamic cloud cost adjustment
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        if _is_cloud_server:
+            deterrence = _cloud_deterrence_base
+            if _job.priority == 'emergency':
+                # Apply discount for emergency jobs to prioritize their speed.
+                deterrence *= (1.0 - _cloud_emergency_discount)
+            op_compute_cost += deterrence * _dynamic_cloud_multiplier # Apply dynamic multiplier
+>>>>>>> REPLACE
+</DIFF>

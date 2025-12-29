@@ -1,0 +1,67 @@
+<revert_to_best_version>
+Revert `schedule_job_online` function to its form that achieved a score of -16930.00. This removes the `_calculate_placement_score` helper function and specific `PRIORITY_WEIGHTS` and `CLOUD_DETERRENCE_PER_HOUR` constants defined directly above `schedule_job_online`, relying instead on the globally defined `operation_objective` and its implicit priority handling. This also changes the local machine search from "best available slot in window" to "first available slot."
+</revert_to_best_version>
+
+<DIFF>
+<<<<<<< SEARCH
+# Constants for the scheduler
+PRIORITY_WEIGHTS = {
+    "emergency": 8.0,  # Highest urgency, highest penalty for delay
+    "high": 3.0,
+    "medium": 1.0,
+    "low": 0.5,
+}
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+
+
+def _calculate_placement_score(inst: Instance, server_id: str, start: int, op: Operation, job: Job, remaining_duration: int, is_cloud: bool) -> float:
+    """
+    Calculates a weighted score for a proposed operation placement,
+    considering compute cost, the impact on the job's overall delay penalty,
+    and dynamic cloud deterrence based on priority.
+    """
+    # Compute cost for THIS operation
+    op_compute_cost_raw = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                              for t in range(start, start + op.duration))
+
+    # Projected completion time for THE ENTIRE JOB
+    projected_op_end = start + op.duration
+    projected_job_completion = projected_op_end + remaining_duration
+
+    # Calculate the delay penalty for THE ENTIRE JOB.
+    delay = max(0, projected_job_completion - job.deadline)
+
+    # Apply priority multiplier to the delay penalty.
+    priority_factor = PRIORITY_WEIGHTS.get(job.priority, 1.0)
+    delay_penalty = delay * job.delay_weight * priority_factor * inst.weights['delay_penalty']
+
+    # Apply priority multiplier to compute cost as well
+    compute_cost_weighted = op_compute_cost_raw * inst.weights['compute_cost'] * priority_factor
+
+    total_cost = compute_cost_weighted + delay_penalty
+
+    # Add cloud deterrence if using a cloud server, scaled by priority
+    if is_cloud:
+        total_cost += CLOUD_DETERRENCE_PER_HOUR * op.duration * inst.weights['compute_cost'] * priority_factor
+
+    # Tie-breaker: prefer earlier starts slightly if costs are otherwise equal
+    total_cost += start * 0.0001
+
+    return total_cost
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    # op_start_time_for_job tracks the earliest an operation of THIS job can start,
+    # considering its arrival time and the completion of its previous operation.
+    op_start_time_for_job = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        # Remaining duration includes subsequent operations of this job to project total job completion time
+        remaining_duration = sum(o

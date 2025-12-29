@@ -1,0 +1,123 @@
+<NAME>
+dynamic_local_search_window
+</NAME>
+
+<DESCRIPTION>
+This edit refines the local server search window by introducing dynamic bounds based on job characteristics and global instance parameters. It directly addresses **Recommendation 5 (Prioritized and Slightly Expanded Search Window for Critical Jobs)** and enhances consistency in the lookahead simulation.
+
+Key changes:
+1.  **New Tunable Parameters**: Introduced `DEFAULT_LOCAL_SEARCH_LOOKAHEAD_HOURS`, `DEADLINE_BASED_LOOKAHEAD_FACTOR`, and `CRITICAL_JOB_EXTRA_LOOKAHEAD_HOURS` to control the search window behavior.
+2.  **Dynamic Search Window for Local Servers**:
+    *   In `schedule_job_online`, the upper bound for the local server search (`search_end_time`) is now calculated more intelligently. It considers a minimum lookahead from the operation's start time, extends up to a point relative to the job's deadline, and then adds extra lookahead for 'emergency' or 'high' priority jobs. This allows critical jobs to explore a wider range of local slots to find a more optimal, less costly solution.
+    *   This dynamic window is capped by `inst.time_horizon` to prevent unbounded searches, which is especially important as job deadlines can be very far in the future.
+3.  **Consistent Simulation Lookahead**: The `_simulate_remaining_ops_cost_and_time` function now uses the *same dynamic search window logic*. This ensures that the projected future costs and completion times used in the `operation_objective` are based on a more realistic and consistent application of the scheduling policy, improving the accuracy of objective calculations.
+
+This approach balances the need to find good local slots for all jobs with a strategic expansion for high-priority tasks, aiming to reduce overall cost and delay penalties by leveraging local resources more effectively, especially during critical periods.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# Constants for the scheduler (can be tuned)
+LOCAL_SEARCH_WINDOW_HOURS = 24 # Look 24 hours ahead for the best local slot
+PRIORITY_WEIGHTS = {
+    "urgent": 5.0,  # Higher weight for urgent jobs
+    "high": 2.0,
+    "medium": 1.0,
+    "low": 0.5,
+}
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+=======
+# Constants for the scheduler (can be tuned)
+# Base lookahead for local server search (e.g., 24 hours)
+DEFAULT_LOCAL_SEARCH_LOOKAHEAD_HOURS = 24
+# Factor to extend search past job deadline (e.g., 0.5 * 24h = 12h)
+DEADLINE_BASED_LOOKAHEAD_FACTOR = 0.5
+# Additional lookahead for critical jobs (emergency, high priority)
+CRITICAL_JOB_EXTRA_LOOKAHEAD_HOURS = 12
+
+PRIORITY_WEIGHTS = {
+    "urgent": 5.0,  # Higher weight for urgent jobs
+    "high": 2.0,
+    "medium": 1.0,
+    "low": 0.5,
+}
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            else:
+                # Local servers: search forward for the best available slot within the defined window
+                for start in range(op_start_time_for_job, op_start_time_for_job + LOCAL_SEARCH_WINDOW_HOURS):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        # Hypothethically reserve capacity for current op in this local slot
+                        local_hypothetical_cap_usage = defaultdict(dict, {s: d.copy() for s, d in capacity_usage.items()})
+                        for t in range(start, start + op.duration):
+                            local_hypothetical_cap_usage[server_id][t] = local_hypothetical_cap_usage[server_id].get(t, 0) + op.capacity_required
+
+                        cost = operation_objective(
+                            inst, server_id, start, op, job, idx, job.operations, local_hypothetical_cap_usage, is_cloud=False
+                        )
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+                        # DO NOT break here; we want to find the *best* slot within the window, not just the first.
+=======
+            else:
+                # Calculate dynamic search end time for local servers
+                # Base lookahead from current operation's earliest start
+                search_end_time = op_start_time_for_job + DEFAULT_LOCAL_SEARCH_LOOKAHEAD_HOURS
+                # Also consider looking up to the job's deadline plus a buffer
+                search_end_time = max(search_end_time, job.deadline + int(inst.time_horizon * DEADLINE_BASED_LOOKAHEAD_FACTOR))
+
+                # For critical jobs, extend the search window further
+                if job.priority in ["emergency", "high"]:
+                    search_end_time += CRITICAL_JOB_EXTRA_LOOKAHEAD_HOURS
+
+                # Cap the search window to prevent excessively long loops
+                search_end_time = min(search_end_time, op_start_time_for_job + inst.time_horizon * 2) # e.g., max 2 full cycles ahead
+
+                # Local servers: search forward for the best available slot within the dynamic window
+                for start in range(op_start_time_for_job, search_end_time + 1): # +1 to include search_end_time
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        # Hypothethically reserve capacity for current op in this local slot
+                        local_hypothetical_cap_usage = defaultdict(dict, {s: d.copy() for s, d in capacity_usage.items()})
+                        for t in range(start, start + op.duration):
+                            local_hypothetical_cap_usage[server_id][t] = local_hypothetical_cap_usage[server_id].get(t, 0) + op.capacity_required
+
+                        cost = operation_objective(
+                            inst, server_id, start, op, job, idx, job.operations, local_hypothetical_cap_usage, is_cloud=False
+                        )
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+                        # DO NOT break here; we want to find the *best* slot within the window, not just the first.
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            else:
+                # Local: search for first available slot within a small window
+                # Use the same LOCAL_SEARCH_WINDOW_HOURS for consistency in finding slots
+                for s_start in range(sim_current_start, sim_current_start + LOCAL_SEARCH_WINDOW_HOURS):
+                    if has_capacity(inst, sim_capacity_usage, server_id, s_start, op.duration, op.capacity_required):
+                        best_sim_option = min(best_sim_option, (s_start, server_id, False))
+                        break # Take the first available slot to keep simulation fast and greedy
+=======
+            else:
+                # Calculate dynamic search end time for simulation consistency
+                sim_search_end_time = sim_current_start + DEFAULT_LOCAL_SEARCH_LOOKAHEAD_HOURS
+                sim_search_end_time = max(sim_search_end_time, job.deadline + int(inst.time_horizon * DEADLINE_BASED_LOOKAHEAD_FACTOR))
+
+                if job.priority in ["emergency", "high"]:
+                    sim_search_end_time += CRITICAL_JOB_EXTRA_LOOKAHEAD_HOURS
+
+                sim_search_end_time = min(sim_search_end_time, sim_current_start + inst.time_horizon * 2)
+
+                # Local: search for first available slot within the dynamic window
+                for s_start in range(sim_current_start, sim_search_end_time + 1): # +1 to include sim_search_end_time
+                    if has_capacity(inst, sim_capacity_usage, server_id, s_start, op.duration, op.capacity_required):
+                        best_sim_option = min(best_sim_option, (s_start, server_id, False))
+                        break # Take the first available slot to keep simulation fast and greedy
+>>>>>>> REPLACE
+</DIFF>

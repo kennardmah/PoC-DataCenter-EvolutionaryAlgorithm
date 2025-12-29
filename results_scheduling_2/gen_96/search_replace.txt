@@ -1,0 +1,278 @@
+<dynamic_cloud_deterrence>
+Introduce dynamic cloud deterrence based on immediate local capacity availability.
+
+The previous version used a fixed `CLOUD_DETERRENCE_BASE` and a discount for emergency jobs. This modification enhances the cloud deterrence mechanism by making it dynamic:
+
+1.  **Detect Local Capacity Constraint**: For each operation, before evaluating server options, the scheduler checks if any compatible local server has immediate capacity at `op_start_time_predecessor`.
+2.  **Adjust Cloud Deterrence**:
+    *   If local capacity for that operation is immediately available, the default `CLOUD_DETERRENCE_BASE` is applied to cloud options.
+    *   If, however, *no* local server can take the operation immediately (i.e., local capacity is constrained at `op_start_time_predecessor`), the cloud deterrence is reduced by a `LOCAL_CAPACITY_CONSTRAINED_CLOUD_DETERRENCE_FACTOR`. This encourages the use of cloud when local machines are busy or unavailable, potentially preventing delays.
+3.  **Refine `_calculate_placement_score`**: The helper function now takes an additional `current_cloud_deterrence_base` parameter, which incorporates this dynamic adjustment.
+
+This change aims to improve resilience during peak loads or partial failures by strategically reducing cloud cost penalties when local resources are tight, allowing urgent jobs to utilize cloud resources more readily without incurring excessive costs due to artificially high deterrence. This directly addresses recommendation 1, making the cloud deterrence term dynamic based on local capacity.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    # Define parameters for the scheduling heuristic
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 8.0, # Highest urgency, highest penalty for delay
+        'high': 3.0,
+        'medium': 1.0,
+        'low': 0.5,       # Lowest urgency, more flexible with delay
+    }
+
+    CLOUD_DETERRENCE_BASE = 75.0
+    CLOUD_EMERGENCY_DISCOUNT = 0.8 # Reduce cloud deterrence by 80% for emergency jobs
+
+    MAX_LOCAL_SEARCH_HORIZON = inst.time_horizon * 2 + 12 # Extend a bit beyond 2 cycles (24*2+12 = 60 hours)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _priority_multipliers: Dict[str, float],
+        _cloud_deterrence_base: float,
+        _cloud_emergency_discount: float
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        if _is_cloud_server:
+            deterrence = _cloud_deterrence_base
+            if _job.priority == 'emergency':
+                deterrence *= (1.0 - _cloud_emergency_discount)
+            op_compute_cost += deterrence
+
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+
+        delay = max(0, projected_job_completion - _job.deadline)
+
+        priority_factor = _priority_multipliers.get(_job.priority, 1.0)
+        delay_penalty = delay * _job.delay_weight * priority_factor * _inst.weights['delay_penalty']
+
+        total_score = (
+            op_compute_cost * _inst.weights['compute_cost']
+            + delay_penalty
+        )
+
+        total_score += _proposed_start * 0.0001 # Tie-breaker
+
+        return total_score
+
+    schedule[job.id] = []
+    op_start_time_predecessor = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        candidate_options = [] # List to store (score, server_id, start_time) for all feasible options
+
+        # --- Evaluate Cloud Options ---
+        for server_id, server in inst.servers.items():
+            if server.is_cloud and server.server_type == op.server_type:
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                )
+                candidate_options.append((score, server_id, proposed_start))
+                # For cloud, we often assume only one type/instance, so we can take the first.
+                # If multiple cloud options with differing costs existed, we'd need to add them all.
+                # For simplicity, assuming one cloud option per type is typically enough here.
+                break # Assuming one 'best' cloud server for the type, take it.
+
+        # --- Evaluate Local Options (First-Fit within Search Horizon) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        candidate_options.append((score, server_id, proposed_start))
+                        break # Take the first available slot on this local server
+
+        # --- Select the best option from all candidates ---
+        if not candidate_options:
+             raise Exception(f"Could not schedule operation {idx} for job {job.id}: No compatible server (local or cloud) found with capacity.")
+
+        best_score, chosen_server_id, chosen_start_time = min(candidate_options, key=lambda x: x[0])
+
+
+        # Reserve capacity for the chosen operation
+        for t in range(chosen_start_time, chosen_start_time + op.duration):
+            capacity_usage[chosen_server_id][t] = capacity_usage[chosen_server_id].get(t, 0) + op.capacity_required
+
+        # Add to job's schedule
+        schedule[job.id].append({"server": chosen_server_id, "start": chosen_start_time})
+
+        # Update the start time for the next operation in this job
+        op_start_time_predecessor = chosen_start_time + op.duration
+=======
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    # Define parameters for the scheduling heuristic
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 8.0, # Highest urgency, highest penalty for delay
+        'high': 3.0,
+        'medium': 1.0,
+        'low': 0.5,       # Lowest urgency, more flexible with delay
+    }
+
+    DEFAULT_CLOUD_DETERRENCE_BASE = 75.0
+    CLOUD_EMERGENCY_DISCOUNT = 0.8 # Reduce cloud deterrence by 80% for emergency jobs
+    # New: Factor to reduce cloud deterrence when local capacity is constrained.
+    # E.g., 0.5 means cloud deterrence is halved if local is immediately unavailable.
+    LOCAL_CAPACITY_CONSTRAINED_CLOUD_DETERRENCE_FACTOR = 0.5
+
+    MAX_LOCAL_SEARCH_HORIZON = inst.time_horizon * 2 + 12 # Extend a bit beyond 2 cycles (24*2+12 = 60 hours)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _priority_multipliers: Dict[str, float],
+        _current_cloud_deterrence_base: float, # Updated parameter name
+        _cloud_emergency_discount: float
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        if _is_cloud_server:
+            deterrence = _current_cloud_deterrence_base # Use the dynamically adjusted base
+            if _job.priority == 'emergency':
+                deterrence *= (1.0 - _cloud_emergency_discount)
+            op_compute_cost += deterrence
+
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+
+        delay = max(0, projected_job_completion - _job.deadline)
+
+        priority_factor = _priority_multipliers.get(_job.priority, 1.0)
+        delay_penalty = delay * _job.delay_weight * priority_factor * _inst.weights['delay_penalty']
+
+        total_score = (
+            op_compute_cost * _inst.weights['compute_cost']
+            + delay_penalty
+        )
+
+        total_score += _proposed_start * 0.0001 # Tie-breaker
+
+        return total_score
+
+    schedule[job.id] = []
+    op_start_time_predecessor = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        candidate_options = [] # List to store (score, server_id, start_time) for all feasible options
+
+        # --- Dynamic Cloud Deterrence Adjustment (New) ---
+        # Check if any local server for this operation type is immediately available
+        local_immediate_capacity_available = False
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                if has_capacity(inst, capacity_usage, server_id, op_start_time_predecessor, op.duration, op.capacity_required):
+                    local_immediate_capacity_available = True
+                    break
+
+        # Adjust cloud deterrence based on immediate local capacity availability
+        current_cloud_deterrence_base = DEFAULT_CLOUD_DETERRENCE_BASE
+        if not local_immediate_capacity_available:
+            current_cloud_deterrence_base *= LOCAL_CAPACITY_CONSTRAINED_CLOUD_DETERRENCE_FACTOR
+
+        # --- Evaluate Cloud Options ---
+        for server_id, server in inst.servers.items():
+            if server.is_cloud and server.server_type == op.server_type:
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    current_cloud_deterrence_base, CLOUD_EMERGENCY_DISCOUNT # Pass dynamic base
+                )
+                candidate_options.append((score, server_id, proposed_start))
+                # Assuming one 'best' cloud server for the type, take it.
+                break
+
+        # --- Evaluate Local Options (First-Fit within Search Horizon) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            current_cloud_deterrence_base, CLOUD_EMERGENCY_DISCOUNT # Pass dynamic base, though not used for local
+                        )
+                        candidate_options.append((score, server_id, proposed_start))
+                        break # Take the first available slot on this local server
+
+        # --- Select the best option from all candidates ---
+        if not candidate_options:
+             raise Exception(f"Could not schedule operation {idx} for job {job.id}: No compatible server (local or cloud) found with capacity.")
+
+        best_score, chosen_server_id, chosen_start_time = min(candidate_options, key=lambda x: x[0])
+
+
+        # Reserve capacity for the chosen operation
+        for t in range(chosen_start_time, chosen_start_time + op.duration):
+            capacity_usage[chosen_server_id][t] = capacity_usage[chosen_server_id].get(t, 0) + op.capacity_required
+
+        # Add to job's schedule
+        schedule[job.id].append({"server": chosen_server_id, "start": chosen_start_time})
+
+        # Update the start time for the next operation in this job
+        op_start_time_predecessor = chosen_start_time + op.duration
+>>>>>>> REPLACE
+</DIFF>

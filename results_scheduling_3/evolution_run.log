@@ -1,0 +1,32 @@
+2025-12-30 00:33:50 - shinka.core.runner - INFO - ================================================================================
+2025-12-30 00:33:50 - shinka.core.runner - INFO - Evolution run started at 2025-12-30 00:33:50
+2025-12-30 00:33:50 - shinka.core.runner - INFO - Results directory: results_scheduling_3
+2025-12-30 00:33:50 - shinka.core.runner - INFO - Log file: results_scheduling_3/evolution_run.log
+2025-12-30 00:33:50 - shinka.core.runner - INFO - ================================================================================
+2025-12-30 00:33:50 - shinka.core.runner - INFO - Experiment configuration saved to results_scheduling_3/experiment_config.yaml
+2025-12-30 00:33:50 - shinka.core.runner - INFO - Starting evolution with 5 parallel jobs, target: 150 generations
+2025-12-30 00:33:50 - shinka.core.runner - INFO - Running generation 0 sequentially to initialize database...
+2025-12-30 00:33:50 - shinka.core.runner - INFO - Copying initial program from initial.py
+2025-12-30 00:33:50 - shinka.launch.local - INFO - Submitted local process with PID: 61819
+2025-12-30 00:33:50 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results_scheduling_3/gen_0/main.py --results_dir results_scheduling_3/gen_0/results
+2025-12-30 00:34:01 - shinka.database.dbase - INFO - Program 3f1610dc-65ac-468a-914d-6a669a507bed added to DB - score: -16980.0.
+2025-12-30 00:34:01 - shinka.database.dbase - INFO - New best program: 3f1610dc-65ac-468a-914d-6a669a507bed (gen: 0, score: -16980.0000, initialized island: 0).
+2025-12-30 00:34:01 - shinka.database.dbase - INFO - Not enough programs with embeddings (1) to perform clustering. Need at least 4.
+2025-12-30 00:34:01 - shinka.database.dbase - INFO - Creating copies of initial program 3f1610dc-65ac-468a-914d-6a669a507bed for all islands
+2025-12-30 00:34:01 - shinka.database.islands - INFO - Created copy 0cca7142... of program 3f1610dc... for island 1
+2025-12-30 00:34:01 - shinka.database.islands - INFO - Created copy 42eaa214... of program 3f1610dc... for island 2
+2025-12-30 00:34:01 - shinka.database.islands - INFO - Created 2 copies of program 3f1610dc... for islands 1-2
+2025-12-30 00:34:01 - shinka.database.dbase - INFO - Database state committed. Last iteration: 0. Best: 3f1610dc-65ac-468a-914d-6a669a507bed
+2025-12-30 00:34:01 - shinka.core.runner - INFO - New best program found: gen 0, id 3f1610... Copied to results_scheduling_3/best
+2025-12-30 00:34:01 - shinka.core.summarizer - INFO - Added program 3f1610dc-65ac-468a-914d-6a669a507bed to meta memory tracking (correct=True, total: 1)
+2025-12-30 00:34:01 - shinka.core.summarizer - INFO - Saved meta state to results_scheduling_3/meta_memory.json: 1 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2025-12-30 00:34:01 - shinka.core.runner - INFO - Completed generation 0, total: 1/150
+2025-12-30 00:34:01 - shinka.core.runner - INFO - Starting parallel execution for remaining generations...
+2025-12-30 00:34:01 - shinka.database.parents - INFO - Island 2 => Probabilities: [1.0]
+2025-12-30 00:34:01 - shinka.database.parents - INFO - Island 2 => Scores: [-16980.0]
+2025-12-30 00:34:01 - shinka.database.parents - INFO - Sampled parent 42eaa214-735e-4a41-a5f5-816073557586 (Gen: 0, Score: -16980.0000, Children: 0, Island: 2)
+2025-12-30 00:34:01 - shinka.core.runner - INFO - Edit Cycle 1 -> 2, Max Patch Attempts: 3
+2025-12-30 00:34:01 - shinka.llm.llm - INFO - ==> SAMPLING:
+  gemini-2.5-pro                   0.5000
+  gemini-2.5-flash                 0.5000
+2025-12-30 00:34:01 - shinka.llm.llm - INFO - ==> QUERYING: ['gemini-2.5-flash', 1.0, 8192]

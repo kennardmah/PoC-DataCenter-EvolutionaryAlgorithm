@@ -1,0 +1,22 @@
+<local_best_fit_search>
+A refined local search strategy is introduced for local machines. Instead of simply selecting the *first* available slot encountered within the search window, the scheduler will now evaluate *all* available slots within that window for a given local machine and select the one that yields the *lowest cost*. This "best-fit" approach for local machines, combined with the overall best-fit selection against cloud options, is expected to find more optimal placements. Additionally, the search range is made inclusive to ensure the entire calculated search window is considered.
+
+<DIFF>
+<<<<<<< SEARCH
+            # local: search forward for first available slot within a bounded window
+            search_end_time = min(job.deadline + inst.time_horizon, current_start + MAX_LOCAL_SEARCH_WINDOW_HOURS)
+            for start in range(current_start, search_end_time):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+=======
+            # local: search forward for the BEST available slot within a bounded window
+            search_end_time = min(job.deadline + inst.time_horizon, current_start + MAX_LOCAL_SEARCH_WINDOW_HOURS)
+            for start in range(current_start, search_end_time + 1): # Search up to and including search_end_time
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    # DO NOT break; continue searching to find the *best* local slot for this server
+>>>>>>> REPLACE
+</DIFF>

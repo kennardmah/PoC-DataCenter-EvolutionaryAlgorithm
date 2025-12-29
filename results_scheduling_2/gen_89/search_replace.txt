@@ -1,0 +1,38 @@
+<local_best_fit>
+Replaced first-fit with best-fit local server search.
+</DESCRIPTION>
+The previous local server search loop (`for proposed_start in range(...)`) used a `break` statement immediately after finding the first available slot. This "first-fit" heuristic is quick but often sub-optimal.
+
+This edit modifies the `schedule_job_online` function by removing the `break` statement. This ensures that when evaluating local servers, the scheduler will continue iterating through the entire `MAX_LOCAL_SEARCH_WINDOW` to find the *best-scoring* available slot on that specific local server, rather than just taking the first one it encounters. This transforms the local search from a "first-fit" to a "best-fit" approach within the specified window, allowing for more optimal placement decisions that better balance cost and delay penalties.
+
+This change directly addresses Recommendation 1, which advised replacing "First-Fit" with an objective-driven "Best-Fit" bounded local search, leading to potentially better resource utilization and lower overall costs.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        if score < best_score:
+                            best_score = score
+                            chosen_server_id = server_id
+                            chosen_start_time = proposed_start
+                        break # <<< Take the first available slot on this server
+=======
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        if score < best_score:
+                            best_score = score
+                            chosen_server_id = server_id
+                            chosen_start_time = proposed_start
+                        # Removed 'break': continue searching for the best slot within the window
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,12 @@
+<NAME>
+revert_to_lookahead_and_best_fit
+</NAME>
+
+<DESCRIPTION>
+The previous program iteration that achieved a score of -17400.50 incorporated a more sophisticated scheduling logic, including a lookahead simulation for remaining operations and a "best-fit" search strategy for local machines. The current version, scoring -16930.00, appears to have reverted to a simpler "first available slot" heuristic and removed the lookahead simulation, leading to a performance decrease.
+
+This edit aims to revert the evolvable `EVOLVE-BLOCK-START` section to the state of the higher-performing version. This involves:
+
+1.  **Reintroducing `_simulate_remaining_ops_cost_and_time`**: This helper function will simulate the scheduling of subsequent operations for the current job, providing a more accurate projection of its total completion time and future costs. This allows the current operation's placement decision to better consider the overall job's impact.
+2.  **Updating `operation_objective`**: The objective function will be modified to leverage the results from `_simulate_remaining_ops_cost_and_time`. It will calculate a comprehensive score that includes the raw compute cost for the current operation and all simulated future operations, as well as the total delay penalty and cloud deterrence, all weighted by job priority.
+3.  **Implementing Best-Fit Local Search in `schedule_job_online`**: Instead of blindly taking the *first* available local slot, the scheduler will iterate

@@ -1,0 +1,106 @@
+<NAME>
+best_fit_local_search
+</NAME>
+
+<DESCRIPTION>
+This edit implements a "best fit" strategy for local machine scheduling, rather than a "first fit."
+
+**Problem with current approach:** The previous code for local machines used `break` after finding the *first* available slot. This means it might choose a slot that is available soon but is more expensive or leads to higher future penalties compared to a slightly later but overall better slot on the *same* machine.
+
+**Proposed change:** For each local machine, the scheduler will now iterate through *all* available time slots within its `MAX_LOCAL_SEARCH_WINDOW`. It will calculate the score for each feasible slot using the `_calculate_placement_score` function and store the best one found for that specific machine. After evaluating all local machines, it then compares the *best* option from all local machines with the *best* cloud option (which is always immediate). This ensures that for each operation, the globally best (lowest cost) assignment is chosen among all compatible local and cloud servers within their respective search boundaries.
+
+This change directly addresses Recommendation 2 and is expected to lead to a more optimal allocation of local resources, reducing overall costs and delays by making more informed decisions about *where* and *when* to place an operation on a local machine.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Evaluate ALL Options (Local and Cloud) to find the absolute best ---
+        # This structure allows direct comparison between the best local and best cloud options.
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud: always available immediately after predecessor completes
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                )
+                if score < best_score:
+                    best_score = score
+                    chosen_server_id = server_id
+                    chosen_start_time = proposed_start
+            else:
+                # Local: search for the FIRST available slot within the search window
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_WINDOW)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        if score < best_score:
+                            best_score = score
+                            chosen_server_id = server_id
+                            chosen_start_time = proposed_start
+                        break # <<< Take the first available slot on this server
+=======
+        # Initialize best score and chosen placement for the current operation
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Evaluate ALL Options (Local and Cloud) to find the absolute best ---
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud: always available immediately after predecessor completes
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                )
+                if score < best_score:
+                    best_score = score
+                    chosen_server_id = server_id
+                    chosen_start_time = proposed_start
+            else:
+                # Local: search for the BEST available slot within the search window
+                # Instead of 'first fit', iterate all options in the window to find 'best fit'
+                local_best_slot_score = float('inf')
+                local_best_slot_start = None
+
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_WINDOW)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        if score < local_best_slot_score:
+                            local_best_slot_score = score
+                            local_best_slot_start = proposed_start
+                        # Continue searching to find the *best* local slot for THIS server
+
+                # If a valid slot was found on this local server, compare it with the overall best
+                if local_best_slot_start is not None and local_best_slot_score < best_score:
+                    best_score = local_best_slot_score
+                    chosen_server_id = server_id
+                    chosen_start_time = local_best_slot_start
+>>>>>>> REPLACE
+</DIFF>

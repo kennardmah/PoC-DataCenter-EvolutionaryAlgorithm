@@ -1,0 +1,9 @@
+<lookahead_simulation>
+Refine Lookahead Simulation with Greedy Subsequent Operation Placement
+
+This edit implements an enhanced lookahead mechanism to improve scheduling decisions. Instead of simply summing the durations of remaining operations to estimate job completion, the scheduler now simulates a greedy placement of all *subsequent operations* for the current job. This provides a more accurate projection of the total job completion time and accumulated future compute costs, allowing the current operation's placement decision to be made with better foresight.
+
+Key changes:
+1.  **New Helper Function `_simulate_greedy_scheduling_of_remaining_ops`**: This function is introduced to perform a simplified, greedy scheduling simulation of the operations that follow the current one. It identifies the earliest available slot for each subsequent operation (first-fit on local machines within a short window, immediate on cloud) and accumulates their compute costs and total duration. It uses a *copy* of the capacity state to avoid side effects.
+2.  **Modified `_calculate_placement_score`**: This function is updated to accept the `simulated_remaining_ops_cost` and `simulated_remaining_ops_duration` from the new simulation helper. It now incorporates these future costs and the more accurate projected completion time when calculating the overall score for a candidate placement of the *current* operation.
+3.  **Refactored `schedule_job_online` Loop**: The main loop for scheduling an operation now iterates through all viable local and cloud slots for the *current* operation. For each potential slot, it calls the new simulation helper to

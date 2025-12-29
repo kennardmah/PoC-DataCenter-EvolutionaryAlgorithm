@@ -1,0 +1,20 @@
+<enhanced_lookahead_simulation>
+<DESCRIPTION>
+This edit implements an enhanced job-internal lookahead simulation (`_simulate_remaining_job_completion`) to more accurately project the total completion time of a job. Previously, `remaining_operations_duration` was a simple sum, which doesn't account for potential queuing or machine unavailability for future operations of the same job.
+
+The new `_simulate_remaining_job_completion` function takes the proposed end time of the *current* operation and then greedily simulates the scheduling of all *subsequent operations* for that job. This simulation considers:
+-   Actual machine capacity constraints (using a temporary `simulated_capacity_usage`).
+-   A bounded search window (`LOOKAHEAD_SIM_WINDOW_FOR_LOCAL_OPS`) for local machines to find the earliest available slot.
+-   Immediate availability for cloud machines.
+
+The `_calculate_placement_score` function is updated to accept this more accurate `_projected_job_completion_time` instead of the simple `remaining_ops_duration`. This allows the objective function to more precisely assess the total delay penalty associated with a given placement, leading to better scheduling decisions that minimize overall job delays.
+
+This change directly addresses Recommendation 3: "Implement Enhanced Job-Internal Lookahead Simulation."
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job

@@ -1,0 +1,29 @@
+<remove_extrablock_operation_objective>
+The `operation_objective` function was erroneously duplicated outside the `EVOLVE-BLOCK`. This edit removes the extraneous definition to avoid confusion and ensure that only the intended, more sophisticated `_calculate_placement_score` (to be restored in the next step) is used.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def operation_objective(inst, server_id, start, op, job, remaining_duration):
+    compute = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                  for t in range(start, start + op.duration))
+    projected_completion = start + op.duration + remaining_duration
+    delay = max(0, projected_completion - job.deadline)
+    return (
+        compute * inst.weights['compute_cost']
+        + delay * job.delay_weight * inst.weights['delay_penalty']
+    )
+=======
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+# Constants for the scheduler (can be tuned)
+LOCAL_SEARCH_WINDOW_HOURS = 24 # Look up to 24 hours ahead for the best local slot
+PRIORITY_WEIGHTS = {
+    "urgent": 5.0,  # Higher weight for urgent jobs
+    "high": 2.0,
+    "medium": 1.0,
+    "low": 0.5,
+}

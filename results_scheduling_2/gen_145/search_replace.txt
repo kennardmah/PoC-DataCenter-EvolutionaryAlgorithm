@@ -1,0 +1,49 @@
+<priority_and_cloud_refinement_v2>
+Refines priority weighting to apply primarily to delay penalties, simplifies cloud deterrence, and removes complex emergency cloud logic for improved stability and cost-efficiency.
+</NAME>
+
+<DESCRIPTION>
+This edit aims to improve scheduling performance by streamlining the cost function and making priority handling more focused, based on lessons learned from previous iterations.
+
+1.  **Centralized Constants and Simplified Cloud Deterrence:**
+    *   Scheduler constants like `PRIORITY_MULTIPLIERS`, `CLOUD_DETERRENCE_PER_HOUR`, `LOCAL_SEARCH_WINDOW_HOURS` are moved to be global within the evolvable block.
+    *   `CLOUD_DETERRENCE_PER_HOUR` is simplified: it no longer directly scales with `priority_factor` *or* has special `CLOUD_EMERGENCY_DISCOUNT_FACTOR`. Instead, a fixed, higher deterrence is applied for cloud usage, encouraging local machines for all jobs unless absolutely necessary. The `EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD` and `EMERGENCY_CLOUD_COST_REDUCTION_FACTOR` are removed, as the previous complex emergency logic did not yield consistent improvements and added complexity.
+
+2.  **Focused Priority Weighting:**
+    *   The `_calculate_placement_score` function is refactored. The `priority_factor` derived from `PRIORITY_MULTIPLIERS` is now applied *only* to the `delay_penalty` component. This means urgent jobs are heavily penalized for delays, but their base compute costs and cloud deterrence are not artificially inflated by their priority. This prevents situations where high-priority jobs might be pushed to more expensive cloud resources unnecessarily due to an over-aggressive cost scaling.
+
+3.  **Streamlined `_calculate_placement_score` function and calls:**
+    *   The `_calculate_placement_score` function's signature is simplified, removing parameters related to the `CLOUD_EMERGENCY_DISCOUNT_FACTOR` and `_cloud_deterrence_override_factor`. This makes the function clearer and its behavior more predictable.
+    *   All call sites to `_calculate_placement_score` are updated to reflect the new, simpler signature.
+
+These changes aim to create a more robust and predictable heuristic that prioritizes meeting deadlines for urgent jobs while making more sensible tradeoffs between local and cloud resources, leading to a better overall `combined_score`.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+#
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable.
+# =============================================================================
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    # --- Tunable Parameters ---
+    # Priority multipliers for delay penalties: higher

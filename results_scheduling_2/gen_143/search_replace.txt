@@ -1,0 +1,137 @@
+<NAME>
+best_of_n_first_fit
+</NAME>
+
+<DESCRIPTION>
+This enhancement implements a "Best-of-N-First-Fit" heuristic for scheduling operations on local machines, as suggested by recommendation 1.
+
+The previous approach for local machines was a "Best-Fit within search window": it would evaluate all feasible time slots within a `MAX_LOCAL_SEARCH_WINDOW` for a given local server and pick the globally best one for that server. While more thorough than a simple "First-Fit," this exhaustive search might have introduced too much computational overhead or led to placements that were locally optimal but globally suboptimal in an online context. It also appears to have performed worse than the initial simpler First-Fit approach.
+
+The modified logic now aims for a middle ground by:
+1.  Introducing a configurable `NUM_LOCAL_SLOTS_TO_EVALUATE` parameter (set to 3). This controls how many *earliest feasible* slots on a local server are considered.
+2.  When evaluating a local server, it searches for up to `NUM_LOCAL_SLOTS_TO_EVALUATE` *earliest feasible* time slots within the defined `search_end_time` (which is itself bounded by `MAX_LOCAL_SEARCH_WINDOW` and `job.deadline + inst.time_horizon`).
+3.  For each of these `N` earliest slots found, it calculates the detailed placement score using `_calculate_placement_score`.
+4.  It then selects the *best-scoring* slot among these `N` candidates for that specific local server.
+5.  This "best-of-N" local candidate is then compared against the best cloud option and the "best-of-N" candidates from other local servers (for the same operation type) to find the globally optimal placement for the current operation.
+
+This change seeks to provide a slightly deeper, yet still efficient, local search compared to a simple first-fit, allowing the scheduler to make more informed decisions by evaluating a few promising early options. This balance between thoroughness and efficiency is expected to lead to better cost efficiency and potentially reduced delays by selecting more advantageous local placements without incurring the full computational cost or potential pitfalls of an exhaustive local search.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Define a maximum horizon to search for available slots on local machines.
+    # This prevents excessively long searches and keeps decisions localized while still
+    # allowing for some lookahead to find optimal local slots.
+    MAX_LOCAL_SEARCH_WINDOW = inst.time_horizon * 2 + 12 # (from Prog 1)
+
+    for idx, op in enumerate(job.operations):
+        # Calculate the remaining duration for subsequent operations in this job.
+        # This is crucial for accurately projecting the job's overall completion time
+        # and thus its delay penalty.
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Evaluate ALL Options (Local and Cloud) to find the absolute best ---
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud: always available immediately after predecessor completes
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                )
+                if score < best_score:
+                    best_score = score
+                    chosen_server_id = server_id
+                    chosen_start_time = proposed_start
+            else:
+                # Local: search for the BEST available slot within the search window (from Prog 2 strategy)
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_WINDOW)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        if score < best_score:
+                            best_score = score
+                            chosen_server_id = server_id
+                            chosen_start_time = proposed_start
+                        # Continue searching to find the *best* local slot, not just the first.
+=======
+    # Define a maximum horizon to search for available slots on local machines.
+    # This prevents excessively long searches and keeps decisions localized while still
+    # allowing for some lookahead to find optimal local slots.
+    MAX_LOCAL_SEARCH_WINDOW = inst.time_horizon * 2 + 12 # (from Prog 1)
+
+    # Number of earliest feasible local slots to evaluate for each local server (Recommendation 1).
+    NUM_LOCAL_SLOTS_TO_EVALUATE = 3
+
+    for idx, op in enumerate(job.operations):
+        # Calculate the remaining duration for subsequent operations in this job.
+        # This is crucial for accurately projecting the job's overall completion time
+        # and thus its delay penalty.
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Evaluate ALL Options (Local and Cloud) to find the absolute best ---
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud: always available immediately after predecessor completes
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                )
+                if score < best_score:
+                    best_score = score
+                    chosen_server_id = server_id
+                    chosen_start_time = proposed_start
+            else:
+                # Local: search for up to NUM_LOCAL_SLOTS_TO_EVALUATE earliest feasible slots
+                # and then pick the best among them (Best-of-N-First-Fit, Recommendation 1).
+                local_server_candidate_slots = [] # Stores (score, start_time) for this server
+                slots_found_for_server = 0
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_WINDOW)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        local_server_candidate_slots.append((score, proposed_start))
+                        slots_found_for_server += 1
+                        if slots_found_for_server >= NUM_LOCAL_SLOTS_TO_EVALUATE:
+                            break # Found enough earliest slots to evaluate for this server
+
+                # If any candidate slots were found for this local server, pick the best among them
+                if local_server_candidate_slots:
+                    best_for_this_local_server = min(local_server_candidate_slots, key=lambda x: x[0])
+                    local_score, local_start_time = best_for_this_local_server
+
+                    if local_score < best_score:
+                        best_score = local_score
+                        chosen_server_id = server_id
+                        chosen_start_time = local_start_time
+>>>>>>> REPLACE
+</DIFF>

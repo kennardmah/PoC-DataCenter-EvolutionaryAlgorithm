@@ -1,0 +1,88 @@
+database_config:
+  archive_size: 30
+  db_path: results_scheduling_2/evolution_db.sqlite
+  elite_selection_ratio: 0.3
+  embedding_model: text-embedding-3-small
+  enforce_island_separation: true
+  exploitation_alpha: 1.0
+  exploitation_ratio: 0.2
+  island_elitism: true
+  migration_interval: 10
+  migration_rate: 0.1
+  num_archive_inspirations: 4
+  num_beams: 5
+  num_islands: 3
+  num_top_k_inspirations: 2
+  parent_selection_lambda: 10.0
+  parent_selection_strategy: weighted
+evolution_config:
+  code_embed_sim_threshold: 0.995
+  embedding_model: gemini-embedding-001
+  init_program_path: initial.py
+  job_type: local
+  language: python
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.0
+  llm_kwargs:
+    max_tokens: 8192
+    temperatures:
+    - 0.0
+    - 0.7
+    - 1.0
+  llm_models:
+  - gemini-2.5-flash
+  max_novelty_attempts: 3
+  max_parallel_jobs: 5
+  max_patch_attempts: 3
+  max_patch_resamples: 3
+  meta_llm_kwargs:
+    max_tokens: 8192
+    temperatures:
+    - 0.0
+  meta_llm_models:
+  - gemini-2.5-flash
+  meta_max_recommendations: 5
+  meta_rec_interval: 10
+  novelty_llm_kwargs:
+    max_tokens: 8192
+    temperatures:
+    - 0.0
+  novelty_llm_models:
+  - gemini-2.5-flash
+  num_generations: 150
+  patch_type_probs:
+  - 0.6
+  - 0.3
+  - 0.1
+  patch_types:
+  - diff
+  - full
+  - cross
+  results_dir: results_scheduling_2
+  task_sys_msg: "You are an expert in online job-shop scheduling and operations research.\n\
+    \nYour task is to design a function `construct_schedule(inst: Instance) -> Schedule`\n\
+    that minimizes total cost:\n\nTotal Cost = compute_cost + delay_time \xD7 delay_penalty\n\
+    \nThe schedule is evaluated across two scenarios:\n\u2022 Normal operations (80%\
+    \ weight)\n\u2022 Earthquake emergency with reduced local capacity and additional\
+    \ urgent jobs (20% weight)\n\nKey problem characteristics:\n\u2022 Jobs arrive\
+    \ over time (online scheduling); future jobs and failures are unknown\n\u2022\
+    \ Each job has sequential operations with fixed machine types\n\u2022 Local machines\
+    \ have limited, time-varying capacity and lower cost\n\u2022 Cloud machines have\
+    \ unlimited capacity but higher cost\n\u2022 Jobs have deadlines, priorities,\
+    \ and delay penalties\n\u2022 Emergency jobs are high-priority and arrive unexpectedly\n\
+    \nHard constraints:\n\u2022 Respect job arrival times and operation order\n\u2022\
+    \ Do not exceed machine capacity at any time\n\u2022 Assign operations only to\
+    \ compatible machine types (local or cloud)\n\u2022 All start times must be non-negative\n\
+    \nFocus on discovering effective online dispatch heuristics that balance:\n\u2022\
+    \ Priority and deadline urgency\n\u2022 Local vs. cloud cost tradeoffs\n\u2022\
+    \ Capacity contention and failure resilience\n\nBe creative. This is an NP-hard\
+    \ online scheduling problem where strong heuristics\noutperform exact optimization.\n"
+  use_text_feedback: false
+job_config:
+  conda_env: null
+  eval_program_path: evaluate.py
+  extra_cmd_args: {}
+  time: null
+results_directory: results_scheduling_2
+timestamp: '2025-12-30T00:18:13.070937'

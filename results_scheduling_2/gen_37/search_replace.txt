@@ -1,0 +1,78 @@
+<NAME>
+add_congestion_factor
+</NAME>
+
+<DESCRIPTION>
+Introduced `LOCAL_CONGESTION_DELAY_FACTOR` as a new tunable parameter. This factor is used to heuristically estimate additional delay for subsequent operations if the current operation is placed on a local machine. This provides a more realistic projection of a job's overall completion time when considering local versus cloud resources, nudging the scheduler towards cloud for longer jobs on local machines if congestion is expected. This directly addresses Recommendation #4 by refining the lookahead simulation in a computationally inexpensive way.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0 # New parameter for emergency cloud cost adjustment
+    ) -> float:
+=======
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Estimated average additional delay factor for subsequent operations placed on local machines.
+    # This helps in projecting a more realistic job completion time for local placements.
+    LOCAL_CONGESTION_DELAY_FACTOR = 0.1 # 10% expected additional delay
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0 # New parameter for emergency cloud cost adjustment
+    ) -> float:
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+apply_congestion_factor
+</NAME>
+
+<DESCRIPTION>
+Modified the `_calculate_placement_score` helper function to incorporate the `LOCAL_CONGESTION_DELAY_FACTOR`. When evaluating a local machine placement, the duration of *remaining operations* for the job is increased by this factor. This simulates the potential for future delays or queuing on local resources, making the projected completion time more accurate for local assignments compared to cloud. This refinement helps the scheduler make more informed trade-offs between immediate local cost savings and potential future delays, aligning with the "Refine Lookahead Simulation" recommendation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Projected completion time for THE ENTIRE JOB if this operation starts at _proposed_start.
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + _remaining_ops_duration
+
+        # Calculate the delay penalty for THE ENTIRE JOB.
+        delay = max(0, projected_job_completion - _job.deadline)
+=======
+        # Project remaining duration, potentially with an estimated delay for local machines
+        effective_remaining_ops_duration = _remaining_ops_duration
+        if not _is_cloud_server:
+            # For local machines, apply a congestion factor to remaining operations duration.
+            # This simulates expected queuing or delays for future operations on busy local resources.
+            effective_remaining_ops_duration *= (1 + LOCAL_CONGESTION_DELAY_FACTOR)
+
+        # Projected completion time for THE ENTIRE JOB if this operation starts at _proposed_start.
+        projected_op_end = _proposed_start + _operation.duration
+        projected_job_completion = projected_op_end + effective_remaining_ops_duration
+
+        # Calculate the delay penalty for THE ENTIRE JOB.
+        delay = max(0, projected_job_completion - _job.deadline)
+>>>>>>> REPLACE
+</DIFF>

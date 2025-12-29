@@ -1,0 +1,46 @@
+<adaptive_local_search_window>
+This edit implements an adaptive local search window for local machines based on job priority. Previously, the search window was a fixed 48 hours. The change introduces `DEFAULT_LOCAL_SEARCH_WINDOW_HOURS` and `PRIORITY_WINDOW_MULTIPLIERS` to dynamically adjust the search horizon. Higher priority jobs ('emergency', 'high') will now search a wider range of future slots on local machines, while lower priority jobs ('low') will have a more constrained search.
+
+This approach aims to:
+1.  **Reduce Cloud Usage for Critical Jobs**: By expanding the search window for high-priority jobs, the scheduler has a better chance of finding a suitable (even if slightly later) local slot, potentially avoiding more expensive cloud resources. This aligns with the "delay penalty" being high for critical jobs, but the cost of cloud being even higher.
+2.  **Improve Resource Utilization**: Allowing critical jobs to look further ahead can help them secure optimal local machine slots, preventing them from immediately spilling over to cloud due to short-term local congestion, and thus freeing up local capacity for other jobs in the short term.
+3.  **Balance Cost and Urgency**: For non-critical jobs, a shorter search window keeps the scheduling decisions more agile and prevents them from excessively blocking future capacity for higher priority work by reserving far-future slots.
+
+The chosen multipliers (1.5x for emergency, 1.25x for high) expand the window beyond the previous fixed `inst.time_horizon * 2 + 12 = 60` for `high` and `emergency` priorities, leveraging an observed effective range from past programs while `medium` and `low` remain within or below the original value, balancing search complexity with priority.
+</NAME>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Define a maximum search window for local slots to prevent excessive lookahead
+            MAX_LOCAL_SEARCH_WINDOW_HOURS = 48 # Example: search up to 48 hours from current_start
+
+            # local: search forward for first available slot within a bounded window
+            search_end_time = min(job.deadline + inst.time_horizon, current_start + MAX_LOCAL_SEARCH_WINDOW_HOURS)
+            for start in range(current_start, search_end_time):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server (if found within window)
+=======
+            # Define parameters for adaptive local search window based on job priority
+            DEFAULT_LOCAL_SEARCH_WINDOW_HOURS = inst.time_horizon * 2 # Base window of 48 hours
+            PRIORITY_WINDOW_MULTIPLIERS = {
+                'emergency': 1.5, # Emergency jobs search up to 72 hours (48 * 1.5)
+                'high': 1.25,     # High priority jobs search up to 60 hours (48 * 1.25)
+                'medium': 1.0,    # Medium priority jobs search 48 hours
+                'low': 0.75,      # Low priority jobs search up to 36 hours (48 * 0.75)
+            }
+
+            # Determine adaptive search window for local machines
+            search_window_multiplier = PRIORITY_WINDOW_MULTIPLIERS.get(job.priority, 1.0)
+            effective_local_search_window = int(DEFAULT_LOCAL_SEARCH_WINDOW_HOURS * search_window_multiplier)
+
+            # local: search forward for first available slot within a bounded, adaptive window
+            search_end_time = min(job.deadline + inst.time_horizon, current_start + effective_local_search_window)
+            for start in range(current_start, search_end_time):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server (if found within window)
+>>>>>>> REPLACE
+</DIFF>

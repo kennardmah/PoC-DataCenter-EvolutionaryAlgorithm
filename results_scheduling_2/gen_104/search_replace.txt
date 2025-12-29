@@ -1,0 +1,91 @@
+<NAME>
+revert_local_best_fit_to_first_fit
+</NAME>
+
+<DESCRIPTION>
+This change reverts the local server scheduling heuristic from "best-fit-in-window" to "first-fit-in-window" for each local server type, while still selecting the overall best option among all "first-fit" local candidates and immediate cloud options.
+
+**Reasoning for the change:**
+The performance metrics show that the previous iteration, which switched from a "first-fit" approach for local servers to a "best-fit-in-window" (searching all possible slots within the `MAX_LOCAL_SEARCH_HORIZON` for each local server to find the lowest cost slot), resulted in a degradation of the combined score (from -16930.00 to -17475.00).
+
+In online scheduling, especially when future job arrivals are unknown, prioritizing earlier completion of operations (even if a slightly "cheaper" slot exists later on the *same machine*) can be more beneficial. A "first-fit" strategy for local machines ensures that resources are utilized as soon as they become available, potentially minimizing overall job delays and keeping capacity open for subsequent arriving jobs. The `_proposed_start * 0.0001` tie-breaker in `_calculate_placement_score` is likely too small to effectively prioritize earlier starts over potentially cheaper (but later) slots found by the "best-fit-in-window" search.
+
+By reverting to the "first-fit-on-local-server" approach, where the scheduler picks the *first available slot* it finds for a given local machine, calculates its score, and then compares this against the "first available" slots of other local machines and the immediate cloud option, we aim to restore the performance of the earlier, better-performing program. This heuristic balances resource utilization speed with cost-efficiency by comparing the best immediate options.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Evaluate ALL Options (Local and Cloud) to find the absolute best ---
+        # This structure allows direct comparison between the best local and best cloud options.
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud: always available immediately after predecessor completes
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True, # Pass True for _is_cloud_server
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT # Pass cloud deterrence parameters
+                )
+                if score < best_score:
+                    best_score = score
+                    chosen_server_id = server_id
+                    chosen_start_time = proposed_start
+            else:
+                # Local: search for the BEST available slot within the search window
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False, # Pass False for _is_cloud_server
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT # Pass cloud deterrence parameters
+                        )
+                        if score < best_score:
+                            best_score = score
+                            chosen_server_id = server_id
+                            chosen_start_time = proposed_start
+                        # Continue searching to find the *best* local slot, not just the first.
+=======
+        # --- Evaluate ALL Options (Local and Cloud) to find the absolute best ---
+        # This structure allows direct comparison between the best local and best cloud options.
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud: always available immediately after predecessor completes
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True, # Pass True for _is_cloud_server
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT # Pass cloud deterrence parameters
+                )
+                if score < best_score:
+                    best_score = score
+                    chosen_server_id = server_id
+                    chosen_start_time = proposed_start
+            else:
+                # Local: search for the FIRST available slot within the search window
+                # This prioritizes earlier utilization of local resources.
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False, # Pass False for _is_cloud_server
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT # Pass cloud deterrence parameters
+                        )
+                        if score < best_score:
+                            best_score = score
+                            chosen_server_id = server_id
+                            chosen_start_time = proposed_start
+                        break  # Take the *first* available slot found on this local server
+>>>>>>> REPLACE
+</DIFF>

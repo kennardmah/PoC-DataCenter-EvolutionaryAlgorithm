@@ -1,0 +1,835 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Online Greedy Scheduler with Dynamic Capacity & Cost Objective**
+- **Implementation**: The scheduler processes jobs incrementally by arrival time, and for each operation, it greedily selects the first available time slot on any suitable server (or immediately on cloud) that minimizes a combined objective of immediate compute cost and projected delay penalty for the entire remaining job. Machine failures are handled by dynamically adjusting server capacity using exponential decay/recovery functions.
+- **Performance**: The scheduler achieved a `weighted_score` of 16930.00 across multiple scenarios, with all generated schedules being valid (no capacity or precedence violations).
+- **Feedback**: The greedy approach successfully generates valid schedules even in the presence of machine failures, demonstrating robustness. The objective function's consideration of future delay penalties provides a degree of foresight within the online constraint, helping balance immediate cost with overall job completion.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Priority-Weighted Cost**
+- **Implementation**: The scheduler processes jobs incrementally, finding optimal placements for each operation by evaluating cloud and local servers, combining compute cost with a priority-weighted delay penalty. It considers available capacity (including dynamic failure effects) and reserves capacity immediately.
+- **Performance**: The program achieved a `weighted_score` of `17475.00` across 'normal' and 'earthquake' scenarios, successfully producing valid schedules without violations in either case.
+- **Feedback**: The approach effectively manages online constraints and machine failures, demonstrating robustness by utilizing cloud options. The refined objective function, incorporating job priority via multipliers and a tie-breaker for earlier starts, likely contributes to its valid and competitive performance.
+**Program Identifier:** Generation 1 - Patch Name dynamic_urgency_cloud_tradeoff - Correct Program: True
+
+**Program Name: Online Incremental Scheduler with Lookahead Simulation**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time. For each operation of the current job, it considers multiple candidate placements (immediate cloud or several earliest local slots) and simulates the cost of completing the *entire job* from that point using a greedy future simulation. Machine failures are dynamically accounted for using exponential failure/recovery models.
+- **Performance**: The scheduler achieved a weighted score of 18152.70 across multiple scenarios ("normal" and "earthquake") and passed all validation tests, indicating a correct and functional implementation.
+- **Feedback**: The lookahead simulation for the *entire current job* for each operation placement is a strong strategy for online optimization, enabling better long-term decisions than purely greedy operation-by-operation scheduling. Considering multiple local slots (controlled by `LOCAL_SLOT_LOOKAHEAD_COUNT`) also contributes to finding more optimal placements on on-premise servers.
+**Program Identifier:** Generation 2 - Patch Name iterative_path_expansion_scheduler - Correct Program: True
+
+**Program Name: Online Greedy Operation Scheduler**
+- **Implementation**: The program schedules jobs incrementally in arrival order, processing operations sequentially for each job. For each operation, it searches for the best available server and start time within a 12-hour lookahead window for local servers, while always considering cloud servers as an immediate, albeit potentially more expensive, fallback.
+- **Performance**: The scheduler achieved a weighted score of 17485.00 across multiple scenarios (normal and earthquake), successfully producing valid schedules for all jobs without any capacity or precedence violations.
+- **Feedback**: The implementation's heuristic search window for local servers (12 hours) appears to effectively balance finding efficient slots with the strict online constraints. The robust fallback to cloud resources ensures all operations can be scheduled, contributing to the validity of schedules even under significant machine failures.
+**Program Identifier:** Generation 3 - Patch Name refined_op_selection - Correct Program: True
+
+**Program Name: Online Greedy Best-Fit Job Scheduler with Cloud Fallback**
+- **Implementation**: The scheduler operates incrementally, processing operations sequentially for each job upon arrival. It uses a greedy best-fit strategy for local servers within a 60-hour search window, and considers cloud servers as an immediate-start fallback with a configurable deterrence cost discounted for emergency jobs, alongside priority-based delay penalties.
+- **Performance**: The program generated valid schedules for all evaluated scenarios, achieving a `weighted_score` of `17475.00` across "normal" and "earthquake" conditions.
+- **Feedback**: The implementation effectively balances compute costs, delay penalties, and job priorities using dynamic multipliers and cloud deterrence, adapting well to resource constraints and failures. The limited lookahead for local machines (60 hours) maintains online behavior while allowing for efficient resource allocation.
+**Program Identifier:** Generation 4 - Patch Name adaptive_priority_resource_balancing - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Cloud Fallback**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. For each operation, it searches for the best available slot on compatible local servers within a 12-hour `SEARCH_WINDOW_LIMIT` and on instantly available cloud servers, selecting based on an objective function balancing compute cost and delay penalty, factoring in a `LOCAL_MACHINE_SLACK_FACTOR` for local machines and dynamic machine failures.
+- **Performance**: The scheduler achieved a weighted score of 17655.00 across multiple scenarios (normal and earthquake), successfully producing valid schedules for all jobs without any capacity violations or other issues.
+- **Feedback**: The incremental approach, combined with a local search window and prioritizing the lowest objective cost across server types (including immediate cloud options), effectively handles online constraints and dynamic capacity reductions due to failures, ensuring valid and timely job completion.
+**Program Identifier:** Generation 5 - Patch Name local_slack_factor - Correct Program: True
+
+**Program Name: Online Event-Driven Incremental Job Scheduler**
+- **Implementation**: This scheduler processes jobs strictly in arrival order. For each job, it schedules operations incrementally by first prioritizing immediate cloud availability, then attempting to find the lowest-cost slot for local machines within a small lookahead window, and finally falling back to the first available local slot if no good option is found in the window.
+- **Performance**: The program is currently incorrect and does not pass validation tests, reporting a score of 0.0, indicating it fails to complete execution successfully.
+- **Feedback**: A critical `NameError` occurs in the `schedule_job_online` function, preventing the program from running. Even with this bug fixed, the greedy, operation-by-operation scheduling approach with limited local machine lookahead may not achieve globally optimal solutions and could lead to unnecessary delays or higher costs.
+**Program Identifier:** Generation 6 - Patch Name local_lookahead_search_v2 - Correct Program: False
+
+**Program Name: Incremental Online Job Scheduler**
+- **Implementation**: The program implements an event-driven online scheduler that processes jobs strictly by arrival time. For each job operation, it greedily selects the best server and start time, considering compute cost and projected delay penalty, searching for the first available slot on local servers within a fixed time window or utilizing cloud servers for immediate start.
+- **Performance**: The scheduler achieved a weighted score of 16930.00 across multiple scenarios ('normal', 'earthquake'), successfully producing valid schedules for all jobs in both scenarios.
+- **Feedback**: The online approach, with its strict adherence to arrival order and limited lookahead for individual operations, effectively manages scheduling decisions under real-time constraints. The greedy selection strategy, prioritizing the first available slot and immediate cloud starts, contributes to constructing valid schedules efficiently even with dynamic capacity due to machine failures.
+**Program Identifier:** Generation 7 - Patch Name limited_local_search_window - Correct Program: True
+
+**Program Name: Incremental Online Job Scheduler with Heuristic Optimization**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs in arrival order without future job knowledge. It utilizes a priority-adaptive search window for local servers and applies a heuristic penalty to future operations on local machines to influence server choice, while cloud servers are considered for immediate placement or as a fallback.
+- **Performance**: The scheduler achieved a weighted score of 17541.50 across multiple scenarios (normal, earthquake), with all generated schedules being valid and free of constraint violations.
+- **Feedback**: The combination of a dynamic search window based on job priority and a heuristic penalty for subsequent operations on local machines appears effective in producing valid schedules and managing costs/delays, even under failure conditions, by adaptively balancing local resource utilization and cloud migration.
+**Program Identifier:** Generation 8 - Patch Name none - Correct Program: True
+
+**Program Name: Online Greedy Job Scheduler with Local Search**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes operations sequentially for each arriving job. For each operation, it evaluates potential start times within a `LOCAL_SEARCH_WINDOW_HOURS` on local machines and immediate start for cloud servers, selecting the option that minimizes a combined objective of compute cost and delay penalty. Capacity checks dynamically account for machine failures and recoveries.
+- **Performance**: The scheduler successfully generated valid schedules for both "normal" and "earthquake" scenarios, achieving a weighted score of 18375.50 across them, indicating successful constraint satisfaction and cost/delay management.
+- **Feedback**: The strict online constraint is effectively managed, demonstrating an ability to schedule jobs incrementally under dynamic capacity changes due to machine failures without future knowledge. The `LOCAL_SEARCH_WINDOW_HOURS` parameter (set to 8) is crucial for balancing the search depth for optimal local machine slots against computational overhead.
+**Program Identifier:** Generation 9 - Patch Name local_slot_optimization_windowed - Correct Program: True
+
+**Program Name: Online Job Scheduler with Lookahead Simulation**
+- **Implementation**: The scheduler makes incremental, event-driven decisions for each job's operation by simulating the placement of remaining operations. It evaluates candidate placements (cloud or local slots within a limited window) by deep copying current capacity usage and picking the option that minimizes the total weighted objective cost for the entire job.
+- **Performance**: The scheduler achieved a weighted score of 18185.00 across multiple scenarios, including one with machine failures, successfully producing valid schedules for all 30 jobs in each scenario.
+- **Feedback**: The lookahead simulation, considering costs and deadlines for future operations, is crucial for effective online decision-making. The strategy of exploring multiple local slots and immediate cloud availability, combined with a cost-based selection and earliest start time tie-breaking, enabled valid and competitive schedules even under strict online constraints and system disruptions.
+**Program Identifier:** Generation 10 - Patch Name none - Correct Program: True
+
+**Program Name: Incremental Online Scheduler with Priority-Based Cost Optimization**
+- **Implementation**: This is an event-driven online scheduler that processes jobs strictly by arrival time, scheduling operations one by one without future job knowledge. It evaluates potential operation placements by considering compute costs, projected job delay penalties (weighted by job priority multipliers), and a cloud deterrence mechanism (discounted for emergency jobs), then selects the best-scoring server and start time within a limited search window.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across multiple scenarios ("normal" and "earthquake"), successfully generating valid schedules with no violations for all tested instances.
+- **Feedback**: The implementation effectively balances various objectives through its dynamic scoring function, leveraging priority-based delay penalties and a nuanced cloud deterrence system to adapt to failures by utilizing cloud resources when beneficial for critical jobs (e.g., J21, J22, J7 in earthquake scenario). The fixed search window for local machines contributes to efficiency while still allowing for reasonable local optimization.
+**Program Identifier:** Generation 11 - Patch Name none - Correct Program: True
+
+**Program Name: Online Job Scheduler with Heuristic Optimization**
+- **Implementation**: This is an event-driven, incremental online scheduler that processes jobs strictly by arrival time. For each job operation, it evaluates both local and cloud servers, selecting the option with the lowest score derived from compute cost, job delay penalty (weighted by job priority), and a configurable cloud deterrence penalty, while respecting dynamic capacity from machine failures.
+- **Performance**: The program achieved a weighted score of 17475.00 across multiple scenarios, successfully generating valid schedules for both 'normal' and 'earthquake' conditions.
+- **Feedback**: The implementation is correct and passes all validation tests, demonstrating robust handling of online constraints and dynamic capacity changes due to machine failures. The heuristic's balance between cost, deadline, and cloud usage through specific penalty and multiplier parameters appears effective.
+**Program Identifier:** Generation 12 - Patch Name none - Correct Program: True
+
+**Program Name: Incremental Online Job Scheduler with Dynamic Scoring**
+- **Implementation**: This online scheduler assigns job operations iteratively, choosing the best server and start time based on a weighted objective function that considers compute cost, projected job delay (with priority multipliers), and dynamic cloud deterrence. It searches a limited `MAX_LOCAL_SEARCH_WINDOW` for local servers while immediately evaluating cloud options, then reserves capacity and updates the start time for subsequent operations.
+- **Performance**: The scheduler achieved a `weighted_score` of 17475.00 across multiple scenarios ('normal', 'earthquake'), successfully producing valid schedules for all jobs in both scenarios.
+- **Feedback**: The combination of priority-based delay penalties and dynamic cloud deterrence (discounted for emergency jobs) appears effective in guiding the online decisions to optimize the overall weighted objective. The constrained local search window balances decision quality with the strict online processing requirement.
+**Program Identifier:** Generation 13 - Patch Name none - Correct Program: True
+
+**Program Name: Incremental Online Priority-Based Job Scheduler**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs in arrival order. For each operation, it evaluates placement options using a weighted score that considers compute cost, projected job delay (with priority-based multipliers), and dynamic cloud deterrence penalties, searching for available slots within a defined local window or immediately in the cloud.
+- **Performance**: The scheduler achieved a weighted score of 18583.00 across multiple scenarios ('normal', 'earthquake') with all generated schedules being valid (no constraint violations).
+- **Feedback**: The priority-sensitive delay penalties and cloud cost deterrence allow for adaptive resource allocation, prioritizing critical jobs and leveraging cloud resources judiciously. The local search window for on-premise machines, combined with cloud as a fallback, successfully maintains schedule validity even under machine failures, albeit potentially incurring higher costs.
+**Program Identifier:** Generation 14 - Patch Name priority_sensitive_local_search - Correct Program: True
+
+**Program Name: Online Priority-Weighted Capacity-Aware Scheduler**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, assigning operations sequentially. For each operation, it evaluates a weighted objective function (considering compute cost, delay penalty, job priority, and cloud deterrence) to find the best slot, searching a defined time window on local servers or immediately using cloud resources.
+- **Performance**: The program achieved a weighted score of 17475.00 across 'normal' and 'earthquake' scenarios, producing valid schedules for all evaluated conditions.
+- **Feedback**: The combination of priority weighting, cloud deterrence, and a local search window proved effective in balancing costs and resource contention. This implementation successfully handled machine failures by leveraging cloud resources when local capacity was insufficient, ensuring schedule validity.
+**Program Identifier:** Generation 15 - Patch Name none - Correct Program: True
+
+**Program Name: Online Job Scheduler with Local Search**
+- **Implementation**: This is an incremental, event-driven online scheduler that processes jobs strictly by arrival time. For each operation within a job, it searches for the best available server and start time within a `LOCAL_SEARCH_WINDOW_HOURS`, considering both cloud (immediate availability) and local servers. The objective function minimizes a weighted sum of compute cost and delay penalty, with tie-breaking by server ID and start time.
+- **Performance**: The program achieved a `weighted_score` of `17485.00` across multiple scenarios, successfully scheduling all jobs without any validity violations.
+- **Feedback**: The `LOCAL_SEARCH_WINDOW_HOURS` heuristic is crucial for balancing local optimality with computational cost and adaptation to future arrivals. The strategy of always evaluating cloud options provides a robust baseline, ensuring operations can always be placed even when local resources are constrained or impacted by failures.
+**Program Identifier:** Generation 16 - Patch Name enhance_objective_with_priority_and_cloud_deterrence - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduler with Lookahead Simulation**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly by arrival time. For each operation, it uses a greedy local search within a `LOCAL_SEARCH_WINDOW_HOURS` to find the best slot, incorporating a lookahead simulation for remaining operations of the job to estimate future costs and completion times. Priority weights, cloud deterrence, and dynamic machine capacities due to failures are factored into the objective function.
+- **Performance**: The scheduler achieved a combined score of 17400.50 across multiple scenarios ("normal", "earthquake") and produced valid schedules for all.
+- **Feedback**: The lookahead simulation and weighted objective function (considering compute cost, delay penalties, cloud deterrence, and job priorities) appear effective in managing online constraints and dynamic capacities. The greedy approach for finding slots within the search window, combined with the comprehensive cost estimation, successfully navigates resource allocation and failure scenarios.
+**Program Identifier:** Generation 17 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Capacity**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, finding the first available slot on local servers (within a wide horizon) or immediately utilizing cloud resources. It prioritizes operations based on a weighted objective considering compute cost, delay penalty, job priority, and a fixed cloud deterrence, while dynamically accounting for machine failures with exponential recovery.
+- **Performance**: The scheduler achieved a weighted score of 16930.00 across multiple scenarios ("normal" and "earthquake"), successfully generating valid schedules with no violations.
+- **Feedback**: The combination of a greedy "first available slot" strategy, dynamic capacity calculations factoring in stochastic failures, and a configurable cloud deterrence mechanism enables effective online resource allocation, ensuring all jobs are scheduled validly, even under challenging failure scenarios, though potentially with some cloud usage.
+**Program Identifier:** Generation 18 - Patch Name greedy_local_priority_cloud - Correct Program: True
+
+**Program Name: Lookahead Priority-Weighted Online Scheduler**
+- **Implementation**: This is an incremental, event-driven online scheduler that processes jobs by arrival time, performing a local search within a defined window for each operation. It uses a lookahead simulation for remaining job operations to project completion times and costs, incorporating raw compute cost, delay penalty, cloud deterrence, and job priority weights into its objective function.
+- **Performance**: The program is incorrect and does not pass all validation tests, suggesting fundamental issues with its scheduling logic.
+- **Feedback**: The combination of a limited local search window and a greedy lookahead simulation for future operations might lead to suboptimal or invalid placements, particularly under resource contention. The complex, priority-weighted objective function could also be difficult to tune effectively without a more exhaustive search strategy.
+**Program Identifier:** Generation 19 - Patch Name online_scheduler_class_encapsulation - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduling with Lookahead and Cloud Fallback**
+- **Implementation**: This online scheduler processes jobs by arrival time, making incremental, event-driven decisions for each operation. It uses a lookahead simulation to estimate future costs and completion times for remaining operations, informing server and start time selection, and includes a conditional cloud fallback mechanism to prevent severe delays.
+- **Performance**: The scheduler achieved a weighted score of 18114.00 across multiple scenarios (normal and earthquake) and successfully produced valid schedules for all jobs in both scenarios, indicating successful constraint adherence.
+- **Feedback**: The integration of lookahead simulation provides a strong mechanism for making informed local decisions in an online context, leading to valid schedules. The conditional cloud fallback, which leverages cloud resources when local options cause significant delays, demonstrates effective handling of resource contention and unexpected failures.
+**Program Identifier:** Generation 20 - Patch Name conditional_cloud_fallback_v3 - Correct Program: True
+
+**Program Name: Online Event-Driven Local Search Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by their arrival time. For each job's operation, it performs a local search within a `LOCAL_SEARCH_WINDOW_HOURS` for the best slot on an available server, considering both local and cloud options. The objective function minimizes a weighted sum of compute cost, projected job delay (accounting for remaining operations), and applies job priority multipliers and a cloud deterrence penalty.
+- **Performance**: The scheduler successfully produced valid schedules for both 'normal' and 'earthquake' scenarios, achieving a weighted score of 17475.00 across these scenarios.
+- **Feedback**: The use of a look-ahead window for local server slot selection, coupled with an objective function that incorporates projected future delays and dynamically weighted job priorities (including cloud deterrence), enables more informed decisions at each step in the online scheduling process. The successful creation of valid schedules even under machine failure scenarios demonstrates robust capacity management.
+**Program Identifier:** Generation 21 - Patch Name local_search_window_and_priority_cloud_deterrence - Correct Program: True
+
+**Program Name: Online Priority-Weighted Resource Scheduler with Adaptive Cloud Offload**
+- **Implementation**: The scheduler is an online, greedy heuristic that processes jobs by arrival time, placing each operation using a custom objective function balancing compute cost and delay. It dynamically adjusts cloud deterrence based on job priority and incorporates an emergency-specific trigger to reduce cloud costs if local options cause excessive delays.
+- **Performance**: The program achieved a weighted score of 17475.00 across normal and earthquake failure scenarios, successfully producing valid schedules without capacity violations in both cases.
+- **Feedback**: The implementation details, particularly the priority-based delay weighting, the cloud deterrence mechanism (including the emergency-specific discount and trigger), and the local search window, appear effective in managing diverse job requirements and machine failures. The ability to maintain valid schedules under failure conditions highlights the robustness of the adaptive cloud offload strategy.
+**Program Identifier:** Generation 22 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduling with Cloud & Failures**
+- **Implementation**: The online scheduler processes jobs strictly by arrival time, assigning each operation by evaluating all compatible local servers within a 12-hour search window and cloud options. It minimizes a weighted objective combining compute cost, projected job delay (adjusted by priority), and a cloud deterrence penalty, while dynamically accounting for machine failures.
+- **Performance**: The program achieved a weighted score of 17485.00 across "normal" and "earthquake" scenarios, successfully producing valid schedules without any capacity violations.
+- **Feedback**: The fixed local search window and cloud deterrence mechanism effectively guide scheduling decisions under strict online constraints, balancing cost, delay, and resource utilization. The algorithm demonstrates robustness by consistently generating valid schedules even in the presence of dynamic machine failures and varying job priorities.
+**Program Identifier:** Generation 23 - Patch Name none - Correct Program: True
+
+**Program Name: Online Job Scheduler with Lookahead Heuristic**
+- **Implementation**: The scheduler processes jobs incrementally by arrival time, using a `JobScheduler` to find the best operation placements. It evaluates candidate (server, start time) pairs by simulating future operations to estimate total job cost, incorporating dynamic capacity, cloud deterrence penalties, priority-weighted delay costs, and a tie-breaker for earlier starts.
+- **Performance**: The combined score to maximize is 0.0. The program is incorrect and does not pass all validation tests.
+- **Feedback**: The heuristic approach, despite simulating future operations to guide current placement decisions, failed to meet correctness requirements in validation tests, indicating potential issues with its chosen objective or capacity management under various scenarios.
+**Program Identifier:** Generation 24 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Capacity**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs in arrival order, making irrevocable decisions for each operation. It uses a weighted objective function considering compute cost, delay penalties (with priority multipliers, emergency jobs have discounted cloud deterrence), and searches for the optimal server and start time within a local search window.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across multiple scenarios ('normal' and 'earthquake'), successfully producing valid schedules for all jobs under various conditions, including dynamic machine failures.
+- **Feedback**: The program is correct and passes all validation tests. The use of priority-based delay multipliers and adaptive cloud deterrence (discounted for emergency jobs) effectively guides the scheduler to prioritize urgent tasks and utilize cloud resources strategically when local capacity is constrained or costs are prohibitive.
+**Program Identifier:** Generation 25 - Patch Name bottleneck_aware_simulated_scheduling - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Local Optimization**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It greedily places each operation by searching for the best available slot on local servers within a dynamic time window (scaled by job priority) or on cloud servers for immediate placement. A custom objective function `_calculate_placement_score` evaluates placements considering compute cost, delay penalties (with priority multipliers), and a cloud deterrence mechanism (discounted for emergency jobs).
+- **Performance**: The program is incorrect and does not pass all validation tests, indicating significant issues with the generated schedules.
+- **Feedback**: The failure to pass validation tests points to critical flaws, likely including constraint violations or highly sub-optimal placements that incur extreme penalties. The greedy, local-search nature, and the specific tuning of priority multipliers, cloud deterrence, and search window likely require refinement for robustness across diverse scenarios.
+**Program Identifier:** Generation 26 - Patch Name none - Correct Program: False
+
+**Program Name: Online Priority-Aware Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time. For each operation, it evaluates all compatible local servers within a defined search window and cloud servers, selecting the placement with the lowest weighted score, which considers compute cost, priority-adjusted delay penalty, and a dynamic cloud deterrence factor.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across multiple scenarios ('normal' and 'earthquake'), successfully scheduling all jobs without capacity violations.
+- **Feedback**: The implementation effectively balances job urgency (via priority multipliers) and cost efficiency (via cloud deterrence) in a real-time online setting. Its ability to find valid schedules even under a machine failure scenario (earthquake) demonstrates robust handling of dynamic capacity changes.
+**Program Identifier:** Generation 27 - Patch Name none - Correct Program: True
+
+**Program Name: Incremental Online Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: This program implements an event-driven online scheduler that processes jobs strictly by arrival time, assigning operations to local or cloud servers based on a cost-minimizing objective. Key features include dynamic cloud deterrence, priority-based delay penalties, and an emergency cloud trigger that reduces cloud costs for critical jobs. Capacity checks dynamically account for machine failures with exponential decay and recovery.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across multiple scenarios (normal and earthquake), successfully generating valid schedules that adhered to all capacity and precedence constraints.
+- **Feedback**: The tuned parameters for priority multipliers, cloud deterrence rates, and the emergency cloud trigger were crucial for balancing cost and deadlines, enabling intelligent cloud offloading when local resources are constrained or delayed. The robust handling of dynamic machine failures, including partial capacity reduction and recovery, demonstrates the algorithm's adaptability to realistic operational challenges.
+**Program Identifier:** Generation 28 - Patch Name dynamic_cloud_deterrence_and_priority_tuning_v2 - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Heuristic Job Planning and Dynamic Cloud Decisions**
+- **Implementation**: This online scheduler processes jobs strictly by arrival, using a `JobScheduler` to plan operations based on a heuristic score that combines compute cost, priority-weighted delay penalties, and dynamic cloud deterrence. It features an emergency trigger to reduce cloud costs for critical jobs if local options cause significant delays.
+- **Performance**: The program achieved a combined score to maximize of 0.0 and was reported as incorrect, failing all validation tests.
+- **Feedback**: Despite incorporating various heuristics like priority multipliers, dynamic cloud deterrence, and an emergency cloud trigger, the greedy, operation-by-operation planning within a limited search window likely results in suboptimal placements and capacity constraint violations, leading to overall incorrectness.
+**Program Identifier:** Generation 29 - Patch Name modular_job_planner_v2 - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduler with Predictive Lookahead**
+- **Implementation**: This online, event-driven scheduler processes jobs by arrival time. For each operation, it performs a local search across available servers, incorporating a lookahead simulation for the *remaining operations* of the *current job* to predict future costs and completion times. The objective function aggregates compute cost, delay penalties, and a cloud deterrence factor, all scaled by job priority.
+- **Performance**: The scheduler achieved a weighted score of 17892.80 across multiple scenarios ("normal" and "earthquake"), producing valid schedules for all evaluated instances.
+- **Feedback**: The critical implementation detail of simulating future operations for a job within the strict online constraints provides effective foresight, allowing the scheduler to make better decisions for current operations. This approach, combined with dynamic capacity considerations due to machine failures, leads to robust and valid solutions.
+**Program Identifier:** Generation 30 - Patch Name none - Correct Program: True
+
+**Program Name: Incremental Online Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly by arrival time, making irrevocable decisions for each operation. It employs a scoring function balancing compute cost (with dynamic cloud deterrence), projected job delay (weighted by priority), and searches a `LOCAL_SEARCH_WINDOW_HOURS` for local machines, while aggressively considering discounted cloud options for emergency jobs experiencing significant local delays.
+- **Performance**: The program achieved a score of 0.0 and is reported as incorrect, failing validation tests.
+- **Feedback**: The combination of a strict online constraint, a greedy operation placement strategy, and the current tuning of dynamic cloud deterrence and emergency job logic does not yield valid or optimal schedules. The failure indicates that the immediate, local optimization decisions, even with prioritized cloud usage, are insufficient to meet all constraints or produce competitive scores in complex scenarios.
+**Program Identifier:** Generation 31 - Patch Name none - Correct Program: False
+
+**Program Name: Online Job Scheduler with Objective-Based Prioritization**
+- **Implementation**: This online scheduler assigns operations by evaluating a weighted objective function (compute cost, delay penalty, cloud deterrence) for local and cloud servers. It prioritizes emergency jobs with discounted cloud deterrence and searches a limited time window for local server slots, selecting the option with the lowest score.
+- **Performance**: The program achieved a `weighted_score` of 17480.00 across multiple scenarios ("normal", "earthquake"), with all schedules being valid.
+- **Feedback**: The objective-driven greedy approach effectively handles online constraints and machine failures, leveraging cloud resources when local options are suboptimal, and demonstrating robustness against changing server availability.
+**Program Identifier:** Generation 32 - Patch Name none - Correct Program: True
+
+**Program Name: Incremental Online Job Scheduler with Adaptive Cloud Strategy**
+- **Implementation**: The program uses a greedy, event-driven online scheduler (`schedule_job_online`) that processes jobs strictly by arrival time. It evaluates operation placements by a custom score considering compute cost, deadline penalties (weighted by job priority), and a dynamically adjusted cloud deterrence factor, with a specific trigger to heavily discount cloud costs for emergency jobs facing local delays.
+- **Performance**: The scheduler achieved a `weighted_score` of 17475.00 across 'normal' and 'earthquake' scenarios, successfully scheduling all jobs without capacity violations (`is_valid: True`) under both normal and failure conditions.
+- **Feedback**: The adaptive cloud deterrence and emergency cloud trigger mechanism are effective, enabling the scheduler to utilize cloud resources efficiently when local options are constrained or cause excessive delays for high-priority jobs, particularly noticeable in the 'earthquake' scenario where specific jobs were relocated to cloud (e.g., J21, J7). The tunable parameters for priority multipliers and cloud deterrence played a significant role in achieving a valid and optimized schedule.
+**Program Identifier:** Generation 33 - Patch Name none - Correct Program: True
+
+**Program Name: Incremental Online Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: The program implements an incremental, event-driven online job scheduler using a greedy heuristic. For each operation, it evaluates local and cloud servers based on a weighted score combining compute cost and projected job delay, incorporating priority-based delay multipliers and dynamic cloud deterrence with an emergency job discount.
+- **Performance**: The scheduler achieved a `weighted_score` of 17475.00 across 'normal' and 'earthquake' scenarios, successfully producing valid schedules for all jobs even under failure conditions.
+- **Feedback**: The dynamic cloud deterrence mechanism, especially with the emergency job discount, effectively guides the scheduler to utilize cloud resources when necessary (e.g., during failures for urgent jobs) while generally prioritizing more cost-effective local machines. The heuristic-based scoring, incorporating priority and projected completion, allows for adaptive decision-making in an online setting.
+**Program Identifier:** Generation 34 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Adaptive Cloud Use**
+- **Implementation**: This program implements an incremental, event-driven online scheduler that processes jobs in arrival order, making irrevocable decisions for each operation. It uses an `OperationPlacementEvaluator` to greedily select the best server and start time, considering compute cost, deadline penalties (with priority multipliers), dynamic machine capacities affected by failures, and adaptive cloud relocation for emergency jobs.
+- **Performance**: The scheduler achieved a `weighted_score` of 17475.00 across "normal" and "earthquake" scenarios, successfully scheduling all jobs without any capacity or precedence violations (`is_valid: True`).
+- **Feedback**: The program is validated as correct and passes all tests, demonstrating robustness in handling machine failures by dynamically adjusting available capacity and strategically utilizing cloud resources, particularly for 'emergency' jobs when local delays are projected to be high.
+**Program Identifier:** Generation 35 - Patch Name operation_evaluator_class - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Priority-Based Cloud Relocation**
+- **Implementation**: The scheduler assigns operations sequentially, considering compute cost, job delay penalties weighted by priority, and a base cloud deterrence. It employs a forward search for local resource slots and dynamically reduces cloud costs for emergency jobs facing significant local delays.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across multiple scenarios (normal and earthquake), successfully producing valid schedules without any capacity violations.
+- **Feedback**: The implementation effectively balances compute costs and delay penalties, especially for high-priority jobs, by using tunable parameters and a targeted cloud relocation strategy. The ability to maintain valid schedules under failure conditions highlights the robustness of its online decision-making process.
+**Program Identifier:** Generation 36 - Patch Name none - Correct Program: True
+
+**Program Name: Online Prioritized Job Scheduler with Dynamic Cloud Fallback**
+- **Implementation**: This is an incremental, event-driven online scheduler that evaluates operation placements by minimizing a weighted score combining compute cost, deadline delay (with priority multipliers), and dynamic cloud deterrence. It searches local machines within a defined time window and includes a special trigger to offer further discounted cloud usage for emergency jobs facing significant local delays.
+- **Performance**: The program achieved a `weighted_score` of `17475.00` across multiple scenarios, indicating a robust and valid scheduling solution that successfully adheres to capacity constraints and manages costs and penalties.
+- **Feedback**: The tuned parameters, particularly the priority multipliers, cloud deterrence, and the emergency cloud trigger, are crucial for balancing cost and responsiveness to job urgency. The `LOCAL_CONGESTION_DELAY_FACTOR` provides a forward-looking estimate for future operation delays, enhancing the realism of projected job completion times in an online setting.
+**Program Identifier:** Generation 37 - Patch Name add_congestion_factor - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Capacity**
+- **Implementation**: This incremental online scheduler uses a nested evaluator to rank operation placements, considering compute cost, priority-weighted delay penalties, and dynamic capacity from machine failures. It includes a specific mechanism to trigger discounted cloud usage for 'emergency' jobs facing significant delays on local servers.
+- **Performance**: The program achieved a `weighted_score` of 17475.00 across multiple scenarios (normal, earthquake), with all generated schedules reported as valid, indicating successful optimization and constraint adherence.
+- **Feedback**: The scheduler effectively handles dynamic capacity and prioritizes emergency jobs via a conditional cloud relocation strategy, demonstrating robustness in varying failure scenarios through its greedy, event-driven approach.
+**Program Identifier:** Generation 38 - Patch Name predictive_adaptive_dispatch - Correct Program: True
+
+**Program Name: Online Job Scheduler with Dynamic Cloud Escalation**
+- **Implementation**: The scheduler incrementally places operations using an `OperationPlacementEvaluator` which considers compute cost, delay penalties weighted by job priority, and dynamic cloud deterrence. It includes a local search window and an emergency-triggered cloud cost reduction.
+- **Performance**: Achieved a `weighted_score` of 17475.00 across multiple scenarios, successfully generating valid schedules with no violations for all evaluated instances.
+- **Feedback**: The tuned priority multipliers, base cloud deterrence, and specific emergency job cloud trigger effectively manage trade-offs between cost, delay, and resource utilization, demonstrating robust behavior in diverse scenarios.
+**Program Identifier:** Generation 39 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Local Optimization**
+- **Implementation**: This program implements a greedy, event-driven online scheduler that processes jobs strictly in their arrival order. For each job operation, it searches for the best available slot within a `LOCAL_SEARCH_WINDOW_HOURS` on local servers, or immediately schedules on a cloud server if cheaper, evaluating options using a cost function considering compute, delay, priority, and cloud deterrence. Capacity tracking and machine failure effects are handled dynamically.
+- **Performance**: The program achieved a `weighted_score` of 17475.00 across 'normal' and 'earthquake' scenarios, successfully generating valid schedules for all jobs without capacity violations in both cases.
+- **Feedback**: The implementation effectively balances online constraints with local optimization by exploring a search window, leading to valid and reasonably performant schedules. The priority-weighted objective function and cloud deterrence parameters guide scheduling decisions, demonstrating adaptability to different job characteristics and resource types, including resilience to machine failures.
+**Program Identifier:** Generation 40 - Patch Name local_search_window_and_cloud_deterrence - Correct Program: True
+
+**Program Name: Online Job Scheduler with Bounded Local Search**
+- **Implementation**: This program implements an online, event-driven scheduler. For each arriving job, it schedules operations sequentially, performing a bounded local search within a `MAX_LOCAL_SEARCH_WINDOW_HOURS` to find the best slot on local servers, while also considering immediate placement on cloud resources.
+- **Performance**: The program achieved a `weighted_score` of 17475.00 across multiple scenarios, including one with simulated machine failures, with all generated schedules being valid (no capacity violations).
+- **Feedback**: The bounded local search for finding the *best* available slot (rather than just the first) significantly improves solution quality for an online algorithm. Its ability to handle failures and utilize cloud resources demonstrates robustness in dynamic environments, validating its design for incremental, real-time decision-making.
+**Program Identifier:** Generation 41 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Adaptive Cloud Job Scheduler**
+- **Implementation**: The scheduler makes incremental, event-driven decisions for each job's operations, selecting the best server and start time based on a weighted score combining compute cost and projected delay penalty. It incorporates an adaptive cloud fallback mechanism, significantly reducing cloud deterrence for 'emergency' jobs facing critical delays to prioritize their completion.
+- **Performance**: The program achieved a weighted score of 17475.00 across multiple scenarios (normal and earthquake), with all generated schedules being valid and free of capacity violations.
+- **Feedback**: The adaptive cloud fallback demonstrated its effectiveness during the 'earthquake' scenario by strategically utilizing cloud resources (e.g., for jobs J21, J22, J7) to mitigate delays. The detailed scoring function, including job priority multipliers and a tie-breaker for earlier starts, contributes to robust and valid scheduling under online constraints.
+**Program Identifier:** Generation 42 - Patch Name none - Correct Program: True
+
+**Program Name: Online Heuristic Scheduler with Dynamic Cloud Fallback**
+- **Implementation**: The program implements an incremental online job scheduler that processes jobs in arrival order, using a heuristic to evaluate placements based on compute cost and priority-weighted delay penalty. It incorporates dynamic cloud deterrence, aggressively reducing cloud cost if projected delays with local machines exceed a critical threshold or local options are exhausted, while also considering job priority multipliers.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across multiple scenarios (normal and earthquake), successfully generating valid schedules for all, indicating effective constraint handling and robustness.
+- **Feedback**: The implementation's key strength lies in its adaptive cloud fallback logic, which leverages aggressive cost discounts for emergency jobs or critically delayed tasks, ensuring schedule validity and minimizing penalties even under machine failure scenarios. The extended local search window and priority-based delay weighting help balance cost optimization with urgent job completion.
+**Program Identifier:** Generation 43 - Patch Name none - Correct Program: True
+
+**Program Name: Online Priority-Weighted Job Scheduler with Cloud Deterrence**
+- **Implementation**: This online, event-driven scheduler greedily assigns operations by minimizing a score considering compute cost (with cloud deterrence), priority-weighted delay penalties (using job-level lookahead for remaining operations), and preferring earlier starts. It searches a limited time window for local machine slots and accounts for dynamic machine failures.
+- **Performance**: Achieved a weighted score of 17475.00 across multiple scenarios (normal, earthquake), generating valid schedules without capacity violations.
+- **Feedback**: The priority-based delay multipliers and cloud deterrence effectively balance urgency, cost, and local resource preference. The job-level lookahead for delay projection significantly enhances online decision-making, demonstrating robustness even in dynamic failure environments.
+**Program Identifier:** Generation 44 - Patch Name none - Correct Program: True
+
+**Program Name: Incremental Online Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: The program implements an online, event-driven job scheduler that processes jobs in order of arrival. For each operation within a job, it greedily selects the best available server and start time by evaluating a weighted score combining compute cost, projected job delay penalty (with priority multipliers), and dynamic cloud deterrence (reduced for emergency jobs). Capacity is reserved immediately, and machine failures with exponential recovery are considered for available capacity.
+- **Performance**: The scheduler achieved a `weighted_score` of 17475.00 across two scenarios ('normal', 'earthquake'), successfully scheduling 30 jobs in each, with all generated schedules being valid (no capacity violations).
+- **Feedback**: The implementation successfully adheres to strict online constraints and effectively manages capacity, even under simulated machine failures. The dynamic cloud deterrence and priority-based delay penalties appear to be key factors enabling valid and reasonably optimized schedules across varied conditions.
+**Program Identifier:** Generation 45 - Patch Name improved_dispatch_with_search_and_deterrence - Correct Program: True
+
+**Program Name: Online Priority-Weighted Greedy Scheduler with Cloud Deterrence**
+- **Implementation**: This online, event-driven scheduler processes jobs by arrival time, using a greedy search for the first available slot. Its `_calculate_placement_score` function evaluates placements by combining compute cost, projected total job delay, job priority weights, and a priority-scaled cloud deterrence penalty.
+- **Performance**: The scheduler achieved a weighted score of 16930.00 across multiple scenarios, indicating the total optimized cost.
+- **Feedback**: The program successfully generates valid schedules and passes all validation tests, effectively handling capacity constraints and machine failures. The key implementation choices, including the use of projected job completion time, priority-weighted penalties for both cost and delay, and dynamic cloud deterrence, contribute to its robust performance in an online setting.
+**Program Identifier:** Generation 46 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Local Search**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. For each operation, it considers local servers with a 24-hour lookahead window (`LOCAL_SEARCH_WINDOW_HOURS`) and cloud servers (always available) to find the slot minimizing a weighted objective function, which includes compute cost, delay penalty, job priority weights, and a priority-discounted cloud deterrence.
+- **Performance**: The program is incorrect and does not pass all validation tests, indicating either constraint violations or a highly suboptimal overall score.
+- **Feedback**: While the objective function thoughtfully incorporates priority weighting and nuanced cloud deterrence, the greedy online approach with a limited local search window likely struggles with global optimization, leading to sub-optimal schedules or constraint violations that fail validation. Tuning of parameters like `PRIORITY_WEIGHTS` and `CLOUD_BASE_DETERRENCE_PER_OPERATION` may be miscalibrated.
+**Program Identifier:** Generation 47 - Patch Name none - Correct Program: False
+
+**Program Name: Online Priority-Weighted Greedy Scheduler with Dynamic Cloud Escalation**
+- **Implementation**: The scheduler incrementally places operations for jobs as they arrive, optimizing a score combining compute cost, projected job delay, and dynamic cloud deterrence. It prioritizes emergency jobs with significant cost multipliers, performs a local search for on-premise slots, and can trigger cloud usage with reduced deterrence for urgent jobs facing significant local delays.
+- **Performance**: The program achieved a weighted score of 17475.00 across multiple scenarios (normal, earthquake) and passed all validation tests for each, indicating a valid and effective schedule.
+- **Feedback**: The online, greedy approach successfully handles complex constraints including dynamic capacity reductions from failures. The adaptive scoring, particularly the priority-based weighting and the emergency cloud override mechanism, enables robust performance by strategically leveraging cloud resources to meet deadlines for critical jobs while managing overall costs.
+**Program Identifier:** Generation 48 - Patch Name flexpriority_hybrid_optimizer_v2 - Correct Program: True
+
+**Program Name: Online Event-Driven Local Search Scheduler**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly in arrival order. It incrementally schedules each operation using a local search window to find the best slot on local servers or immediately on cloud servers, based on an objective function that combines compute cost, projected job delay, cloud deterrence, and job priority.
+- **Performance**: The scheduler achieved a weighted score of 17485.00 across multiple scenarios, successfully generating valid schedules with no violations for both normal operations and scenarios with machine failures.
+- **Feedback**: The combination of local search, cloud deterrence, and priority-based delay penalties effectively manages dynamic capacity and job urgency, leading to valid and optimized schedules. Strategic use of cloud resources during failure events demonstrates the scheduler's resilience.
+**Program Identifier:** Generation 49 - Patch Name none - Correct Program: True
+
+**Program Name: Online Greedy Scheduler with Lookahead and Dynamic Cloud Deterrence**
+- **Implementation**: This online scheduler places operations one by one, using a lookahead simulation for remaining job operations to project future costs and completion times for each potential placement. It dynamically adjusts cloud deterrence based on job priority and offers a reduced cloud cost for 'emergency' jobs if local options cause significant delays.
+- **Performance**: The scheduler achieved a weighted score of 30789.00 across multiple scenarios, generating valid schedules for both 'normal' and 'earthquake' conditions, indicating effective resource allocation and failure handling.
+- **Feedback**: The sophisticated scoring function, combining current and simulated future costs (compute, delay, priority-weighted cloud deterrence), allows for informed greedy decisions despite the online constraint. The emergency cloud trigger demonstrates an effective heuristic for prioritizing critical jobs under time pressure.
+**Program Identifier:** Generation 50 - Patch Name none - Correct Program: True
+
+**Program Name: Online Greedy Job Scheduler with Emergency Cloud Fallback**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time, scheduling operations greedily. It uses a weighted scoring system considering compute cost, delay penalty (with priority multipliers), and a cloud deterrence mechanism that includes a strong fallback option for emergency jobs facing significant delays.
+- **Performance**: The program achieved a weighted score of 17475.00 across multiple scenarios (normal and earthquake), producing valid schedules for all evaluated instances.
+- **Feedback**: The emergency cloud fallback, triggered by a delay threshold, effectively mitigates critical delays for high-priority jobs by significantly reducing cloud deterrence. Tunable parameters for priorities, cloud costs, and the local search window provide flexibility in balancing cost, delay, and resource utilization, even in the presence of dynamic machine failures.
+**Program Identifier:** Generation 51 - Patch Name adaptive_emergency_cloud_fallback - Correct Program: True
+
+**Program Name: Online Job Scheduler with Dynamic Cost Optimization**
+- **Implementation**: This is an incremental, event-driven online scheduler that processes jobs strictly in arrival order. It evaluates all compatible local and cloud servers for each operation, utilizing a scoring function that considers compute cost, priority-weighted delay penalties, dynamic cloud deterrence (discounted for emergency jobs), and a penalty for future outstanding work.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across multiple scenarios (normal, earthquake) and passed all validation tests, indicating a correct and functional implementation.
+- **Feedback**: The refined scoring function, incorporating priority multipliers, dynamic cloud deterrence, and a "future work penalty," effectively balances cost, urgency, and resource utilization, enabling robust scheduling even under machine failures and varying priorities. The `MAX_LOCAL_SEARCH_WINDOW` helps find optimal local slots without excessive lookahead, while the cloud serves as a flexible fallback.
+**Program Identifier:** Generation 52 - Patch Name future_work_penalty - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Costing**
+- **Implementation**: Implements an event-driven, greedy online scheduler that evaluates local and cloud options for each operation using a custom score, considering dynamic priority-based delay penalties, cloud deterrence, and a local search window. Capacity usage and machine failures are handled incrementally.
+- **Performance**: Achieved a weighted score of 17475.00 across multiple scenarios (normal, earthquake), successfully scheduling all jobs without any capacity violations.
+- **Feedback**: The heuristic effectively balances compute cost and delay penalties by dynamically adjusting cloud deterrence and delay urgency based on job priority, demonstrating robust and valid scheduling even under machine failure scenarios.
+**Program Identifier:** Generation 53 - Patch Name tuned_priority_cloud_best_fit_v2 - Correct Program: True
+
+**Program Name: Online Incremental Job Scheduler with Simulated Future Cost and Dynamic Cloud Deterrence**
+- **Implementation**: This program implements an event-driven online scheduler that processes jobs in arrival order. For each job operation, it evaluates placement options (local vs. cloud) using a `_calculate_placement_score` function which simulates the cost and completion time of *all remaining operations* for a job. It incorporates priority-weighted delay penalties, raw compute costs, and a dynamic cloud deterrence factor, with special logic to reduce cloud deterrence for emergency jobs facing significant delays.
+- **Performance**: The program is incorrect and does not pass all validation tests, indicating it likely produces invalid schedules or highly suboptimal ones, failing to achieve the implicit target score of `0.0` (for minimization).
+- **Feedback**: The comprehensive simulation of future operations for each placement decision is a strong concept for online scheduling. However, the current scoring or decision logic (especially `_calculate_placement_score` and the emergency cloud trigger) might be flawed, leading to constraint violations or high costs. The aggressive cloud deterrence, even with emergency discounts, might still be too high, or the local search window might be insufficient, preventing optimal local placements.
+**Program Identifier:** Generation 54 - Patch Name none - Correct Program: False
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Cost & Failure Handling**
+- **Implementation**: The scheduler uses an incremental, event-driven heuristic to place job operations in arrival order, considering local and cloud servers. It calculates a score based on compute cost (with dynamic cloud deterrence), projected job delay (weighted by priority and deadline), and utilizes a first-fit approach for local servers within a 60-hour search horizon. Server capacity is dynamically adjusted for machine failures with exponential recovery/failure rates.
+- **Performance**: The program achieved a `weighted_score` of 16930.00 across 'normal' and 'earthquake' scenarios, successfully producing valid schedules for all jobs in both scenarios.
+- **Feedback**: The heuristic effectively balances compute cost and delay penalties by dynamically deterring cloud usage (especially for non-emergency jobs) and prioritizing based on job urgency. Its ability to maintain valid schedules under significant machine failures (e.g., 'earthquake' scenario) demonstrates robust handling of dynamic capacity constraints.
+**Program Identifier:** Generation 55 - Patch Name priority_first_fit_cloud_aware - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Scheduler with Adaptive Cloud**
+- **Implementation**: This online scheduler processes jobs by arrival time, sequentially placing operations. It calculates a weighted score for each operation, considering compute cost, job deadline delay (with priority multipliers), and a dynamic cloud deterrence. A dedicated mechanism allows emergency jobs facing significant local delays to utilize cloud resources with reduced deterrence.
+- **Performance**: The program achieved a weighted score of 17475.00 across multi-scenario evaluation (normal and earthquake), producing valid schedules for all jobs in both scenarios.
+- **Feedback**: The combination of priority-based delay penalties, a dynamic search window for local resources, and the adaptive cloud deterrence (with special provisions for emergency jobs) contributes to a robust strategy that effectively handles constraints and mitigates delays, particularly during machine failures.
+**Program Identifier:** Generation 56 - Patch Name none - Correct Program: True
+
+**Program Name: Online Heuristic Scheduler with Cost-Aware Local Search**
+- **Implementation**: This online, event-driven scheduler processes jobs strictly by arrival time, selecting the optimal server slot for each operation within a local search window (for on-prem) or immediately using the cloud. The objective function minimizes weighted compute cost, delay penalty (amplified by job priority), and a specific cloud deterrence, while dynamically accounting for machine failure-induced capacity reductions.
+- **Performance**: The program achieved a `weighted_score` of 17475.00, producing valid schedules across 'normal' and 'earthquake' scenarios without any capacity violations.
+- **Feedback**: The scheduler successfully integrates dynamic capacity handling due to machine failures and leverages a cost-driven local search to make intelligent scheduling decisions for individual operations. The explicit `CLOUD_DETERRENCE_PER_HOUR` and `PRIORITY_WEIGHTS` are effective mechanisms for steering resource allocation and managing job criticality.
+**Program Identifier:** Generation 57 - Patch Name bounded_local_search - Correct Program: True
+
+**Program Name: Incremental Best-Fit Online Scheduler with Prioritized Cloud Bursting**
+- **Implementation**: The `schedule_job_online` function schedules operations incrementally, evaluating all feasible local server slots within a defined horizon and immediate cloud options. It selects the option minimizing a weighted score that considers compute cost, projected delay penalty (amplified by job priority), and dynamically adjusted cloud deterrence (discounted for emergency jobs). Capacity checks account for dynamic machine failures.
+- **Performance**: The scheduler achieved a `weighted_score` of `17475.00` across multiple scenarios, successfully scheduling all 30 jobs in both 'normal' and 'earthquake' conditions with valid schedules.
+- **Feedback**: The implementation successfully addresses online constraints and dynamic failures. The use of priority multipliers for delay penalties and a discounted cloud deterrence for emergency jobs effectively biases scheduling decisions towards critical jobs and leverages cloud resources intelligently during disruptions, showcasing a robust heuristic.
+**Program Identifier:** Generation 58 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, making local greedy decisions for each operation. It calculates placement scores by considering weighted compute cost, job delay penalty, and a dynamic cloud deterrence factor, with special, adaptive rules for emergency jobs based on projected delays and a limited local search window for on-premise servers.
+- **Performance**: The program achieved a weighted score of 17475.00 across multiple scenarios ("normal" and "earthquake"), successfully generating valid schedules for all cases.
+- **Feedback**: The program correctly implements an online scheduling strategy and passes all validation tests, demonstrating robust handling of diverse scenarios, including machine failures, through its prioritized and cost-aware placement logic, especially with its adaptive cloud utilization for emergency jobs.
+**Program Identifier:** Generation 59 - Patch Name priority_aware_flexible_scheduler - Correct Program: True
+
+**Program Name: Incremental Online Greedy Job Scheduler**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, greedily assigning each operation to the server and start time that minimizes a weighted objective function. It calculates a score based on compute cost, projected job delay penalty (with priority multipliers), and dynamic cloud deterrence, using an exponential model for machine failure and recovery in capacity checks.
+- **Performance**: The program successfully generated valid schedules for all jobs across multiple scenarios, including those with machine failures, achieving a weighted score of 16930.00.
+- **Feedback**: The scheduler effectively balances cost and deadlines, strategically utilizing cloud resources with discounts for high-priority jobs. Tuned parameters for cloud deterrence and an earlier-start tie-breaker indicate an optimized approach for real-time, robust scheduling under resource constraints.
+**Program Identifier:** Generation 60 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Priority Job Scheduler**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, scheduling each operation greedily by first evaluating immediate cloud availability and then searching for the earliest slot on local servers within a deadline-based horizon. A weighted objective function prioritizes operations by scaled compute costs, delay penalties (multiplied by job priority), and a dynamic cloud deterrence factor.
+- **Performance**: The program achieved a weighted score of 16930.00 across multiple scenarios, including failure scenarios, generating valid schedules for all jobs without any capacity violations.
+- **Feedback**: The priority-weighted objective function and dynamic cloud deterrence effectively balance cost and deadlines, allowing the scheduler to adapt to machine failures by strategically using cloud resources when local capacity is constrained or too expensive. The greedy search for the first available local slot ensures efficient use of on-premise infrastructure under strict online constraints.
+**Program Identifier:** Generation 61 - Patch Name none - Correct Program: True
+
+**Program Name: Online Priority-Weighted Job Scheduler with Cloud Adaptation**
+- **Implementation**: The scheduler incrementally assigns operations, evaluating all compatible local and cloud servers to find the best-scoring placement based on compute cost, priority-weighted delay penalties, and dynamic cloud deterrence. It searches for the "best fit" within a local search window and allows immediate cloud placement.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across both 'normal' and 'earthquake' scenarios, consistently producing valid schedules for all jobs.
+- **Feedback**: The implementation successfully generates valid schedules even in failure scenarios, demonstrating robustness. The use of priority-based delay multipliers and a discounted cloud cost for emergency jobs enables effective prioritization and adaptation, while the "best fit" search for local machines optimizes resource utilization.
+**Program Identifier:** Generation 62 - Patch Name best_fit_local_search - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Scoring**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time. For each operation, it greedily selects the best server and start time within a defined search window, using a dynamic scoring function that minimizes a weighted sum of compute cost (including cloud deterrence) and delay penalty, factoring in job priority and machine failures.
+- **Performance**: The scheduler achieved a weighted score of 17475.00 across multiple scenarios, including 'normal' and 'earthquake', successfully scheduling all 30 jobs in each scenario without any violations.
+- **Feedback**: The implementation is robust, passing all validation tests by effectively managing capacity constraints and machine failures while prioritizing jobs. The dynamic scoring mechanism, combined with cloud deterrence and priority multipliers, allows for adaptive and valid scheduling decisions in an online environment.
+**Program Identifier:** Generation 63 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Scheduler with Cloud Deterrence**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a `OperationPlacementEvaluator` to choose the best server and start time for each operation, considering compute cost, deadline delay, dynamic cloud deterrence, priority multipliers, and a local search window.
+- **Performance**: The reported combined score is 0.0 (to maximize), however, the program is explicitly stated to be incorrect and fails validation tests.
+- **Feedback**: The 0.0 score likely indicates a critical failure in schedule construction or evaluation, preventing any valid schedule from being formed or assessed correctly. Despite the inclusion of detailed heuristics like priority-based cost adjustments, cloud deterrence, and specific emergency cloud triggering logic, the current implementation is fundamentally flawed and does not meet validation requirements.
+**Program Identifier:** Generation 64 - Patch Name refactor_best_fit_and_priority_cloud - Correct Program: False
+
+**Program Name: Online Incremental Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: The scheduler processes jobs incrementally by arrival time, evaluating operation placements on local servers (within a `LOCAL_SEARCH_WINDOW_HOURS`) and immediate cloud options. Placements are scored based on compute cost, projected job delay (with priority multipliers), and dynamic cloud deterrence; emergency jobs receive specific cloud cost discounts if local options cause significant delays.
+- **Performance**: The program is incorrect and fails all validation tests, resulting in a combined score of 0.0 (or infinite penalty), indicating critical issues.
+- **Feedback**: While implementing complex logic for priority-based cloud deterrence and local search, the current implementation fails fundamental validation. This suggests the scoring function, capacity reservation, or interaction of dynamic parameters are either misconfigured or contain critical bugs, despite the sophisticated objective components.
+**Program Identifier:** Generation 65 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Priority-Based Cloud Deterrence**
+- **Implementation**: This program employs an online, event-driven scheduler that processes jobs strictly by their arrival time. For each operation, it evaluates both local and cloud servers, using a heuristic `_calculate_placement_score` that combines compute cost and a dynamically weighted delay penalty based on job priority (`emergency` jobs have an 8x penalty multiplier). Cloud usage incurs a base deterrence cost, which is significantly discounted for `emergency` jobs, and local server slots are searched within a `MAX_LOCAL_SEARCH_HORIZON` of 60 hours.
+- **Performance**: The program achieved a "Combined score to maximize: 0.0" (likely a placeholder or target) and is explicitly stated as "incorrect" because it "does not pass all validation tests."
+- **Feedback**: The current implementation, despite its detailed heuristic for balancing costs and urgency (e.g., priority multipliers, cloud deterrence), is insufficient to produce valid schedules or meet performance criteria across all tests, indicating potential issues with the chosen scoring function, search horizon, or overall greedy decision-making in an online context.
+**Program Identifier:** Generation 66 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduling with Cloud Deterrence**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly by arrival time without future job knowledge. It uses a `_calculate_placement_score` function to evaluate job operation placements, prioritizing cloud options, then greedily searching for the best local slot within a limited future horizon, considering compute cost, deadline delay (with priority weights), and a priority-scaled cloud deterrence.
+- **Performance**: The program yields a combined score of 0.0 and is explicitly stated as "incorrect," failing validation tests, indicating significant issues with constraint satisfaction or cost minimization.
+- **Feedback**: The "incorrect" status suggests the scheduling logic, particularly the greedy local search and potentially the `_calculate_placement_score` function's weighting, is failing to produce valid or optimized schedules. The fixed cloud deterrence and priority weighting might be too simplistic or misaligned with overall objective, leading to suboptimal or invalid placements.
+**Program Identifier:** Generation 67 - Patch Name best_fit_wide_window_local_search - Correct Program: False
+
+**Program Name: Online Incremental Job Scheduler with Tiered Heuristics**
+- **Implementation**: This online scheduler places job operations sequentially, preferring local servers within a fixed search window and escalating to discounted cloud usage for urgent jobs facing significant local delays. It uses a tiered decision-making process prioritizing on-deadline options, then emergency cloud, then overall minimum cost, while dynamically accounting for machine failures.
+- **Performance**: The program is reported as incorrect and does not pass all validation tests, despite aiming to maximize a combined objective score (initial value 0.0).
+- **Feedback**: The failure to pass validation suggests that while the multi-tiered, heuristic-driven approach attempts to balance cost and urgency with cloud fallback, its greedy, incremental nature and potentially fixed search windows or uncalibrated cost parameters lead to sub-optimal decisions or constraint violations across various scenarios.
+**Program Identifier:** Generation 68 - Patch Name none - Correct Program: False
+
+**Program Name: Incremental Online Job Scheduler with Heuristic Cost Minimization**
+- **Implementation**: This is an online, event-driven scheduler processing jobs strictly by arrival time. For each job's operation, it considers all compatible servers, immediately placing on cloud servers or using a greedy first-fit search within a 60-hour horizon for local servers. Placement decisions are based on a weighted score combining compute cost, projected job delay penalty (with priority multipliers), and a dynamic cloud deterrence that is discounted for emergency jobs.
+- **Performance**: The program is incorrect, does not pass all validation tests, and achieved a combined score of 0.0 (indicating maximal penalty or error).
+- **Feedback**: The implementation uses a heuristic approach with fixed parameters for priority multipliers and cloud deterrence, which likely leads to suboptimal decisions and constraint violations in complex scenarios. The greedy first-fit for local servers might miss better future slots, while the cloud deterrence, even with an emergency discount, could prevent efficient use of cloud resources when needed.
+**Program Identifier:** Generation 69 - Patch Name first_fit_priority_cloud_deterrence - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Costing**
+- **Implementation**: This program implements an incremental, event-driven online scheduler that processes jobs strictly by arrival time. It assigns operations by evaluating server (local/cloud) and start time options based on a weighted score combining compute cost, dynamic cloud deterrence, and priority-multiplied delay penalties, including specific emergency cloud triggers.
+- **Performance**: The reported combined score to maximize is 0.0, but the current implementation is noted as incorrect.
+- **Feedback**: The program fails validation tests, indicating issues with the current heuristic logic despite sophisticated cost and priority considerations for cloud usage and delay. Tuned parameters for priority multipliers and cloud deterrence suggest an attempt to balance costs and deadlines that is not fully successful.
+**Program Identifier:** Generation 70 - Patch Name dynamic_cloud_priority_tuning_v3 - Correct Program: False
+
+**Program Name: Priority-Adaptive Online Incremental Job Scheduler**
+- **Implementation**: This program implements an online, incremental job scheduler that processes jobs by arrival time, assigning operations to the best available server based on a combined cost and delay objective. It dynamically adjusts the search window for local machine slots based on job priority and accounts for time-varying server capacity due to failures and recovery.
+- **Performance**: The program achieved a combined score of 0.0 (suggesting a minimization objective) but failed to pass all validation tests.
+- **Feedback**: The greedy "first available slot" strategy within an adaptive time window, coupled with immediate cloud assignments, appears insufficient for generating valid or optimal schedules under all constraints. The failure to pass validation tests indicates that this local optimization approach likely leads to unfeasible solutions or constraint violations.
+**Program Identifier:** Generation 71 - Patch Name none - Correct Program: False
+
+**Program Name: Online Priority Scheduler with Adaptive Cloud & Local Search**
+- **Implementation**: This online, event-driven scheduler processes jobs by arrival time, using a local search window to find the best slot for each operation on either local or cloud servers. Its objective function incorporates job priority-weighted costs for compute and delay, plus dynamic cloud deterrence that adapts based on local server congestion.
+- **Performance**: The program has a combined score of 0.0 (to maximize) and is incorrect, failing all validation tests.
+- **Feedback**: Despite advanced features like priority-based weighting, local search optimization, and adaptive cloud deterrence, the scheduler's inability to pass validation tests indicates fundamental flaws in its constraint handling, capacity reservation, or objective function logic, leading to invalid schedules.
+**Program Identifier:** Generation 72 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: This program implements an online scheduler that processes jobs strictly in arrival order without future knowledge. For each operation, it calculates a weighted placement score considering compute cost, job delay penalty (with priority multipliers), and cloud deterrence, choosing between immediate cloud placement or the best local server slot found within a 24-hour search window.
+- **Performance**: The program is incorrect and does not pass all validation tests, indicating it fails to meet specified constraints or optimality criteria. The target combined score is 0.0 (presumably for minimization).
+- **Feedback**: While the `_calculate_placement_score` attempts a sophisticated objective function by incorporating priority-weighted costs and cloud deterrence, its inability to pass validation tests suggests issues with either the scoring logic, capacity allocation, or the limited local search horizon in an online context. The online constraint without future job knowledge likely poses significant challenges for achieving optimality or even feasibility.
+**Program Identifier:** Generation 73 - Patch Name best_fit_local_search - Correct Program: False
+
+**Program Name: Online Incremental Job Scheduler with Priority-Weighted Heuristics**
+- **Implementation**: This online scheduler processes jobs by arrival time, scheduling each operation sequentially. It evaluates potential placements on both cloud (immediately available) and local servers (searching within a `LOCAL_SEARCH_WINDOW_HOURS` for the best fit), scoring options based on weighted compute cost, job delay penalty (with priority-based multipliers), and a cloud deterrence penalty.
+- **Performance**: The program is incorrect and does not pass all validation tests, resulting in a combined score to maximize of 0.0 (implying cost minimization is the goal).
+- **Feedback**: The heuristic approach, particularly the fixed `LOCAL_SEARCH_WINDOW_HOURS` and the `CLOUD_DETERRENCE_PER_HOUR` (even with priority scaling), might lead to suboptimal decisions or infeasible schedules under varying load and failure conditions. The current scoring mechanism doesn't guarantee finding a valid schedule if one exists, especially given the "incorrect" validation outcome.
+**Program Identifier:** Generation 74 - Patch Name refined_best_fit_local_priority_cloud - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Capacity**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time, scheduling operations one-by-one. It prioritizes immediate cloud placement, then greedily searches for the first available local server slot within a priority-dependent time window, factoring in dynamic server capacities due to machine failures.
+- **Performance**: The program has a stated combined score of 0.0 (which is an ideal target for a minimization problem), and it explicitly "does not pass all validation tests" due to incorrectness.
+- **Feedback**: The greedy local server selection (taking the *first* available slot) and the heuristic for the local search window (`job.deadline + inst.time_horizon`) likely lead to suboptimal placements. The dynamic cloud deterrence, though priority-weighted, may not be effectively balancing costs and delays, contributing to the validation failures.
+**Program Identifier:** Generation 75 - Patch Name none - Correct Program: False
+
+**Program Name: Online Heuristic Scheduler with Dynamic Cost-Delay Optimization**
+- **Implementation**: The scheduler processes jobs incrementally by arrival time, scheduling each operation by evaluating all feasible slots on local servers within an extended search window and immediately available cloud options. It selects the placement that minimizes a weighted heuristic score, which combines compute cost, projected job delay penalty (adjusted by job priority), and a dynamic cloud deterrence factor.
+- **Performance**: The program achieved a combined score of 0.0 (target for maximization, typically indicating failure when validation tests are not passed) and did not pass all validation tests.
+- **Feedback**: The heuristic's objective function, particularly the fixed cloud deterrence and priority multipliers, or the search window for local machines, likely fails to consistently find valid schedules or adequately balance all constraints and costs across diverse scenarios, leading to invalid solutions.
+**Program Identifier:** Generation 76 - Patch Name online_priority_cost_comprehensive_search - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduling with Lookahead Simulation**
+- **Implementation**: This online scheduler processes jobs by arrival time, making greedy, per-operation decisions using a `LOCAL_SEARCH_WINDOW_HOURS` and a simulated lookahead for future operations. It optimizes a weighted objective function considering compute cost, delay penalties, job priorities, and cloud deterrence, managing capacity with dynamic failure considerations.
+- **Performance**: The combined score is 0.0, and the program is incorrect, failing all validation tests.
+- **Feedback**: The combination of local search and lookahead simulation within a strict online constraint is complex. The failure to pass validation tests suggests potential issues with capacity handling, objective function balance, or the accuracy of the future operation simulation, leading to suboptimal or invalid schedules.
+**Program Identifier:** Generation 77 - Patch Name reintroduce_simulated_best_fit - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Cloud Management**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, making incremental decisions for each operation based on a weighted objective function that combines compute cost, deadline delay, and dynamically adjusted cloud deterrence. It incorporates priority-based delay multipliers, a fixed local search window, and an emergency cloud trigger mechanism to reduce cloud deterrence for critical jobs facing significant local delays.
+- **Performance**: The program is incorrect and does not pass all validation tests, resulting in a combined score of 0.0 (indicating failure).
+- **Feedback**: Despite multiple tunable parameters for cloud usage and priority handling, the program fails to produce valid schedules, suggesting that either the current tuning is insufficient or there are fundamental issues with the greedy decision-making logic or capacity management that lead to constraint violations or excessive penalties.
+**Program Identifier:** Generation 78 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduler with Adaptive Heuristics**
+- **Implementation**: The `schedule_job_online` function incrementally schedules job operations, making irrevocable decisions based on current time and existing schedules. It employs priority-based delay penalty multipliers, dynamic cloud deterrence (reduced during local server congestion), an adaptive local search window for critical jobs, and a projection of future compute costs. Tie-breaking prioritizes lower cost, earlier start, and local over cloud servers.
+- **Performance**: The program has a combined score of 0.0 (target) but is explicitly stated as incorrect and fails to pass all validation tests.
+- **Feedback**: Despite implementing several adaptive heuristics for cost, delay, and resource management, the current implementation is not robust enough to pass all validation tests, suggesting potential issues with heuristic parameter tuning, search space exploration, or the overall strategy's ability to avoid constraint violations or find optimal solutions across diverse scenarios.
+**Program Identifier:** Generation 79 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Bounded Lookahead**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time. For each operation, it selects a server and start time by evaluating a weighted objective (compute cost, delay, job priority, cloud deterrence) within a `LOCAL_SEARCH_WINDOW_HOURS` for local machines or immediately for cloud, considering dynamic capacity due to probabilistic machine failures.
+- **Performance**: The reported combined score to maximize is 0.0, and the program does not pass all validation tests.
+- **Feedback**: The scheduler's "best-fit" approach within a bounded lookahead for local servers and explicit cloud deterrence are notable implementation choices for online optimization. However, the reported failure in validation tests and a 0.0 score indicate fundamental issues, suggesting it might fail to produce valid schedules or handle all scenario constraints correctly.
+**Program Identifier:** Generation 80 - Patch Name none - Correct Program: False
+
+**Program Name: Online Incremental Job Scheduler with Proactive Costing**
+- **Implementation**: The `schedule_job_online` function iteratively places job operations, evaluating both local and cloud servers within a limited search window for local machines. It employs a detailed scoring function that projects future compute costs, total job delay penalties (with priority multipliers and dynamic cloud deterrence), and a tie-breaker for earlier starts.
+- **Performance**: The program reports a "Combined score to maximize: 0.0" and explicitly states it is "incorrect and does not pass all validation tests."
+- **Feedback**: The scheduler makes informed local decisions by projecting future job costs and delays, using pre-computed minimum hourly costs and a tuned cloud deterrence mechanism. However, its failure to pass validation suggests that this greedy, incremental approach, even with a localized lookahead and sophisticated scoring, is insufficient to meet all constraints or achieve optimal results in complex online scenarios.
+**Program Identifier:** Generation 81 - Patch Name none - Correct Program: False
+
+**Program Name: Online Incremental Job Scheduler with Priority-Weighted Cost Optimization**
+- **Implementation**: This online scheduler processes jobs by arrival time, scheduling operations sequentially. It evaluates options for each operation by combining compute cost, projected job delay (weighted by priority multipliers), and a dynamic cloud deterrence factor, selecting the best option based on a score; for local servers, it uses a first-fit approach within a limited search window.
+- **Performance**: The program is incorrect and does not pass all validation tests, resulting in a reported combined score of 0.0.
+- **Feedback**: The current greedy online strategy, despite incorporating detailed cost and penalty considerations with priority-based adjustments and cloud deterrence, is not robust enough to pass validation tests, suggesting potential issues with local search window size, the "first-fit" heuristic for local servers, or the overall scoring balance.
+**Program Identifier:** Generation 82 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Heuristic Scheduler with Lookahead**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It schedules individual job operations by searching for the best available slot within a `LOCAL_SEARCH_WINDOW_HOURS` on local servers or immediately on cloud servers, using a simulated lookahead for subsequent job operations to estimate total cost and completion time.
+- **Performance**: The program achieved a combined score of 0.0, indicating it did not effectively optimize the objective, and it explicitly "does not pass all validation tests," suggesting critical functional flaws or severe suboptimality.
+- **Feedback**: The current implementation's lookahead simulation and local search window appear insufficient to produce valid or optimal schedules. The reported 0.0 score and validation failures indicate significant problems, possibly due to greedy local choices, ineffective cost evaluation, or a failure to reliably find feasible slots for operations, as hinted by the `RuntimeError` for unfulfillable operations.
+**Program Identifier:** Generation 83 - Patch Name best_fit_job_lookahead_scheduling - Correct Program: False
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Resource Allocation**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. For each job operation, it evaluates placement options on local servers (within a fixed search horizon) and cloud servers (immediate availability), choosing the option with the lowest heuristic score based on compute cost, projected job delay, dynamic cloud deterrence, and job priority multipliers.
+- **Performance**: The reported combined score is 0.0 (presumably a target score for minimization, not a achieved score for maximization), and the program "does not pass all validation tests."
+- **Feedback**: The current heuristic strategy, despite considering various factors like priority, cloud deterrence, and local capacity lookahead, fails to generate valid schedules that pass all validation tests, suggesting fundamental issues with its decision-making logic or an inability to navigate complex resource constraints effectively.
+**Program Identifier:** Generation 84 - Patch Name none - Correct Program: False
+
+**Program Name: Online Incremental Job Scheduler with Priority-Based Heuristics**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, scheduling operations sequentially. It uses a weighted objective function (`_calculate_placement_score`) that considers compute cost, job delay penalty (scaled by job priority), and a priority-adjusted cloud deterrence, searching local servers within a 24-hour window for the best slot, while cloud serves as an immediate, albeit penalized, fallback.
+- **Performance**: The program achieved a combined score of 0.0, which is incorrect, and failed to pass all validation tests.
+- **Feedback**: The current heuristic logic, particularly the `_calculate_placement_score` calculation and the fixed `CLOUD_DETERRENCE_PER_HOUR`, appears insufficient or miscalibrated, leading to invalid schedules and a suboptimal score. The constant cloud deterrence and priority multipliers might be too simplistic or prevent optimal resource allocation.
+**Program Identifier:** Generation 85 - Patch Name best_fit_local_priority_cloud_deterrence_v2 - Correct Program: False
+
+**Program Name: Empty Program**
+- **Implementation**: The program is completely empty, containing no code, logic, or algorithmic implementation.
+- **Performance**: The program is incorrect and does not pass any validation tests, achieving no score.
+- **Feedback**: The absence of any code means the program cannot execute any task or produce expected results, leading to an immediate and complete failure in all evaluations.
+**Program Identifier:** Generation 86 - Patch Name none - Correct Program: False
+
+**Program Name: Online Greedy Job Scheduler with Dynamic Capacity**
+- **Implementation**: This program implements an online greedy scheduler that processes jobs in order of arrival, scheduling each operation sequentially. It evaluates potential placements on local and cloud servers using a weighted score that considers compute cost, projected delay penalty (with job priority multipliers), and a fixed cloud deterrence, selecting the option with the lowest score while respecting dynamic server capacity (including failures).
+- **Performance**: Combined score to maximize: 0.0. The program is incorrect and does not pass all validation tests.
+- **Feedback**: The current greedy heuristic, despite its nuanced scoring function and explicit handling of dynamic capacity and job priorities, fails validation. This indicates that local optimal choices made by the greedy approach, potentially due to the fixed `MAX_LOCAL_SEARCH_HORIZON` or the static cloud deterrence, lead to global sub-optimality or constraint violations in the provided test cases.
+**Program Identifier:** Generation 87 - Patch Name best_fit_local_cloud_search_re_attempt - Correct Program: False
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Capacity**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs in arrival order. For each operation within a job, it uses a heuristic scoring function to choose between available local and cloud servers, considering compute cost, projected job delay (weighted by priority), and a dynamic cloud deterrence. Machine failures are modeled with exponential decay/recovery affecting available capacity.
+- **Performance**: The program aims to maximize a combined score of 0.0 but "is incorrect and does not pass all validation tests."
+- **Feedback**: The current heuristic logic, including specific priority multipliers, cloud deterrence values, and the local search horizon, is insufficient to generate valid schedules under evaluation constraints. The scoring function or placement selection needs substantial revision.
+**Program Identifier:** Generation 88 - Patch Name none - Correct Program: False
+
+**Program Name: Online Greedy Job Scheduler with Dynamic Capacity and Prioritized Cost**
+- **Implementation**: This online scheduler processes jobs by arrival time, scheduling each operation by greedily selecting the server and start time minimizing a weighted score of compute cost and delay penalty. It dynamically accounts for machine failures with exponential recovery, incorporates priority-based cloud deterrence, and searches for the best local slot within a defined window, comparing it directly against cloud options.
+- **Performance**: The program achieved a combined score of 0.0 (target) but is incorrect and does not pass all validation tests.
+- **Feedback**: The current greedy, localized search strategy, despite incorporating advanced scoring and cloud deterrence, struggles to find globally optimal or feasible solutions across all validation tests, suggesting it gets trapped in local optima or fails to satisfy complex constraints. The limited `MAX_LOCAL_SEARCH_WINDOW` for local servers might restrict finding better long-term placements.
+**Program Identifier:** Generation 89 - Patch Name none - Correct Program: False
+
+**Program Name: Incremental Online Job Scheduler with Priority-Based Adaptations**
+- **Implementation**: The program implements a strict online scheduler, processing jobs in arrival order without future job knowledge. It uses an `OperationPlacementEvaluator` to assess operation placements, considering compute cost, estimated job completion delay penalties (with priority multipliers), and estimated future cloud costs for remaining operations. It features adaptive local machine search windows and a dynamic cloud deterrence mechanism, including a reduced deterrence for emergency jobs facing local delays.
+- **Performance**: The program is incorrect and does not pass all validation tests, failing to achieve the optimal target score of 0.0.
+- **Feedback**: The current heuristics, particularly the cloud deterrence (e.g., `CLOUD_DETERRENCE_BASE`, `CLOUD_EMERGENCY_DISCOUNT_FACTOR`, `EMERGENCY_CLOUD_COST_REDUCTION_FACTOR`) and the integration of estimated future costs, appear to be insufficient or miscalibrated, leading to incorrect schedules or constraint violations. The complexity of balancing immediate cost, future cost estimation, and dynamic delay penalties, especially with varying priorities and failure conditions, suggests that the current weighting and decision logic are not robust enough.
+**Program Identifier:** Generation 90 - Patch Name none - Correct Program: False
+
+**Program Name: Incremental Online Job Scheduler with Heuristic Prioritization**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, making irrevocable decisions for each operation based on a heuristic score that combines compute cost, projected job delay penalty (with priority multipliers), and dynamic cloud deterrence. Capacity is tracked incrementally per server and time step, factoring in machine failures with exponential recovery/failure rates, searching for the first available slot on local machines within a bounded horizon.
+- **Performance**: The program has a reported combined score of 0.0 (likely a target or default value) and is noted as "incorrect" as it "does not pass all validation tests."
+- **Feedback**: The sophisticated heuristic, incorporating priority-specific delay penalties and cloud deterrence, currently fails to produce valid schedules, suggesting issues in its decision-making logic or capacity management. The "first-fit" approach for local machines within a limited search horizon might contribute to non-optimal placements or constraint violations, rather than finding truly feasible solutions.
+**Program Identifier:** Generation 91 - Patch Name first_fit_priority_cloud_crossover - Correct Program: False
+
+**Program Name: Online Event-Driven Priority & Cost-Aware Scheduler**
+- **Implementation**: This online scheduler processes jobs by arrival time, placing operations sequentially by evaluating server costs, delay penalties (weighted by job priority), and cloud deterrence. It features a local search window for on-premise servers and an emergency-triggered cloud option that reduces cloud cost deterrence if significant local delays are projected.
+- **Performance**: The program yields a score of 0.0 and is reported as incorrect, failing validation tests.
+- **Feedback**: The "incorrect" status suggests the chosen greedy heuristics or emergency cloud logic may lead to infeasible schedules or suboptimal decisions that violate constraints, rather than just producing a high cost.
+**Program Identifier:** Generation 92 - Patch Name none - Correct Program: False
+
+**Program Name: Online Greedy Scheduler with Priority and Cloud Deterrence**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs in arrival order. It schedules each operation of a job greedily by selecting the server and start time within a 24-hour lookahead window (for local servers) that minimizes a weighted objective, considering compute cost, delay penalties, job priority, and a fixed deterrence for cloud usage.
+- **Performance**: The current run yields a combined score of 0.0, and the program does not pass all validation tests, indicating issues with correctness or optimality.
+- **Feedback**: The strictly greedy, per-operation decision-making, combined with a limited local search window and a fixed cloud deterrence, likely leads to suboptimal solutions and potential constraint violations. The absence of future job knowledge and any rescheduling mechanism contributes to its difficulty in meeting all constraints in complex scenarios.
+**Program Identifier:** Generation 93 - Patch Name none - Correct Program: False
+
+**Program Name: Online Incremental Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: This program employs an online, event-driven scheduling approach, processing jobs strictly by arrival time. For each job, operations are scheduled sequentially using a weighted cost function that evaluates compute cost, prioritized job delay penalty, and a dynamically scaled cloud deterrence based on the availability of local capacity for that server type. Local server assignments are made greedily to the first available slot.
+- **Performance**: The program is incorrect and fails to pass all validation tests, indicating that the generated schedules frequently violate constraints.
+- **Feedback**: The validation failures suggest the current greedy local server assignment or the dynamic cloud deterrence mechanism may not be robust enough to consistently produce valid schedules. The aggressive prioritization of immediate slots might lead to future bottlenecks or insufficient capacity handling, especially with machine failures.
+**Program Identifier:** Generation 94 - Patch Name none - Correct Program: False
+
+**Program Name: Incremental Online Greedy Job Scheduler with Dynamic Costing**
+- **Implementation**: The scheduler processes jobs strictly by arrival time, then greedily assigns each operation to a server and start time. It prioritizes local machines within a limited search horizon (up to 60 hours) before resorting to cloud, calculating a score based on compute cost, job deadline delay (amplified by priority and job-specific weights), and dynamic cloud deterrence (significantly reduced for 'emergency' jobs).
+- **Performance**: The combined score to maximize is 0.0.
+- **Feedback**: The program is incorrect and fails validation tests, suggesting the greedy heuristic or its scoring function may lead to invalid schedules or suboptimal solutions that do not meet all constraints under various scenarios.
+**Program Identifier:** Generation 95 - Patch Name dynamic_cloud_deterrence_utilization - Correct Program: False
+
+**Program Name: Online Greedy Heuristic Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly in arrival order. For each job, it iterates through its operations, greedily selecting the best server (local or cloud) and start time within a `MAX_LOCAL_SEARCH_HORIZON` based on a custom score. This score considers compute cost, projected delay penalty (weighted by job priority), and a dynamically adjusted cloud deterrence, which is reduced if local capacity for the operation is immediately unavailable.
+- **Performance**: The program is reported as "incorrect and does not pass all validation tests", indicating a failure to meet problem constraints or achieve satisfactory solutions.
+- **Feedback**: The greedy, first-fit approach for local server allocation, coupled with a fixed search horizon, likely causes issues with finding optimal or even valid schedules in complex scenarios. The dynamic cloud deterrence mechanism, while attempting to balance cost and availability, doesn't prevent overall validation failures, suggesting fundamental problems with the heuristic's ability to satisfy all constraints or manage resources effectively.
+**Program Identifier:** Generation 96 - Patch Name none - Correct Program: False
+
+**Program Name: Online First-Fit Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs by arrival time and schedules their operations sequentially. It employs a custom objective function that minimizes a weighted sum of compute cost, delay penalties (with job-priority multipliers), and a dynamically adjusted cloud deterrence based on the current local capacity pressure for that server type. Local operations are placed using a first-fit search within a limited time horizon, while cloud operations are placed immediately.
+- **Performance**: The program is reported as "incorrect" and "does not pass all validation tests," indicating it fails to produce valid or optimal schedules under given constraints, despite aiming to maximize a combined score (implying cost minimization).
+- **Feedback**: The reliance on a first-fit strategy for local servers within a limited search horizon, combined with immediate cloud placement, likely leads to suboptimal operation placements that might cause capacity violations or higher costs/delays later. While the dynamic cloud deterrence is a relevant feature, the overall greedy, localized decision-making, without broader future consideration, contributes to the validation failures.
+**Program Identifier:** Generation 97 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Incremental Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. For each operation of a job, it searches for an optimal server and start time within a `LOCAL_SEARCH_WINDOW_HOURS`, considering compute cost, delay penalty, job priority, and a cloud deterrence factor, while dynamically tracking capacity and machine failures.
+- **Performance**: The program is incorrect and does not pass all validation tests, failing to achieve an optimal combined score of 0.0.
+- **Feedback**: The failure to pass validation indicates issues likely related to constraint satisfaction, sub-optimal scheduling choices, or an insufficient search window. Careful tuning of `LOCAL_SEARCH_WINDOW_HOURS`, `PRIORITY_WEIGHTS`, and `CLOUD_DETERRENCE_PER_HOUR` is critical to improve its correctness and performance.
+**Program Identifier:** Generation 98 - Patch Name none - Correct Program: False
+
+**Program Name: Greedy Online Job Scheduler with Bounded Lookahead**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, assigning each operation to the earliest possible slot. It prioritizes cloud servers for immediate placement and searches local servers for the first available slot within a `MAX_LOCAL_SEARCH_WINDOW_HOURS` window, making decisions based on a combined objective of compute cost and projected delay penalty.
+- **Performance**: The program is incorrect and does not pass all validation tests, indicating significant issues in its scheduling logic.
+- **Feedback**: The greedy strategy of taking the *first available* slot on a local server, rather than evaluating all slots within the window for the optimal fit, likely leads to suboptimal resource allocation or capacity constraint violations, preventing successful validation.
+**Program Identifier:** Generation 99 - Patch Name first_fit_local_priority_cloud - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time, without future job knowledge. It assigns operations to servers (local or cloud) by minimizing a weighted score considering compute cost, deadline delay (with priority multipliers), and cloud deterrence, using a limited search window for local machine slots.
+- **Performance**: The program is incorrect and does not pass all validation tests, failing to produce valid schedules despite its detailed scoring mechanism. The provided combined score of 0.0 is a default/initial state, not a representative performance metric.
+- **Feedback**: While the scheduler incorporates sophisticated cost and priority considerations with dynamic cloud deterrence, its current implementation leads to invalid schedules. Further refinement is required in the placement logic or capacity management to ensure constraint satisfaction and correctness.
+**Program Identifier:** Generation 100 - Patch Name dynamic_cloud_factor_param - Correct Program: False
+
+**Program Name: Online Job Scheduler with Bounded Local Search**
+- **Implementation**: This program implements an online, event-driven scheduler where jobs are processed strictly by arrival time. Each job's operations are scheduled sequentially, with cloud operations starting immediately, and local operations searching for the *best* available slot within a 48-hour forward window to minimize a combined cost-delay objective.
+- **Performance**: The program has a combined score of 0.0 (objective to maximize) but the provided evaluation explicitly states it "is incorrect and does not pass all validation tests."
+- **Feedback**: The limited search window for local servers (48 hours) might hinder finding feasible or optimal slots, contributing to the validation failures. The objective function for `operation_objective` correctly considers both compute cost and projected delay penalties for remaining operations.
+**Program Identifier:** Generation 101 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Cloud Policies**
+- **Implementation**: This incremental scheduler processes jobs upon arrival, selecting the best server and start time for each operation based on a weighted score. The score combines compute cost, deadline penalties (adjusted by job priority), and a dynamic cloud deterrence cost that is discounted for emergency jobs or when local options cause significant delays. Capacity is reserved immediately, and available capacity considers exponential machine failure/recovery.
+- **Performance**: The program is reported as "incorrect" and "does not pass all validation tests", despite a specified 'Combined score to maximize: 0.0', indicating significant issues in its current state.
+- **Feedback**: The greedy approach, even with its complex multi-objective scoring and adaptive cloud strategies, fails validation tests. A critical bug exists where `chosen_start_time` is used without prior definition in the final operation placement logic, which would cause runtime errors or incorrect scheduling. The tuning parameters and the decision-making logic for balancing local versus cloud options for various job priorities appear insufficient or flawed.
+**Program Identifier:** Generation 102 - Patch Name none - Correct Program: False
+
+**Program Name: Online Greedy Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: This is an online, event-driven greedy scheduler. It processes jobs by arrival time, scheduling each operation sequentially using a weighted score that considers compute cost, job delay (with priority multipliers), and dynamic cloud deterrence (discounted for emergency jobs). It explores a limited number of early available local slots within a defined search window, comparing them directly against immediate cloud placement, then reserves capacity.
+- **Performance**: The program achieved a combined score of 0.0, which is the target to maximize, but critically, it "does not pass all validation tests," indicating fundamental flaws despite the scoring target.
+- **Feedback**: The current greedy, localized optimization strategy for placing each operation, even with its nuanced scoring and cloud deterrence, is insufficient to meet all problem constraints or achieve a valid schedule, leading to validation failures. The 0.0 score despite failing tests suggests either perfect scores on some scenarios while failing others, or a default score indicating total failure.
+**Program Identifier:** Generation 103 - Patch Name n_best_first_fit_local - Correct Program: False
+
+**Program Name: Online Greedy Job Scheduler with Dynamic Cost Heuristic**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time. It uses a greedy heuristic to schedule each operation, selecting the server and start time that minimizes a weighted score combining compute cost, dynamically weighted delay penalties based on job priority, and a cloud deterrence cost. Local machines search for the first available slot within a limited horizon, while cloud machines are always immediately available.
+- **Performance**: The reported combined score to maximize is 0.0, and the program is explicitly stated to be incorrect, failing validation tests.
+- **Feedback**: The heuristic's current implementation, including priority multipliers, cloud deterrence, and local search horizon, is insufficient to pass all validation tests, indicating either functional correctness issues or severe sub-optimality. Re-evaluation of the scoring logic and parameter tuning is necessary.
+**Program Identifier:** Generation 104 - Patch Name revert_local_best_fit_to_first_fit - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: The scheduler processes jobs strictly by arrival time, using `_calculate_placement_score` to decide operation placement. It employs dynamic cloud deterrence based on local resource scarcity and job priority, combined with a prioritized N-best-first-fit search for local servers within a flexible time window.
+- **Performance**: The program aims to maximize a combined score of 0.0, implying a goal of minimizing costs and penalties.
+- **Feedback**: The scheduler is incorrect and does not pass all validation tests, indicating potential issues with constraint handling or an ineffective cost function, possibly due to suboptimal prioritization or cloud placement strategies.
+**Program Identifier:** Generation 105 - Patch Name adaptive_hybrid_n_best - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Lookahead Simulation**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a greedy approach for each operation, simulating remaining job operations (`_simulate_remaining_ops_cost_and_time`) to calculate a multi-objective cost (compute, delay, cloud deterrence) for each potential slot, considering dynamic search windows based on job priority and deadline.
+- **Performance**: The program has a reported combined score of 0.0 (likely a target or initial value) and does not pass all validation tests, indicating incorrectness.
+- **Feedback**: The sophisticated multi-objective cost function and simulated lookahead for remaining operations are designed to make more informed decisions under online constraints, but the program's failure to pass validation suggests issues with capacity handling, constraint adherence, or the effectiveness of the greedy strategy in complex scenarios.
+**Program Identifier:** Generation 106 - Patch Name dynamic_local_search_window - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Lookahead Simulation**
+- **Implementation**: This program implements an online job scheduler within an `OnlineJobScheduler` class, processing jobs operation by operation. It utilizes a lookahead simulation of future operations to calculate a placement score that considers compute cost, delay penalties, cloud deterrence, and handles machine failures within a defined `LOCAL_SEARCH_WINDOW_HOURS`.
+- **Performance**: The program reports a combined score of 0.0 to maximize, but is explicitly stated to be incorrect and does not pass all validation tests.
+- **Feedback**: While incorporating future operation simulation for more informed online decisions is an advanced approach, the failure in validation tests suggests the current implementation of this simulation or the local search strategy might be flawed, potentially due to complexity or sub-optimal choices within the simulation's greedy nature.
+**Program Identifier:** Generation 107 - Patch Name none - Correct Program: False
+
+**Program Name: Online Greedy Scheduler with Priority-Weighted Cost**
+- **Implementation**: This online scheduler processes jobs by arrival time, greedily placing each operation to minimize a priority-weighted cost that includes compute, projected delay, and dynamic cloud deterrence. It searches for the best available slot on local servers within a defined time window, while cloud servers are always available.
+- **Performance**: The program achieved a combined score of 0.0 and did not pass all validation tests.
+- **Feedback**: A score of 0.0 with validation failures strongly indicates the scheduler failed to find valid placements for some jobs or operations, leading to maximum penalties. Despite incorporating detailed cost functions and priority handling, the current strategy or parameters might not be robust enough to handle all constraints or scenarios effectively.
+**Program Identifier:** Generation 108 - Patch Name none - Correct Program: False
+
+**Program Name: Incremental Online Job Scheduler with N-Candidate Search**
+- **Implementation**: This is an online scheduler processing jobs and their operations in arrival order. For each operation, it prioritizes cloud (immediate start) and evaluates local servers by searching for the best among `N_LOCAL_CANDIDATES_TO_EVALUATE` (set to 3) earliest available slots, minimizing a cost function considering current compute and projected job delay.
+- **Performance**: The combined score provided is 0.0 (likely a target or placeholder).
+- **Feedback**: The program is incorrect and does not pass all validation tests, indicating issues with its current scheduling logic or objective function application.
+**Program Identifier:** Generation 109 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduler with Adaptive Cloud Deterrence**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly by arrival time, making irrevocable decisions. For each operation, it evaluates immediate cloud placement against a "K-First-Fit" approach on local servers within a search window. A custom scoring function balances compute cost, projected job delay (with priority multipliers), and dynamically adjusts cloud deterrence based on real-time local server capacity utilization.
+- **Performance**: The program's combined score is 0.0, and it is reported as incorrect, failing validation tests.
+- **Feedback**: While the adaptive cloud deterrence strategy, which reduces cloud cost as local utilization increases, is a novel approach, the poor score and validation failures indicate significant issues. The current trade-off logic for placing operations on local vs. cloud resources, particularly considering capacity constraints and deadlines, needs refinement to produce valid and performant schedules.
+**Program Identifier:** Generation 110 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduler with Priority-Weighted Heuristic**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly by arrival time without future knowledge, scheduling operations sequentially. It uses a greedy heuristic `_calculate_placement_score` to minimize a priority-weighted sum of compute cost, delay penalty, and a cloud deterrence factor, evaluating `N_LOCAL_CANDIDATES` for local servers and immediate availability for cloud.
+- **Performance**: The program is incorrect, does not pass all validation tests, and achieves a combined score of 0.0, indicating significant failures or severe penalties.
+- **Feedback**: The greedy heuristic, coupled with a limited search window for local server placements and aggressive priority weighting for both compute cost and delay, appears insufficient to generate valid or optimal schedules in an online, dynamic environment with machine failures.
+**Program Identifier:** Generation 111 - Patch Name best_of_n_earliest_local_slots - Correct Program: False
+
+**Program Name: Priority-Driven Online Scheduler with Adaptive Cloud Deterrence**
+- **Implementation**: This incremental online scheduler processes jobs by arrival time, evaluating operation placements using a weighted score considering compute cost, job delay (with priority multipliers), and dynamic cloud deterrence. Emergency jobs receive a base cloud cost discount, with a further reduction if local options cause significant delays beyond a threshold, while local machines search within a `LOCAL_SEARCH_WINDOW_HOURS`.
+- **Performance**: The program achieved a combined score of 0.0 and "is incorrect and does not pass all validation tests."
+- **Feedback**: The failure to pass validation indicates that despite sophisticated priority and emergency-driven cloud adjustments, the implementation either violates constraints or fails to find feasible solutions. The `CLOUD_DETERRENCE_BASE_PER_HOUR`, `LOCAL_SEARCH_WINDOW_HOURS`, or the emergency trigger thresholds may require re-evaluation or more aggressive strategies to ensure validity and improve the objective function.
+**Program Identifier:** Generation 112 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: This program implements an incremental, event-driven online scheduler that processes jobs strictly by arrival time. It schedules each operation by evaluating available local and cloud servers, selecting the option with the lowest heuristic `_calculate_placement_score` considering compute cost, delay penalty (weighted by job priority), and a cloud deterrence factor.
+- **Performance**: The program reports a combined score of 0.0 (to maximize) and is noted as incorrect, failing validation tests.
+- **Feedback**: The heuristic scoring logic, particularly the `CLOUD_DETERRENCE_PER_HOUR` and the application of `priority_weights` to both compute cost and delay, likely needs adjustment as it did not pass validation. The search window for local server slots and the comparative evaluation against immediate cloud availability might lead to suboptimal or invalid placements under strict constraints.
+**Program Identifier:** Generation 113 - Patch Name none - Correct Program: False
+
+**Program Name: Incremental Online Job Heuristic Scheduler**
+- **Implementation**: The scheduler processes jobs and operations sequentially, using a heuristic `OperationScheduler` to find the best placement for each operation. It evaluates options based on compute cost, job delay penalty (prioritized), dynamic cloud deterrence (adjusted by local congestion and job priority), and a proactive estimate of the next operation's cost, searching local servers greedily within a dynamic time window.
+- **Performance**: The program is "incorrect" and "does not pass all validation tests," indicating a significant deviation from expected outcomes or constraint satisfaction.
+- **Feedback**: The sophisticated multi-objective scoring and dynamic cloud deterrence logic appear insufficient to guarantee valid or optimal schedules under all conditions. The greedy local search approach for local servers, combined with the strict online constraints, likely struggles to find feasible capacity or avoid critical violations, especially with complex interactions or tight deadlines.
+**Program Identifier:** Generation 114 - Patch Name modular_dispatch_optimizer - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduler with Cost-Based Best-Fit**
+- **Implementation**: This online, event-driven scheduler processes jobs by arrival, then operations sequentially. It uses a dynamic cost function considering compute cost, priority-weighted delay penalties, and cloud deterrence to select the best server and start time, employing a "Best-of-N-First-Fit" search for local machines against a cloud fallback.
+- **Performance**: Combined score to maximize is 0.0; however, the program is incorrect and fails all validation tests.
+- **Feedback**: The detailed cost model and online heuristics, including dynamic failure handling and a Best-of-N-First-Fit approach for local machines with cloud fallback, currently do not yield a valid or performant schedule.
+**Program Identifier:** Generation 115 - Patch Name best_of_n_first_fit_local - Correct Program: False
+
+**Program Name: Online Job Scheduler with Heuristic Operation Placement**
+- **Implementation**: This program implements an online, event-driven scheduler processing jobs strictly by arrival time. For each operation, it selects the best server (cloud or local) and start time by evaluating a heuristic `_calculate_placement_score` that considers compute cost, projected job delay (with priority-based multipliers), and dynamic cloud deterrence, searching limited local slots within a defined window.
+- **Performance**: The program is incorrect, does not pass all validation tests, and likely yields a very high combined score due to violations and suboptimal placements.
+- **Feedback**: The current greedy heuristic, even with priority and cloud deterrence logic, seems insufficient to avoid capacity violations or optimize costs robustly under strict online constraints. The limited lookahead for local servers and fixed heuristics may lead to local optima or infeasible schedules.
+**Program Identifier:** Generation 116 - Patch Name best_n_local_slots_reattempt - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, using an `OperationEvaluator` that employs a multi-criteria heuristic considering compute cost, delay penalty, dynamic cloud deterrence, and local gap penalties. It dynamically adjusts local server search windows and cloud deterrence based on job priority and local machine congestion, while managing capacity with machine failures modeled by exponential decay.
+- **Performance**: The program aims to maximize a combined score but reports a baseline value of 0.0 for this metric.
+- **Feedback**: The program is incorrect and "does not pass all validation tests," indicating fundamental issues with its implementation despite the incorporation of advanced online scheduling heuristics and dynamic cost adjustments.
+**Program Identifier:** Generation 117 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: The scheduler greedily assigns job operations incrementally, evaluating local machine slots within a search window and cloud options. It incorporates dynamic cloud deterrence based on local capacity congestion, job priority multipliers, and an emergency job trigger that reduces cloud cost if local options cause significant delays.
+- **Performance**: The program achieved a combined score of 0.0 and did not pass all validation tests.
+- **Feedback**: The current implementation of heuristics for cloud deterrence, priority handling, and emergency job triggers appears insufficient or incorrect to consistently produce valid or optimal schedules. Further tuning or a revised scheduling strategy is required.
+**Program Identifier:** Generation 118 - Patch Name dynamic_cloud_deterrence - Correct Program: False
+
+**Program Name: Online Priority-Based Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: This is an online, greedy scheduler that processes jobs incrementally by arrival time, selecting the lowest-score slot for each operation. It utilizes heuristics balancing compute cost and delay penalties with priority-based multipliers and dynamic cloud deterrence, including a specific emergency cloud trigger mechanism to mitigate significant local delays.
+- **Performance**: The program achieved a score of 0.0 and failed validation tests.
+- **Feedback**: The complex system of priority multipliers, cloud deterrence, and emergency cloud triggering, when applied in a greedy, online fashion, did not yield a valid schedule. The reported score and validation failure suggest persistent capacity violations or missed deadlines, indicating the current heuristics are ineffective for robust online scheduling under given constraints.
+**Program Identifier:** Generation 119 - Patch Name local_first_fit_revert - Correct Program: False
+
+**Program Name: Incremental Online Greedy Scheduler with Dynamic Cloud & Priority Heuristics**
+- **Implementation**: The scheduler uses a greedy, first-fit approach for local servers within a limited search window, and evaluates cloud options. It calculates a placement score based on compute cost, projected job delay, and job priority, incorporating fixed cloud deterrence that is dynamically reduced for emergency jobs if local options cause significant delay.
+- **Performance**: The program is incorrect, does not pass all validation tests, and reports a combined score of 0.0, indicating complete failure or inability to solve the given scenarios.
+- **Feedback**: The complex heuristic rules for cloud deterrence and emergency job handling, despite recent tuning efforts (reverting fixed cloud deterrence, adjusting emergency discount), seem insufficient to produce valid or optimal schedules. The greedy, first-fit strategy on local servers, even with a broader search window, may contribute to early sub-optimal choices leading to later violations or high penalties.
+**Program Identifier:** Generation 120 - Patch Name first_fit_priority_cloud_refinement_v2 - Correct Program: False
+
+**Program Name: Event-Driven Online Job Scheduler with Dynamic Cost & Failure Handling**
+- **Implementation**: This online scheduler uses a greedy approach, processing jobs by arrival time and then operations sequentially. It evaluates potential server-time slots by calculating a weighted score based on compute cost, projected job delay (with priority multipliers), and a cloud deterrence factor, including special logic for emergency jobs to trigger reduced cloud costs if local options incur significant delay.
+- **Performance**: The program reports a combined score of 0.0 (target) but is explicitly stated as "incorrect" and "does not pass all validation tests."
+- **Feedback**: The failure to pass validation tests indicates the scheduling logic likely results in infeasible schedules or violates critical constraints, despite implementing complex scoring and emergency handling. This suggests issues with capacity reservation, a possibly too aggressive cloud strategy, or an insufficient local search window that prevents finding valid placements.
+**Program Identifier:** Generation 121 - Patch Name modular_scheduler_helper - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Cloud Deterrence**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, scheduling each operation greedily using an `operation_objective` that considers compute cost, job delay penalty (weighted by priority), and a dynamic cloud deterrence factor. It searches for the first available slot on local servers within a defined horizon and compares it to an immediate cloud placement, adjusting cloud deterrence based on local server congestion.
+- **Performance**: The program aims for a combined score of 0.0 (presumably minimizing costs), but no achieved score is reported.
+- **Feedback**: The program is deemed "incorrect" and "does not pass all validation tests," indicating fundamental issues with the scheduling logic or objective function that prevent it from producing valid or optimal schedules.
+**Program Identifier:** Generation 122 - Patch Name none - Correct Program: False
+
+**Program Name: Event-Driven Online Job Scheduler with Greedy Heuristic**
+- **Implementation**: This program implements an event-driven online scheduler that processes jobs by arrival time, making irrevocable decisions for each operation using a greedy heuristic. It evaluates candidate slots within a limited lookahead window on local and cloud servers based on a weighted score considering compute cost, projected job delay penalty with priority multipliers, and dynamic cloud deterrence.
+- **Performance**: The program did not achieve the optimal combined score (0.0) and failed to pass all validation tests, indicating issues with feasibility or optimality.
+- **Feedback**: The greedy, localized decision-making within a restricted search window and heuristic parameter tuning likely leads to suboptimal operation placements or resource contention, resulting in constraint violations or higher costs that accumulate as more jobs are scheduled.
+**Program Identifier:** Generation 123 - Patch Name none - Correct Program: False
+
+**Program Name: Online Heuristic Job Scheduler with Priority and Cloud Deterrence**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs in arrival order, scheduling each operation greedily using a custom scoring function. This function considers compute cost, projected job delay (weighted by priority and a job-specific delay weight), and a cloud deterrence factor, performing a limited local search for available slots on local servers.
+- **Performance**: The program fails validation tests and reports a combined score to maximize of 0.0, indicating it does not produce valid or effective schedules under the given constraints.
+- **Feedback**: While the heuristic attempts to balance compute costs and delay penalties with specific priority multipliers and cloud deterrence, its greedy, limited local search approach is insufficient. The failure to pass validation suggests issues with capacity management or constraint adherence, likely stemming from the local optimization without broader temporal or resource planning.
+**Program Identifier:** Generation 124 - Patch Name best_of_n_local_slots - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduling with Priority and Cloud Deterrence**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It schedules each job operation by searching for the `N_CANDIDATES_PER_SERVER` earliest available slots on local servers within a defined horizon (`job.deadline + inst.time_horizon`) or immediately using cloud resources. An objective function, weighted by compute cost, delay penalty, job priority, and a fixed cloud deterrence, guides operation placement.
+- **Performance**: The program achieved a combined score of 0.0, indicating fundamental issues, and failed to pass all validation tests.
+- **Feedback**: The current implementation is incorrect and not robust, leading to validation failures. The chosen objective function, while comprehensive with priority weights and cloud deterrence, does not effectively guide the search strategy (N candidates, search limit) to avoid violations or achieve a valid schedule, suggesting a need to re-evaluate the greedy selection logic or the search window for local server slots.
+**Program Identifier:** Generation 125 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Priority-Weighted Heuristics**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, using a priority-weighted objective function to place operations. It employs dynamic cloud deterrence (discounted for emergency jobs), searches local server availability within a limited future window, and includes a trigger to re-evaluate cloud options with further reduced cost if emergency jobs face significant local delays.
+- **Performance**: The program achieved a combined score of 0.0 and is reported as incorrect, failing validation tests.
+- **Feedback**: The explicit tuning of numerous hardcoded parameters for priorities, cloud deterrence, and search windows indicates a heuristic approach highly sensitive to specific scenarios. The "incorrect" status suggests these tuned parameters might be miscalibrated or that the greedy heuristic fails to consistently find valid or optimal solutions across all test cases.
+**Program Identifier:** Generation 126 - Patch Name resilient_priority_best_fit_scheduler - Correct Program: False
+
+**Program Name: Online Greedy Job Scheduler with Dynamic Capacity & Costing**
+- **Implementation**: This program implements an online, event-driven scheduler that assigns job operations sequentially, preferring the lowest-scoring option based on compute cost, weighted delay penalties (adjusted by priority), and a cloud deterrence factor. It dynamically adjusts the local search window based on job priority and incorporates machine failure effects on capacity.
+- **Performance**: The program achieved a combined score of 0.0 and failed to pass all validation tests, indicating incorrectness and poor performance.
+- **Feedback**: Despite sophisticated cost modeling, priority-based multipliers, and cloud deterrence, the greedy approach appears insufficient to meet all constraints or optimize effectively across various scenarios, leading to validation failures. The tuning of deterrence and priority factors may not fully resolve the underlying issues.
+**Program Identifier:** Generation 127 - Patch Name dynamic_local_search_and_priority_tuning - Correct Program: False
+
+**Program Name: Online Priority-Weighted Heuristic Job Scheduler**
+- **Implementation**: This program employs an online, event-driven scheduler that processes jobs strictly by arrival time, using a heuristic `_calculate_placement_score` to prioritize operations. The score considers compute cost, job-level delay penalties weighted by priority, and a dynamic cloud deterrence factor, while respecting machine capacities affected by failures.
+- **Performance**: The current implementation reports a combined score of 0.0, which indicates a non-optimal result for a minimization objective, and crucially, fails validation tests.
+- **Feedback**: The failure to pass validation tests suggests the heuristic likely struggles with constraint satisfaction or objective optimization, possibly due to the strict online nature preventing future lookahead. The complex interplay of priority, cloud deterrence, and failure-affected capacities may require a more robust optimization strategy.
+**Program Identifier:** Generation 128 - Patch Name none - Correct Program: False
+
+**Program Name: Online Incremental Job Scheduler with Cost/Delay Heuristic**
+- **Implementation**: This program implements an online, incremental job scheduler that processes jobs by arrival time and operations sequentially. It selects the best server (local or cloud) and start time for each operation using a heuristic score balancing compute cost, projected job delay (with priority multipliers), and dynamic cloud deterrence, all while respecting server capacity and machine failures within a limited search horizon.
+- **Performance**: The program is incorrect and does not pass all validation tests, indicating that it fails to produce a valid or sufficiently optimized schedule against the stated objective of minimizing the combined score (maximize 0.0 is a bit ambiguous, but usually means minimize cost).
+- **Feedback**: The heuristic's greedy local search and fixed `MAX_LOCAL_SEARCH_HORIZON` likely lead to suboptimal or invalid placements. The hardcoded `PRIORITY_MULTIPLIERS` and cloud deterrence parameters suggest a need for more robust tuning or a more sophisticated search strategy to ensure schedule validity and better optimize the cost/delay trade-off.
+**Program Identifier:** Generation 129 - Patch Name none - Correct Program: False
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+## Optimization Insights from Program Evaluation Results
+
+This analysis integrates feedback from recent program evaluations (Generations 120-129) with previous global insights, solidifying the understanding of successful and ineffective patterns, particularly in comparison to the current best program (Generation 60).
+
+### Successful Algorithmic Patterns
+
+*   **Robust "Best-of-First-Fit" Across All Local Servers (Generation 60, score -16930.00)**: Generation 60 continues its exceptional performance as the *only* program to successfully pass all validation tests and achieve a superior score of -16930.00. Its core strength lies in its "best-of-first-fit" strategy for local machines, explicitly demonstrated in the `schedule_job_online` function: for each local server type, it identifies the *first valid time slot* within a flexible search window (from `current_start` up to `job.deadline + inst.time_horizon`). Crucially, it then calculates the `operation_objective` cost for *each of these server-specific first-fit options* and selects the *overall best-scoring option* among all viable local server placements, comparing them also against an immediate cloud placement. This rigorous comparison across all "first-fit" options on different servers, rather than just the first available slot encountered or a limited `N`-candidate set, is paramount to its consistent validity and high-quality schedules.
+*   **Compliant Intra-Job Lookahead for Accurate Cost Projection (Generation 60)**: Generation 60's `operation_objective` accurately calculates `remaining_duration` by summing the durations of the *current job's subsequent operations* (`sum(o.duration for o in job.operations[idx + 1:])`). This implementation provides a critical, compliant lookahead *within the current job*, enabling more informed decisions about the current operation's impact on the overall job completion time and associated penalties, without violating strict online constraints regarding future *jobs*.
+*   **Comprehensive Objective Function with Priority-Based Delay Penalties (Generation 60)**: The `operation_objective` in Generation 60 effectively balances compute costs with priority-multiplied delay penalties. This robust formulation, which directly incorporates `compute * inst.weights['compute_cost'] + delay * job.delay_weight * inst.weights['delay_penalty']`, ensures that scheduling decisions inherently prioritize high-priority jobs and effectively minimize overall penalty, directly contributing to its superior score and consistent validity under various scenarios, including dynamic machine failures.
+*   **Meticulous Foundational Constraint Handling and Dynamic Capacity (Generation 60)**: Generation 60's `get_available_capacity` and `has_capacity` functions meticulously model machine failures (exponential decay/recovery) and precisely check capacity availability at every time step. This rigorous attention to fundamental validity, including ensuring `current_start = max(job.arrival_time, current_time)` and accurate dynamic resource management, is foundational. It distinguishes Generation 60 by consistently producing feasible schedules even under complex, dynamic failure scenarios like 'earthquake', a feat unmatched by other evaluated programs.
+
+### Ineffective Approaches
+
+*   **Universal Failure of Simple Greedy, First-Fit, or Limited N-Best Strategies (Generations 120-129; all score 0.0)**: The evaluations of Generations 120-129 consistently reinforce the pattern that simple or limited local search strategies are insufficient. These include "greedy, first-fit approach for local servers within a limited search window" (Gen 120), "greedy approach" with "insufficient local search window" (Gen 121), "greedy heuristic" with a "limited lookahead window" (Gen 123), "searching for the `N_CANDIDATES_PER_SERVER` earliest available slots" (Gen 125), and "greedy local search and fixed `MAX_LOCAL_SEARCH_HORIZON`" (Gen 129). All these approaches, lacking the comprehensive "best-of-first-fit" evaluation across all viable server options (as implemented in Generation 60), uniformly failed validation tests and achieved a score of 0.0, indicating a fundamental inability to satisfy constraints.
+*   **Miscalibrated or Flawed Integration of Complex Heuristics (Generations 120, 121, 126, 127; all score 0.0)**: Programs attempting to incorporate advanced heuristics, such as "complex heuristic rules for cloud deterrence and emergency job handling" (Gen 120), "complex scoring and emergency handling" (Gen 121), "priority-weighted objective function" with "explicit tuning of numerous hardcoded parameters" (Gen 126), or "sophisticated cost modeling, priority-based multipliers, and cloud deterrence" (Gen 127), all uniformly failed validation tests with a 0.0 score. The feedback consistently highlights that despite conceptual sophistication, the implementation or calibration of these intricate mechanisms is either "insufficient," "incorrect," "miscalibrated," or leads to "violations and suboptimal placements," ultimately failing to produce valid or performant schedules.
+*   **Blind Application of Dynamic Cost Adjustments Without Validity Guarantee (Generations 120, 121, 126; all score 0.0)**: Several programs focused on dynamically adjusting cloud deterrence or providing emergency job discounts (e.g., "dynamically reduced for emergency jobs if local options cause significant delay" in Gen 120, "special logic for emergency jobs to trigger reduced cloud costs" in Gen 121, "dynamic cloud deterrence (discounted for emergency jobs)" in Gen 126). However, these mechanisms, while conceptually sound for cost optimization, universally failed to produce valid schedules, as evidenced by their 0.0 scores and validation failures. This indicates that optimizing specific cost components without a robust underlying mechanism to ensure constraint satisfaction first, leads to complete scheduling failures.
+*   **Lack of Robust Constraint Handling Leading to Universal Validation Failures (Generations 120-129; all score 0.0)**: The consistent 0.0 score and "incorrect" status for all newly evaluated programs (Generations 120-129), along with previous failed generations, underscores a persistent and fundamental inability to produce *any* valid schedule. This reinforces that merely attempting advanced heuristics is insufficient if foundational aspects of constraint satisfaction—such as correct capacity management, adherence to precedence, and accurate resource tracking—are flawed. These programs fail at the most basic level of problem-solving by not generating feasible schedules.
+
+### Implementation Insights
+
+*   **Precision in "Best-of-First-Fit" Search Logic for Local Servers (Generation 60)**: Generation 60's `schedule_job_online` function explicitly demonstrates its successful logic. For *each* local server matching the operation type, it iterates from `current_start` to `job.deadline + inst.time_horizon` to find the *first* time slot that satisfies `has_capacity`. It then calculates the `operation_objective` cost for *that specific first-fit slot* on *that specific server*. Critically, it then compares this cost against the best options found on *all other local servers* (each evaluated with their own first-fit slot) and the cloud, ultimately selecting the *global minimum* among these viable candidates. This meticulous, server-by-server "first-fit" evaluation followed by a global "best selection" across servers is a crucial implementation detail differentiating it from simpler "first-fit" or `N`-candidate approaches that consistently failed (e.g., Gen 125's `N_CANDIDATES_PER_SERVER`).
+*   **Practical Intra-Job Lookahead Integration (`remaining_duration`) (Generation 60)**: Generation 60's calculation of `remaining_duration = sum(o.duration for o in job.operations[idx + 1:])` within `operation_objective` is a simple yet powerful implementation of compliant lookahead. This direct sum provides immediate, relevant context for the current operation's impact on its parent job's completion time without violating the strict online constraint of no future job knowledge, which is a common pitfall for other heuristics.
+*   **Meticulous Foundational Constraint Enforcement (Generation 60)**: The `current_start = max(job.arrival_time, current_time)` logic, which ensures operations never start before their arrival or previous operation completion, coupled with the robust `has_capacity` function and `get_available_capacity` (which accurately queries for dynamic machine failures and recoveries), highlights the necessity of flawlessly implemented core constraints. This robust base prevents the validation failures universally seen in other programs, including those attempting dynamic adjustments to search windows or capacity (e.g., Gen 127).
+*   **Micro-Level Implementation Flaws Negate Macro-Level Heuristic Intent (Generations 120-129)**: The consistent 0.0 scores of Generations 120-129, despite their descriptions of sophisticated "priority-based adaptations," "dynamic cloud deterrence," and "bounded lookahead," underscore that even conceptually sound heuristics are rendered useless by subtle errors in implementation. Flaws in capacity reservation, cost calculation, or the interaction logic of search heuristics (as implied by the failures of Gen 120-129) can prevent any valid schedule from being generated, demonstrating the critical importance of meticulous coding and debugging at every level. The feedback for Gen 126, noting "explicit tuning of numerous hardcoded parameters," further illustrates how fragile such specific parameter choices are without a fundamentally robust search and validation mechanism.
+
+### Performance Analysis
+
+*   **Generation 60 Maintains Dominance as the Only Valid Online Scheduler (Score -16930.00)**: The current best program, Generation 60, with a combined score of -16930.00 and 100% validation success across both 'normal' and 'earthquake' scenarios, remains the *sole* program to achieve a valid and superior performance baseline for strict online schedulers. This score, representing a minimized penalty of 16930.00, consistently outperforms any other approach under the strict online constraint.
+*   **Universal Failure of Generations 120-129 Underscores Validity as Primary Hurdle (All Score 0.0)**: All newly evaluated programs (Generations 120-129) consistently failed all validation tests, resulting in a reported score of 0.0. This robustly reinforces the pattern that generating a *valid* schedule is the paramount challenge in this problem. No program can achieve a meaningful score until it consistently produces schedules that adhere to all constraints. This starkly contrasts with Generation 60's consistent validity and superior score.
+*   **Superiority of "Best-of-First-Fit" Over Simpler Local Search Strategies Confirmed**: Generation 60's consistent, valid performance (score -16930.00) against the universal failure of programs like "Incremental Online Greedy Scheduler with Dynamic Cloud & Priority Heuristics" (Gen 120), "Event-Driven Online Job Scheduler with Dynamic Cost & Failure Handling" (Gen 121), and "Online Event-Driven Scheduling with Priority and Cloud Deterrence" (Gen 125, using `N_CANDIDATES_PER_SERVER`), confirms that its specific "best-of-first-fit" approach, which rigorously compares the best *first-fit* options across *all* local servers and the cloud, is more effective at minimizing penalties and ensuring validity under strict online constraints than simpler "first-fit" or limited N-candidate evaluations without comprehensive cross-server comparison.
+*   **Unchallenged Dominance of True Multi-Job Lookahead Remains (Generation 50, Score 30789.00)**: While Generation 60 excels within the strict online, local-search framework (processing one job at a time without future job knowledge), Generation 50 ("Online Greedy Scheduler with Lookahead and Dynamic Cloud Deterrence") still holds the highest overall reported score of 30789.00. This stark difference in performance continues to highlight the immense theoretical potential of incorporating true multi-job or deeper multi-operation future simulation for global optimization, albeit within a less constrained or potentially "offline-like" interpretation of the online problem. For programs strictly adhering to the online constraints of processing only the current job without future job knowledge, Generation 60 remains the pinnacle of performance and correctness.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+Here are 5 actionable recommendations for future program mutations, building upon the identified successful patterns of Generation 60 and aiming to enhance its performance:
+
+1.  **Refined "Best-of-N-First-Fit" Local Search:** Directly extend Generation 60's successful "best-of-first-fit" logic for local servers. Instead of selecting the *absolute first* available slot (`break` statement), for each compatible local server, identify `N` (e.g., 3-5) of the earliest *valid* consecutive time slots within the existing search window (`current_start` to `job.deadline + inst.time_horizon`). Calculate the `operation_objective` for *each of these N slots* on that specific server, and then select the single best-scoring option for that server. Finally, compare these "best-of-N-for-each-server" candidates against each other and the immediate cloud placement, mirroring Generation 60's successful global minimum selection. This provides a slightly deeper, yet still efficient, local search while maintaining the crucial cross-server comparison.
+
+2.  **Contextual Intra-Job Future Impact Assessment:** Enhance Generation 60's compliant `remaining_duration` lookahead. When evaluating a placement for the current operation (`op_idx`), if there is a subsequent operation (`op_idx+1`) for the *same job*, perform a light, *simulated* placement of `op_idx+1` immediately following the current operation's proposed completion time, ideally on the *same server type* or an appropriate fallback. Estimate the additional delay or increased compute cost this tentative future placement would incur given current `capacity_usage` and add a small, scaled portion of this "future intra-job dependency cost" as a penalty to the current `operation_objective`. This favors current placements that create smoother, less costly paths for subsequent operations of the same job without violating strict online constraints.
+
+3.  **Adaptive Cloud Deterrence based on Local Server Strain:** Introduce a dynamic adjustment to the cloud `compute_cost` within Generation 60's `operation_objective`. This adjustment should make cloud less appealing (i.e., increase its cost multiplier) when *local servers of the same type as the current operation are currently healthy and underutilized* (e.g., average `get_available_capacity` is consistently above a high threshold for the duration). Conversely, if local servers are heavily utilized, approaching full capacity, or severely impacted by active failures, the cloud cost multiplier could decrease slightly to encourage offloading. This intelligent deterrence prevents premature cloud reliance when local resources are robust, improving cost-efficiency while ensuring validity.
+
+4.  **Priority-Sensitive Variable Search Horizon and Granularity:** Refine the local server search window by making both its upper bound and its step granularity dependent on job priority and operation characteristics. For high-priority jobs or operations with high `capacity_required`, dynamically extend the upper bound of the search window (e.g., `job.deadline + inst.time_horizon * 1.5`) and explore every single time step. For lower-priority jobs or simpler operations, use a tighter window (e.g., `job.deadline + inst.time_horizon / 2`) and potentially check for available slots at coarser intervals (e.g., every 2nd or 3rd time step). This balances search thoroughness with computational cost, optimizing resource allocation based on job importance.
+
+5.  **Long-Term Resource Impact Tie-Breaker:** When Generation 60's `operation_objective` yields multiple viable local server-start-time options (or local vs. cloud) with very similar scores (e.g., within a small epsilon `delta`), introduce a secondary tie-breaking heuristic. Prioritize options that minimize future resource fragmentation or maintain larger contiguous blocks of available capacity on the chosen local server *beyond the current operation's duration*. This can be estimated by analyzing the `capacity_usage` density or the `get_available_capacity` profile for a short window *after* the proposed placement, aiming to preserve system flexibility and reduce future bottlenecks.

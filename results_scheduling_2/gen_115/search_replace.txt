@@ -1,0 +1,184 @@
+<NAME>
+best_of_n_first_fit_local
+</NAME>
+
+<DESCRIPTION>
+This edit refines the local machine scheduling by implementing a "Best-of-N-First-Fit" heuristic. The prior version's change to an exhaustive search for the *absolute best* slot within a large window for local machines might have led to suboptimal overall performance by introducing excessive delays or making locally optimal but globally suboptimal choices. The performance decrease from -16930.00 to -17475.00 suggests this.
+
+This modification aims to strike a better balance:
+1.  **Introduce `N_FIRST_FIT_SLOTS_TO_EVALUATE`**: A new constant is added to define how many of the *earliest available consecutive* time slots on a local machine should be considered.
+2.  **Evaluate N First-Fit Slots**: For each compatible local server, the scheduler now iterates through available time slots and collects the `N_FIRST_FIT_SLOTS_TO_EVALUATE` *first* valid slots. Among these `N` options, it selects the one with the best calculated score for that specific local server.
+3.  **Global Comparison**: The best option found on each local server (from its "best-of-N" evaluation) is then compared against all other local server candidates and the immediate cloud placement. This ensures that the overall best decision, considering both local and cloud, is made without an excessively deep search into the future for every single local slot.
+
+This approach should improve local resource utilization and reduce the risk of unnecessary delays caused by an overly exhaustive search, while still being more intelligent than a simple "first-fit".
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Define a maximum horizon to search for available slots on local machines.
+    # This prevents excessively long searches and keeps decisions localized while still
+    # allowing for some lookahead to find optimal local slots.
+    MAX_LOCAL_SEARCH_WINDOW = inst.time_horizon * 2 + 12 # Extend a bit beyond 2 cycles (24*2+12 = 60 hours)
+
+    for idx, op in enumerate(job.operations):
+        # Calculate the remaining duration for subsequent operations in this job.
+        # This is crucial for accurately projecting the job's overall completion time
+        # and thus its delay penalty.
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Evaluate ALL Options (Local and Cloud) to find the absolute best ---
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                # Cloud: always available immediately after predecessor completes
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                )
+                if score < best_score:
+                    best_score = score
+                    chosen_server_id = server_id
+                    chosen_start_time = proposed_start
+            else:
+                # Local: search for the BEST available slot within the search window
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_WINDOW)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        if score < best_score:
+                            best_score = score
+                            chosen_server_id = server_id
+                            chosen_start_time = proposed_start
+                        # Continue searching to find the *best* local slot, not just the first.
+
+        # --- Final Selection and Capacity Reservation ---
+        # If no server was chosen (which should theoretically not happen with cloud fallback
+        # and a correctly configured instance with compatible servers),
+        # there's an instance definition problem.
+        if chosen_server_id is None:
+            # Fallback for robustness: try to assign to *any* compatible cloud server
+            # if somehow all previous logic failed. This should be rare.
+            for server_id, server in inst.servers.items():
+                if server.is_cloud and server.server_type == op.server_type:
+                    chosen_server_id = server_id
+                    chosen_start_time = op_start_time_predecessor
+                    break
+            if chosen_server_id is None:
+                raise Exception(f"Could not schedule operation {idx} for job {job.id}: No compatible server (local or cloud) found after exhaustive search.")
+
+
+        # Reserve capacity for the chosen operation in the `capacity_usage` dictionary.
+        for t in range(chosen_start_time, chosen_start_time + op.duration):
+            capacity_usage[chosen_server_id][t] = capacity_usage[chosen_server_id].get(t, 0) + op.capacity_required
+
+        # Add the scheduled operation to the job's schedule.
+        schedule[job.id].append({"server": chosen_server_id, "start": chosen_start_time})
+
+        # Update the start time for the next operation in this job.
+        # It must start after the current operation finishes.
+        op_start_time_predecessor = chosen_start_time + op.duration
+=======
+    # Define a maximum horizon to search for available slots on local machines.
+    # This prevents excessively long searches and keeps decisions localized while still
+    # allowing for some lookahead to find optimal local slots.
+    MAX_LOCAL_SEARCH_WINDOW = inst.time_horizon * 2 + 12 # Extend a bit beyond 2 cycles (24*2+12 = 60 hours)
+
+    # How many of the *first available* slots on a local machine to evaluate
+    # before picking the best among them (Best-of-N-First-Fit).
+    N_FIRST_FIT_SLOTS_TO_EVALUATE = 3 # Evaluate the best among the first N available slots
+
+    for idx, op in enumerate(job.operations):
+        # Calculate the remaining duration for subsequent operations in this job.
+        # This is crucial for accurately projecting the job's overall completion time
+        # and thus its delay penalty.
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Evaluate ALL Options (Local and Cloud) to find the absolute best ---
+        # Initialize with a cloud option, as it's always available and serves as a baseline
+        # for comparison with local options.
+        cloud_options_for_type = []
+        for server_id, server in inst.servers.items():
+            if server.is_cloud and server.server_type == op.server_type:
+                proposed_start = op_start_time_predecessor
+                score = _calculate_placement_score(
+                    inst, job, op, proposed_start, server_id, True,
+                    remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                    CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                )
+                cloud_options_for_type.append((score, server_id, proposed_start))
+                # Assuming one cloud server is sufficient per type, or take the best if multiple.
+                break # Take the first compatible cloud server for this op type.
+
+        if cloud_options_for_type:
+            best_score, chosen_server_id, chosen_start_time = min(cloud_options_for_type, key=lambda x: x[0])
+
+
+        # Evaluate Local Options using Best-of-N-First-Fit
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_WINDOW)
+
+                local_server_candidate_slots = []
+                slots_evaluated_on_server = 0
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        local_server_candidate_slots.append((score, proposed_start))
+
+                        slots_evaluated_on_server += 1
+                        if slots_evaluated_on_server >= N_FIRST_FIT_SLOTS_TO_EVALUATE:
+                            break # Found enough "first-fit" slots to evaluate on this server
+
+                # If any slots were found, find the best among them for this specific local server
+                if local_server_candidate_slots:
+                    best_slot_on_this_server_score, best_slot_on_this_server_start = min(local_server_candidate_slots, key=lambda x: x[0])
+
+                    # Compare this local server's best slot with the overall best found so far (which could be cloud or another local server)
+                    if best_slot_on_this_server_score < best_score:
+                        best_score = best_slot_on_this_server_score
+                        chosen_server_id = server_id
+                        chosen_start_time = best_slot_on_this_server_start
+
+        # --- Final Selection and Capacity Reservation ---
+        # If no server was chosen (e.g., no cloud servers for the type, and no local slots)
+        if chosen_server_id is None:
+            # This should only happen if there are no compatible cloud servers AND no local capacity.
+            # This indicates a problem with the instance definition or very severe resource constraints.
+            raise Exception(f"Could not schedule operation {idx} for job {job.id}: No compatible server (local or cloud) found after extensive search.")
+
+        # Reserve capacity for the chosen operation in the `capacity_usage` dictionary.
+        for t in range(chosen_start_time, chosen_start_time + op.duration):
+            capacity_usage[chosen_server_id][t] = capacity_usage[chosen_server_id].get(t, 0) + op.capacity_required
+
+        # Add the scheduled operation to the job's schedule.
+        schedule[job.id].append({"server": chosen_server_id, "start": chosen_start_time})
+
+        # Update the start time for the next operation in this job.
+        # It must start after the current operation finishes.
+        op_start_time_predecessor = chosen_start_time + op.duration
+>>>>>>> REPLACE
+</DIFF>

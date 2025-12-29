@@ -1,0 +1,64 @@
+<NAME>
+best_of_n_local_slots
+</NAME>
+
+<DESCRIPTION>
+This edit implements the "Refined Best-of-N-First-Fit" evaluation strategy (Recommendation 1). Instead of simply taking the first available slot on each local server, the scheduler will now:
+
+1.  For each compatible local server, search within the defined `MAX_LOCAL_SEARCH_HORIZON` for up to `N_LOCAL_CANDIDATES_PER_SERVER` *consecutive* available time slots.
+2.  Calculate the score for each of these `N` candidate slots using the `_calculate_placement_score` function.
+3.  Add the *best-scoring* slot found *for that specific local server* to the overall `candidate_options` list.
+
+This approach provides a slightly deeper, yet still efficient, local search by considering a few alternative good placements on each local server, rather than just the immediate first one. This helps in avoiding local optima where the very first available slot might lead to higher costs or delays for subsequent operations of the same job. By comparing the single best option from each local server (which itself is the best of N slots) against cloud options and other local servers, we retain the crucial cross-server comparison that has been effective in previous successful generations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Evaluate Local Options (First-Fit within Search Horizon) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        candidate_options.append((score, server_id, proposed_start))
+                        break # Take the first available slot on this local server
+=======
+        N_LOCAL_CANDIDATES_PER_SERVER = 3 # Number of best slots to check per local server
+
+        # --- Evaluate Local Options (Best-of-N First-Fit within Search Horizon) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                local_server_best_candidate = (float('inf'), None, None) # (score, server_id, start_time)
+                found_candidates_count = 0
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        # Keep track of the best score found so far for *this specific local server*
+                        if score < local_server_best_candidate[0]:
+                            local_server_best_candidate = (score, server_id, proposed_start)
+
+                        found_candidates_count += 1
+                        if found_candidates_count >= N_LOCAL_CANDIDATES_PER_SERVER:
+                            # If we've found enough valid slots, stop searching this server.
+                            # We only need the *best* among these N for this server.
+                            break
+
+                if local_server_best_candidate[1] is not None: # If a candidate was found for this local server
+                    candidate_options.append(local_server_best_candidate)
+>>>>>>> REPLACE
+</DIFF>

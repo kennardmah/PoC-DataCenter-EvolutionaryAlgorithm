@@ -1,0 +1,95 @@
+<NAME>
+local_lookahead_search_v2
+</NAME>
+
+<DESCRIPTION>
+The previous attempt failed because the `SEARCH` block was not exact. This revised edit aims to correctly implement the limited look-ahead for local machines.
+
+The original scheduler for local machines was purely greedy: it picked the *first* available slot it found. This might not be optimal because later slots might have lower hourly costs or result in a smaller total delay penalty, even if they are not the absolute earliest.
+
+This edit introduces a `LOOKAHEAD_WINDOW_LOCAL` parameter (set to 4 hours). For local machines, instead of taking the very first available slot, the scheduler now searches for the slot within `current_start` and `current_start + LOOKAHEAD_WINDOW_LOCAL` that yields the minimum `operation_objective` cost for that specific machine. If no slot is found within this window, it still falls back to searching for the *first* available slot beyond the lookahead window, but within a reasonable upper bound to ensure the job can be scheduled. This balances finding a better spot on local machines with the online constraint of limited knowledge and avoids excessive computational load. Cloud options are still evaluated for immediate start as they have unlimited capacity.
+
+By looking ahead a small window, the scheduler can potentially find cheaper or less penalizing slots on local machines, leading to better overall scores, especially in scenarios with varying costs or tight deadlines.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+=======
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    # Configuration for lookahead window for local machines
+    LOOKAHEAD_WINDOW_LOCAL = 4 # How many hours to look ahead for local machine slots
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_overall_option = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # Cloud machines: always available immediately, evaluate cost for current_start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best_overall_option = min(best_overall_option, (cost, server_id, current_start))
+                continue
+
+            # Local machines: search for the best slot within a lookahead window,
+            # then fallback to the first available if no good option in window
+
+            best_local_option_for_this_server = (float('inf'), None) # (cost, start_time)
+
+            # 1. Search within lookahead window
+            search_end_time = current_start + LOOKAHEAD_WINDOW_LOCAL
+            for start in range(current_start, search_end_time):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    if cost < best_local_option_for_this_server[0]:
+                        best_local_option_for_this_server = (cost, start)
+
+            # 2. If no slot found in lookahead, find the first available slot
+            if best_local_option_for_this_server[1] is None:
+                # Extend search to a broader range if nothing found in lookahead
+                # Use a reasonable upper bound to avoid infinite loops, e.g., job.deadline + duration_limit
+                for start in range(search_end_time, job.deadline + inst.time_horizon + op.duration):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                        best_local_option_for_this_server = (cost, start)
+                        break # Take the first available slot after the lookahead window
+
+            # Update overall best option if a local slot was found
+            if best_local_option_for_this_server[1] is not None:
+                best_overall_option = min(best_overall_option,
+                                          (best_local_option_for_this_server[0],
+                                           server_id,
+                                           best_local_option_for_this_server[1]))
+
+        _, chosen_server, chosen_start = best_overall_option
+>>>>>>> REPLACE
+</DIFF>

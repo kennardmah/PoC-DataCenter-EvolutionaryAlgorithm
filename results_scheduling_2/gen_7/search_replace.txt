@@ -1,0 +1,31 @@
+<NAME>
+limited_local_search_window
+</NAME>
+
+<DESCRIPTION>
+The current heuristic for local machines searches for the first available slot up to `job.deadline + inst.time_horizon`. This window can be extremely large, potentially causing the scheduler to commit to a very distant local slot even if an immediate (but slightly more expensive) cloud option is available. In an online, dynamic environment with high penalties for delay, committing too far into the future to save compute cost for a single operation might be suboptimal for the overall job completion or other urgent jobs.
+
+This edit introduces a `MAX_LOCAL_SEARCH_WINDOW_HOURS` constant (set to 48 hours heuristically). For local machines, the search for the *first* available slot is now limited to `current_start + MAX_LOCAL_SEARCH_WINDOW_HOURS`. This means if a local machine doesn't have an available slot within this reasonable lookahead window, the cloud option (which is always available immediately) will likely be preferred due to its immediate start, balancing compute cost against the implicit penalty of pushing the current operation far into the future. This change helps manage the trade-off between local cost and job urgency/throughput, especially for jobs with distant deadlines, by making local machine decisions more responsive to the current time horizon.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+=======
+            # Define a maximum search window for local slots to prevent excessive lookahead
+            MAX_LOCAL_SEARCH_WINDOW_HOURS = 48 # Example: search up to 48 hours from current_start
+
+            # local: search forward for first available slot within a bounded window
+            search_end_time = min(job.deadline + inst.time_horizon, current_start + MAX_LOCAL_SEARCH_WINDOW_HOURS)
+            for start in range(current_start, search_end_time):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server (if found within window)
+>>>>>>> REPLACE
+</DIFF>

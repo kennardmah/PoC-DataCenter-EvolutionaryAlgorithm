@@ -1,0 +1,13 @@
+<enhanced_lookahead>
+A more sophisticated lookahead is integrated into the operation objective. Instead of merely summing durations for remaining operations, a simplified greedy simulation schedules subsequent operations of the current job to estimate their actual end times and resource costs. This makes the objective function more sensitive to future capacity constraints and cost implications, leading to better overall scheduling decisions, especially under contention.
+
+Additionally, constants previously defined within `schedule_job_online` are now accessible to the new simulation helper function, ensuring consistent logic across planning steps. The `_calculate_placement_score` is updated to utilize the output of this lookahead simulation.
+</NAME>
+
+<DESCRIPTION>
+The previous program used a naive sum of remaining operation durations (`remaining_duration`) when calculating the `projected_completion` time and thus the `delay` for a job. This approach is too simplistic for an NP-hard online scheduling problem, as it does not account for potential capacity bottlenecks or machine failures affecting future operations within the *same* job.
+
+This update implements a more sophisticated, albeit still greedy and computationally lightweight, lookahead simulation. The key changes are:
+
+1.  **Move Constants for Global Access**: Tunable parameters (`PRIORITY_MULTIPLIERS`, `CLOUD_DETERRENCE_BASE`, etc.) are moved outside `schedule_job_online` to make them accessible to all nested helper functions, preventing variable scope issues.
+2.  **Introduce `_calculate_operation_score` helper function**: This new nested function replaces the previous `_calculate_placement_score` and `operation_objective`.

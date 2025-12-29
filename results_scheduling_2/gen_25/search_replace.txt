@@ -1,0 +1,16 @@
+<NAME>
+emergency_cloud_threshold_and_tuning
+</NAME>
+
+<DESCRIPTION>
+This edit refines the scheduling heuristic by implementing an emergency-specific cloud decision threshold and tuning key parameters. The goal is to improve the handling of high-priority jobs, particularly during emergency scenarios, by allowing more flexible and cost-effective cloud utilization when local resources are constrained or cause unacceptable delays.
+
+**Key Changes:**
+
+1.  **Parameter Tuning (Recommendation 5):**
+    *   `PRIORITY_MULTIPLIERS`: Increased 'emergency' (from 8.0 to 12.0) and 'high' (from 3.0 to 5.0) multipliers. This makes delays for these job types significantly more costly, pushing the scheduler to find faster solutions, even if it means higher compute costs.
+    *   `CLOUD_DETERRENCE_BASE`: Increased (from 75.0 to 120.0). This generally discourages cloud usage, forcing the scheduler to exhaust local options more thoroughly before resorting to the cloud, thus improving cost efficiency in normal operations.
+    *   `LOCAL_SEARCH_WINDOW_HOURS`: Reverted to a more expansive value (`inst.time_horizon * 2 + 12`, effectively 60 hours for a 24-hour horizon). This allows local machines to look further ahead for optimal slots, addressing a limitation of previous, smaller windows (Recommendation 1).
+
+2.  **Emergency Cloud Decision Threshold (Recommendation 4):**
+    *   `EMERG

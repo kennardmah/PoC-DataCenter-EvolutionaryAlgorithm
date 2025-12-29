@@ -1,0 +1,59 @@
+<NAME>
+best_of_n_earliest_local_slots
+</NAME>
+
+<DESCRIPTION>
+This edit refines the local machine scheduling heuristic. Instead of selecting the *very first* available time slot on a local server (a greedy "first-fit" approach), the scheduler now evaluates the `N_LOCAL_CANDIDATES` (set to 3) earliest available consecutive slots for each compatible local server. It then selects the *best-scoring* slot among these `N` candidates for that specific server. This "best-of-N-earliest" strategy allows for a slightly deeper local search, potentially finding more optimal placements that might be slightly later but lead to lower overall costs or penalties, without incurring the high computational cost of a full "best-fit" search across the entire horizon. This improvement aims to reduce fragmentation and better utilize local resources when multiple good options are present in the near future.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight and priority
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+=======
+# A fixed penalty per hour of cloud usage, scaled by compute_cost_weight and priority
+CLOUD_DETERRENCE_PER_HOUR = 0.5
+
+# Number of earliest available slots to evaluate for local machines
+N_LOCAL_CANDIDATES = 3
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Evaluate Local Options (greedy search for first available) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                # Local servers: search forward for the *first* available slot within a reasonable horizon
+                # The horizon extends up to the job's deadline plus one time_horizon to allow for some flexibility
+                # but prevents excessively long searches.
+                search_end_time = job.deadline + inst.time_horizon # From the current best program's approach
+
+                for start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = _calculate_placement_score(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+                        break  # CRITICAL: Take the first available slot on this server
+=======
+        # --- Evaluate Local Options (best of N earliest available slots) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                # Local servers: search forward for the best among the N earliest available slots
+                search_end_time = job.deadline + inst.time_horizon
+
+                found_candidates = []
+                num_found = 0
+                for start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = _calculate_placement_score(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        found_candidates.append((cost, start, server_id, False))
+                        num_found += 1
+                        if num_found >= N_LOCAL_CANDIDATES:
+                            break # Found enough candidates for this server
+
+                # If candidates were found, pick the best one for this server and compare it globally
+                if found_candidates:
+                    best_local_for_server = min(found_candidates)
+                    best_op_candidate = min(best_op_candidate, best_local_for_server)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,90 @@
+<NAME>
+greedy_lookahead_simulation
+</NAME>
+
+<DESCRIPTION>
+This edit refines the online scheduling heuristic by implementing a more sophisticated lookahead mechanism for evaluating operation placements. Instead of simply summing the durations of remaining operations, the scheduler now performs a greedy simulation of subsequent operations for a given job for each candidate placement of the *current* operation.
+
+For each candidate placement of the current operation on a specific server at a specific start time:
+1.  A temporary snapshot of the current capacity usage is created, and the *current* operation is hypothetically placed into it.
+2.  A new helper function, `_simulate_greedy_future_ops`, is then called. This function takes the remaining, unscheduled operations for the job and the `capacity_usage` snapshot (which now includes the current operation). It iteratively and greedily schedules each subsequent operation, finding the earliest available slot on either a local or cloud machine (prioritizing local based on a slightly modified cost to prefer them, but always considering cloud as a fallback). It builds upon the simulated capacity usage as it places each subsequent operation.
+3.  `_simulate_greedy_future_ops` returns the accumulated compute cost for these simulated future operations and the projected final completion time of the entire job.
+4.  The `_calculate_placement_score` function utilizes these simulated costs and completion times, combining them with the current operation's cost and the job's overall delay penalty (which is now based on a more accurate total completion time projection). Cloud deterrence is also applied to the *current* operation within this function.
+
+This change directly addresses **Recommendation 4: Refine Lookahead Simulation with Greedy Subsequent Operation Placement**, aiming to improve the scheduler's decision-making by providing a more accurate foresight into the total impact of a single operation's placement on the entire job's cost and completion time. It uses a slightly smaller search window for internal simulation to balance accuracy and computational cost.
+
+**Key modifications:**
+- Introduction of `_simulate_greedy_future_ops` to simulate the scheduling of remaining operations.
+- Modification of `_calculate_placement_score` to accept `_simulated_future_compute_cost` and `_simulated_job_completion_time` instead of `_remaining_ops_duration`.
+- The main loop in `schedule_job_online` is updated to call `_simulate_greedy_future_ops` for each candidate placement and pass its results to `_calculate_placement_score`.
+- The `EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD` logic is updated to use the more accurate `_simulated_job_completion_time`.
+- `remaining_operations_duration` is replaced by `remaining_operations` which is a list of Operation objects.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    # --- Tunable Parameters ---
+    # Priority multipliers for delay penalties: higher values make delays more costly for critical jobs.
+    PRIORITY_MULTIPLIERS = {
+        'emergency': 10.0, # High impact for emergency
+        'high': 4.0,       # Increased from previous iteration
+        'medium': 1.0,
+        'low': 0.5,
+    }
+
+    # Base cost to deter cloud usage, making local preferred.
+    CLOUD_DETERRENCE_BASE = 100.0 # Increased from previous iteration
+
+    # Reduction factor for cloud deterrence specifically for emergency jobs.
+    # E.g., 0.8 means cloud deterrence is 80% cheaper for emergency jobs.
+    CLOUD_EMERGENCY_DISCOUNT_FACTOR = 0.8
+
+    # How far into the future local machines search for an optimal slot (in hours).
+    LOCAL_SEARCH_WINDOW_HOURS = 24 # From recommendation 1.
+
+    # If an emergency job's best local option causes this much delay (or more),
+    # consider cloud with reduced cost.
+    EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+
+    # Additional cost reduction factor for cloud if triggered by emergency threshold.
+    EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5)
+
+    # Helper function to calculate the score for a proposed operation placement
+    def _calculate_placement_score(
+        _inst: Instance,
+        _job: Job,
+        _operation: Operation,
+        _proposed_start: int,
+        _server_id: str,
+        _is_cloud_server: bool,
+        _remaining_ops_duration: int,
+        _cloud_deterrence_override_factor: float = 1.0 # New parameter for emergency cloud cost adjustment
+    ) -> float:
+        """
+        Calculates a weighted score for a proposed operation placement,
+        considering compute cost, the impact on the job's overall delay penalty,
+        and adding dynamic cloud deterrence.
+        """
+        # Compute cost for THIS operation
+        op_compute_cost = sum(_inst.server_cost[_server_id][t % _inst.time_horizon]
+                              for t in range(_proposed_start, _proposed_start + _operation.duration))
+
+        # Add cloud deterrence if the operation is placed on a cloud server.
+        if _is_cloud_server:
+            deterrence = CLOUD_DETERRENCE_BASE
+            if _job.priority == 'emergency':
+                # Apply base discount for emergency jobs
+                deterrence *= (1.0 - CLOUD_EMERGENCY_DISCOUNT_FACTOR)
+
+            # Apply any additional override factor (e.g., from emergency threshold trigger)
+            deterrence *= _cloud_deterrence_override_factor
+
+            op_compute_cost += deterrence
+
+        # Projected completion time for THE ENTI

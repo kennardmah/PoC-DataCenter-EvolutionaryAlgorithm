@@ -1,0 +1,31 @@
+<NAME>
+best_fit_wide_window_local_search
+</NAME>
+
+<DESCRIPTION>
+This modification improves the local server scheduling heuristic by implementing a "best fit" approach within the existing wide search window.
+
+The previous implementation for local servers used a `break` statement, causing it to select the *first* available slot it encountered within the search horizon (`job.deadline + inst.time_horizon`). While fast, this greedy approach might overlook more optimal slots that become available slightly later on the same server, or slots that result in a lower overall cost according to the `_calculate_placement_score` function.
+
+By removing the `break` statement, the scheduler will now iterate through *all* possible valid start times for a given local server within the specified wide horizon. The `best_op_candidate = min(best_op_candidate, ...)` comparison will then ensure that the slot yielding the absolute minimum cost (considering compute, delay, and cloud deterrence if applicable) is chosen for that operation. This allows for a more comprehensive evaluation of local resource allocation, aiming to reduce total cost by optimizing for both immediate resource availability and overall job objective.
+
+This change directly addresses the "Best Fit" pattern observed in higher-performing solutions while retaining the potentially beneficial wide search window for local machines. It is an isolated improvement to the local search strategy, without introducing complex lookahead simulations or dynamic cloud deterrence adjustments from previous, less successful iterations, to better assess its individual impact.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+                for start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = _calculate_placement_score(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+                        break  # CRITICAL: Take the first available slot on this server (greedy heuristic)
+=======
+                # Local servers: search forward for the *best* available slot within the defined horizon.
+                # Remove 'break' to evaluate all viable slots within the window and pick the best (best-fit).
+                for start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        cost = _calculate_placement_score(inst, server_id, start, op, job, remaining_duration, is_cloud=False)
+                        # The `min` function ensures the best slot found so far for this operation is retained.
+                        best_op_candidate = min(best_op_candidate, (cost, start, server_id, False))
+>>>>>>> REPLACE
+</DIFF>

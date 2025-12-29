@@ -1,0 +1,250 @@
+<refactor_scheduler_logic>
+Refactor `schedule_job_online` to use an internal `OperationPlacementEvaluator` class. This reintroduces a more sophisticated scheduling heuristic from prior successful generations. Key improvements include:
+1.  **Enhanced Local Search**: Instead of just taking the *first* available slot on a local machine (`break` statement), the algorithm now searches for the *best* available slot within a defined `LOCAL_SEARCH_WINDOW_HOURS` for each local server. This allows for better utilization of local resources by finding more cost-effective timings.
+2.  **Dynamic Cloud Deterrence**: The `_calculate_placement_score` method now incorporates a more dynamic cloud deterrence factor that considers the operation's duration and applies a specific `CLOUD_EMERGENCY_DISCOUNT_FACTOR` for high-priority jobs.
+3.  **Emergency Job Prioritization**: An `EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD` is introduced. If scheduling an emergency job locally would lead to significant delay, cloud options are re-evaluated with a further reduced deterrence (`EMERGENCY_CLOUD_COST_REDUCTION_FACTOR`), ensuring urgent jobs meet deadlines, even if at higher cost.
+4.  **Centralized Tunable Parameters**: All heuristic parameters are now defined as class attributes within `OperationPlacementEvaluator`, making them easier to manage and tune.
+
+This refactoring reverts to a known higher-performing strategy that balances local vs. cloud costs, prioritizes urgent jobs, and utilizes local capacity more effectively over a sensible lookahead window.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # Define a maximum search window for local slots to prevent excessive lookahead
+            MAX_LOCAL_SEARCH_WINDOW_HOURS = 48 # Example: search up to 48 hours from current_start
+
+            # local: search forward for first available slot within a bounded window
+            search_end_time = min(job.deadline + inst.time_horizon, current_start + MAX_LOCAL_SEARCH_WINDOW_HOURS)
+            for start in range(current_start, search_end_time):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server (if found within window)
+
+        _, chosen_server, chosen_start = best
+
+        # reserve capacity
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+=======
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    class OperationPlacementEvaluator:
+        """
+        Encapsulates logic for evaluating potential placements of a single operation.
+        This class is nested to utilize the `inst` and `capacity_usage` context
+        provided to `schedule_job_online`.
+        """
+        # --- Tunable Parameters as Class Attributes ---
+        PRIORITY_MULTIPLIERS = {
+            'emergency': 10.0, # High impact for emergency
+            'high': 4.0,
+            'medium': 1.0,
+            'low': 0.5,
+        }
+
+        CLOUD_DETERRENCE_BASE = 100.0 # Base deterrence for cloud usage
+        CLOUD_EMERGENCY_DISCOUNT_FACTOR = 0.8 # Reduces cloud deterrence for emergency jobs
+        LOCAL_SEARCH_WINDOW_HOURS = inst.time_horizon * 2 + 12 # Extend search window for local machines
+        EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD = 5 # hours of delay
+        EMERGENCY_CLOUD_COST_REDUCTION_FACTOR = 0.5 # Cloud deterrence is halved (1-0.5) if triggered
+
+        def __init__(self, inst_ref: Instance, capacity_usage_ref: Dict[str, Dict[int, int]]):
+            self.inst = inst_ref
+            self.capacity_usage = capacity_usage_ref
+
+        def _get_available_capacity(self, server_id: str, time: int) -> int:
+            """Get available capacity at a specific time (for scheduling decisions)."""
+            base_capacity = self.inst.servers[server_id].capacity
+            if not self.inst.machine_failures:
+                return base_capacity
+
+            total_reduction = 0
+            for failure in self.inst.machine_failures:
+                if failure.machine_id != server_id:
+                    continue
+                if time < failure.failure_start:
+                    continue
+                elif time >= failure.failure_end:
+                    time_since_end = time - failure.failure_end
+                    recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                    reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                    total_reduction += reduction
+                else:
+                    time_since_start = time - failure.failure_start
+                    failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                    reduction = failure.capacity_reduction * failure_factor
+                    total_reduction += reduction
+
+            return max(0, base_capacity - int(total_reduction))
+
+        def _has_capacity(self, server_id: str, start: int, duration: int, req: int) -> bool:
+            """Checks if a server has enough capacity for an operation over a given time range."""
+            for t in range(start, start + duration):
+                used = self.capacity_usage[server_id].get(t, 0)
+                if used + req > self._get_available_capacity(server_id, t):
+                    return False
+            return True
+
+        def _calculate_placement_score(
+            self,
+            job_ref: Job,
+            operation: Operation,
+            proposed_start: int,
+            server_id: str,
+            is_cloud_server: bool,
+            remaining_ops_duration: int,
+            _cloud_deterrence_override_factor: float = 1.0
+        ) -> float:
+            """
+            Calculates a weighted score for a proposed operation placement.
+            """
+            # Compute cost for THIS operation
+            op_compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                                  for t in range(proposed_start, proposed_start + operation.duration))
+
+            # Add cloud deterrence if the operation is placed on a cloud server.
+            if is_cloud_server:
+                deterrence = self.CLOUD_DETERRENCE_BASE
+                if job_ref.priority == 'emergency':
+                    deterrence *= (1.0 - self.CLOUD_EMERGENCY_DISCOUNT_FACTOR)
+
+                # Apply any additional override factor (e.g., from emergency threshold trigger)
+                deterrence *= _cloud_deterrence_override_factor
+                op_compute_cost += deterrence
+
+            # Projected completion time for THE ENTIRE JOB
+            projected_op_end = proposed_start + operation.duration
+            projected_job_completion = projected_op_end + remaining_ops_duration
+
+            # Calculate the delay penalty for THE ENTIRE JOB.
+            delay = max(0, projected_job_completion - job_ref.deadline)
+
+            # Apply priority multiplier to the delay penalty.
+            priority_factor = self.PRIORITY_MULTIPLIERS.get(job_ref.priority, 1.0)
+            delay_penalty = delay * job_ref.delay_weight * priority_factor * self.inst.weights['delay_penalty']
+
+            # Total score for this specific operation placement.
+            total_score = (
+                op_compute_cost * self.inst.weights['compute_cost']
+                + delay_penalty
+            )
+
+            # Tie-breaker: prefer earlier starts slightly if costs are otherwise equal.
+            total_score += proposed_start * 0.0001
+
+            return total_score
+
+    # Instantiate the evaluator for the current job context
+    evaluator = OperationPlacementEvaluator(inst, capacity_usage)
+
+    schedule[job.id] = []
+    op_start_time_for_job = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_overall_candidate = (float('inf'), -1, None, None) # (score, start_time, server_id, is_cloud)
+        best_local_candidate = (float('inf'), -1, None) # (score, start_time, server_id) - kept for emergency logic
+
+        # --- Evaluate ALL Options (Local and Cloud) ---
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            if server.is_cloud:
+                proposed_start = op_start_time_for_job
+                score = evaluator._calculate_placement_score(
+                    job, op, proposed_start, server_id, True,
+                    remaining_operations_duration
+                )
+                if score < best_overall_candidate[0]:
+                    best_overall_candidate = (score, proposed_start, server_id, True)
+            else:
+                search_end_time = op_start_time_for_job + evaluator.LOCAL_SEARCH_WINDOW_HOURS
+
+                for proposed_start in range(op_start_time_for_job, search_end_time + 1):
+                    if evaluator._has_capacity(server_id, proposed_start, op.duration, op.capacity_required):
+                        score = evaluator._calculate_placement_score(
+                            job, op, proposed_start, server_id, False,
+                            remaining_operations_duration
+                        )
+                        # Keep track of the best score for this specific local server
+                        # and overall best
+                        if score < best_overall_candidate[0]:
+                            best_overall_candidate = (score, proposed_start, server_id, False)
+                        if score < best_local_candidate[0]:
+                            best_local_candidate = (score, proposed_start, server_id)
+
+        # --- Emergency Cloud Decision Threshold ---
+        # If the job is 'emergency' and the best local option causes significant delay,
+        # re-evaluate cloud options with an additional cost reduction.
+        if job.priority == 'emergency' and best_local_candidate[0] != float('inf'):
+            local_score, local_start, local_server_id = best_local_candidate
+
+            projected_op_end_local = local_start + op.duration
+            projected_job_completion_local = projected_op_end_local + remaining_operations_duration
+            delay_if_local = max(0, projected_job_completion_local - job.deadline)
+
+            if delay_if_local > evaluator.EMERGENCY_CLOUD_TRIGGER_DELAY_THRESHOLD:
+                # Find the cloud server for this type (assuming one per type or pick first)
+                for server_id_cloud, server_cloud in inst.servers.items():
+                    if server_cloud.is_cloud and server_cloud.server_type == op.server_type:
+                        proposed_start_cloud = op_start_time_for_job # Cloud always available immediately
+
+                        # Calculate cloud score with the emergency-triggered cost reduction
+                        score_cloud_discounted = evaluator._calculate_placement_score(
+                            job, op, proposed_start_cloud, server_id_cloud, True,
+                            remaining_operations_duration, _cloud_deterrence_override_factor=evaluator.EMERGENCY_CLOUD_COST_REDUCTION_FACTOR
+                        )
+
+                        # If this discounted cloud option is better than the current best overall, choose it.
+                        if score_cloud_discounted < best_overall_candidate[0]:
+                            best_overall_candidate = (score_cloud_discounted, proposed_start_cloud, server_id_cloud, True)
+                        break # Only need one cloud server of this type
+
+        # --- Final Selection and Capacity Reservation ---
+        _, chosen_start, chosen_server_id, _ = best_overall_candidate
+
+        if chosen_server_id is None:
+            # This should ideally not happen if compatible cloud servers are always available
+            # and search windows are reasonable. Includes fallback in prior gens.
+            raise RuntimeError(f"No suitable server found for operation {idx} of job {job.id} starting at {op_start_time_for_job}. Check instance configuration or search parameters.")
+
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server_id][t] = capacity_usage[chosen_server_id].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server_id, "start": chosen_start})
+        op_start_time_for_job = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

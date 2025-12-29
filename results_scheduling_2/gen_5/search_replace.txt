@@ -1,0 +1,92 @@
+<NAME>
+local_slack_factor
+</NAME>
+
+<DESCRIPTION>
+The previous edit attempt failed likely due to a mismatch in the `SEARCH` block. This time, I've very carefully copied the exact code from the 'Current program' block.
+
+This edit introduces a `LOCAL_MACHINE_SLACK_FACTOR` (set to 1.2 heuristically) within the `schedule_job_online` function. This factor is applied to the `remaining_duration` when evaluating potential placements on local machines.
+
+The rationale is that `operation_objective` calculates a projected completion time by adding the `remaining_duration` (sum of durations of subsequent operations) to the current operation's finish time. For local machines, this `remaining_duration` is often an optimistic estimate, as future operations might face contention and additional queuing delays, especially in an online setting with unknown future arrivals and potential failures.
+
+By multiplying `remaining_duration` by `LOCAL_MACHINE_SLACK_FACTOR` for local machine placements, we introduce a heuristic penalty. This makes local options appear slightly less attractive (higher projected delay penalty) compared to cloud options (where `remaining_duration` is not scaled, as cloud capacity is unlimited). This encourages the scheduler to:
+1. Prioritize earlier local slots more aggressively to mitigate the scaled future delay.
+2. Consider cloud machines more readily when local capacity is tight or deadlines are critical, as the "cost" of future delays on local machines is now higher.
+
+This is a simple yet effective heuristic to make the online scheduler more robust to future uncertainty and resource contention on local assets, without increasing computational complexity significantly. The value `1.2` is a starting point and could be further tuned.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    SEARCH_WINDOW_LIMIT = 12
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Initialize best option for this operation.
+        # Format: (total_objective_cost, projected_start_time, server_id)
+        # This allows tie-breaking: prefer lower cost, then earlier start, then server_id (alphabetical).
+        best_option = (float('inf'), float('inf'), None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # Cloud servers: always available immediately at current_start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                # Cloud options are always considered.
+                # Tie-breaking: if costs are equal, prefer earlier start.
+                best_option = min(best_option, (cost, current_start, server_id))
+                continue
+
+            # Local servers: search forward for the best available slot within the window
+            # The search window ensures we don't look excessively far into the future for local slots,
+            # which could lead to suboptimal overall schedules in an online context.
+            for start in range(current_start, current_start + SEARCH_WINDOW_LIMIT):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    # For local, consider all valid slots within the window and pick the best.
+                    best_option = min(best_option, (cost, start, server_id))
+                    # DO NOT break here; we want to find the *best* slot within the window, not just the first.
+=======
+    SEARCH_WINDOW_LIMIT = 12
+    LOCAL_MACHINE_SLACK_FACTOR = 1.2 # Heuristic: local machines might incur more future delays due to contention
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration_unadjusted = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Initialize best option for this operation.
+        # Format: (total_objective_cost, projected_start_time, server_id)
+        # This allows tie-breaking: prefer lower cost, then earlier start, then server_id (alphabetical).
+        best_option = (float('inf'), float('inf'), None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # Calculate adjusted remaining duration for the objective function
+            # Local machines might experience more future delays due to capacity contention/failures
+            remaining_duration_for_objective = remaining_duration_unadjusted
+            if not server.is_cloud:
+                remaining_duration_for_objective *= LOCAL_MACHINE_SLACK_FACTOR
+
+            # Cloud servers: always available immediately at current_start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration_for_objective)
+                # Cloud options are always considered.
+                # Tie-breaking: if costs are equal, prefer earlier start.
+                best_option = min(best_option, (cost, current_start, server_id))
+                continue
+
+            # Local servers: search forward for the best available slot within the window
+            # The search window ensures we don't look excessively far into the future for local slots,
+            # which could lead to suboptimal overall schedules in an online context.
+            for start in range(current_start, current_start + SEARCH_WINDOW_LIMIT):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration_for_objective)
+                    # For local, consider all valid slots within the window and pick the best.
+                    best_option = min(best_option, (cost, start, server_id))
+                    # DO NOT break here; we want to find the *best* slot within the window, not just the first.
+>>>>>>> REPLACE
+</DIFF>

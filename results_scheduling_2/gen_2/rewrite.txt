@@ -1,0 +1,251 @@
+# EVOLVE-BLOCK-START
+
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+#
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable.
+# =============================================================================
+
+from collections import defaultdict
+import math
+import copy
+
+# Helper function to simulate remaining operations for a job
+# This function uses a greedy approach for simulation purposes
+def _simulate_remaining_operations(inst: Instance, job: Job, start_op_idx: int,
+                                   current_op_start_time: int,
+                                   sim_capacity_usage: Dict[str, Dict[int, int]],
+                                   max_horizon: int):
+    """
+    Simulates scheduling of remaining operations of a job to estimate total cost and completion time.
+    Uses a greedy approach for each simulated operation:
+    1. Try to find the earliest slot on local machines.
+    2. Fallback to cloud if local is not available or too delayed.
+    """
+    simulated_ops_compute_cost = 0.0
+    sim_current_start = current_op_start_time
+    last_op_finish_time = sim_current_start # Initialized with the finish time of the *previous* operation (which is current_op_start_time)
+
+    for idx in range(start_op_idx, len(job.operations)):
+        op = job.operations[idx]
+        best_sim_placement = (float('inf'), None, None) # (compute_cost, server_id, start_time)
+        
+        # Ensure sim_current_start doesn't go below the job's arrival time for any operation
+        sim_current_start = max(sim_current_start, job.arrival_time)
+
+        # 1. Try Cloud option first (always available immediately, but potentially higher cost)
+        cloud_server_id = None
+        for s_id, server_obj in inst.servers.items():
+            if server_obj.is_cloud and server_obj.server_type == op.server_type:
+                cloud_server_id = s_id
+                break
+        
+        if cloud_server_id:
+            cloud_start = sim_current_start
+            cloud_op_compute_cost = sum(inst.server_cost[cloud_server_id][t % inst.time_horizon]
+                                        for t in range(cloud_start, cloud_start + op.duration))
+            best_sim_placement = (cloud_op_compute_cost, cloud_server_id, cloud_start)
+
+        # 2. Then try Local servers, searching for the earliest available slot
+        # A simple greedy search for the *earliest possible finish time* is good for simulation speed
+        for server_id, server in inst.servers.items():
+            if server.is_cloud or server.server_type != op.server_type:
+                continue
+            
+            # Find earliest available slot on this local server
+            for start_t in range(sim_current_start, max_horizon):
+                if has_capacity(inst, sim_capacity_usage, server_id, start_t, op.duration, op.capacity_required):
+                    local_op_compute_cost = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                                                for t in range(start_t, start_t + op.duration))
+                    
+                    # For simulation, prioritize earliest finish time
+                    # If current best is cloud or a later local, update with this earlier local
+                    # We also consider cost, but finish time is key for future ops
+                    current_best_finish_time = best_sim_placement[2] + op.duration if best_sim_placement[1] else float('inf')
+                    if (start_t + op.duration) < current_best_finish_time: # Primarily earliest finish
+                        best_sim_placement = (local_op_compute_cost, server_id, start_t)
+                    elif (start_t + op.duration) == current_best_finish_time and local_op_compute_cost < best_sim_placement[0]:
+                        best_sim_placement = (local_op_compute_cost, server_id, start_t) # Tie-break by cost
+                    break # Found earliest slot for this local server, move to next server
+        
+        chosen_sim_op_compute_cost, chosen_sim_server, chosen_sim_start = best_sim_placement
+
+        # Fallback if no server (not even cloud) could be found within max_horizon (shouldn't happen with cloud)
+        if chosen_sim_server is None:
+            # This is a defensive fallback; cloud should always provide an option.
+            # If this happens, it implies a logical error or an extremely restrictive max_horizon.
+            # Default to cloud at current_op_start_time.
+            chosen_sim_server = cloud_server_id if cloud_server_id else list(inst.servers.keys())[0] # pick first server if no cloud
+            chosen_sim_start = sim_current_start
+            chosen_sim_op_compute_cost = sum(inst.server_cost[chosen_sim_server][t % inst.time_horizon]
+                                            for t in range(chosen_sim_start, chosen_sim_start + op.duration))
+
+        # Reserve capacity in the *simulation copy*
+        for t in range(chosen_sim_start, chosen_sim_start + op.duration):
+            sim_capacity_usage[chosen_sim_server][t] = sim_capacity_usage[chosen_sim_server].get(t, 0) + op.capacity_required
+
+        simulated_ops_compute_cost += chosen_sim_op_compute_cost
+        sim_current_start = chosen_sim_start + op.duration
+        last_op_finish_time = sim_current_start
+    
+    return simulated_ops_compute_cost, last_op_finish_time
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_op_predecessor_finish_time = max(job.arrival_time, current_time)
+
+    for op_idx, op in enumerate(job.operations):
+        best_overall_job_cost = float('inf')
+        best_placement_for_current_op = (None, None) # (server_id, start_time)
+
+        candidate_placements = []
+
+        # 1. Generate candidate placement for Cloud (always immediate)
+        cloud_server_id = None
+        for s_id, server_obj in inst.servers.items():
+            if server_obj.is_cloud and server_obj.server_type == op.server_type:
+                cloud_server_id = s_id
+                break
+        if cloud_server_id:
+            candidate_placements.append((cloud_server_id, current_op_predecessor_finish_time))
+        
+        # 2. Generate multiple candidate placements for Local servers
+        # Explore a few earliest non-overlapping available slots
+        LOCAL_SLOT_LOOKAHEAD_COUNT = 3  # Number of earliest slots to consider per local machine
+        # Search window for local slots: current_op_predecessor_finish_time up to job deadline + a buffer
+        LOCAL_SLOT_SEARCH_WINDOW = job.deadline + inst.time_horizon * 2 
+        
+        if LOCAL_SLOT_SEARCH_WINDOW < current_op_predecessor_finish_time:
+            # Ensure the search window always extends beyond the earliest possible start
+            LOCAL_SLOT_SEARCH_WINDOW = current_op_predecessor_finish_time + inst.time_horizon
+
+
+        for server_id, server in inst.servers.items():
+            if server.is_cloud or server.server_type != op.server_type:
+                continue
+
+            found_slots_on_server = []
+            search_time_cursor = current_op_predecessor_finish_time
+            while len(found_slots_on_server) < LOCAL_SLOT_LOOKAHEAD_COUNT and search_time_cursor < LOCAL_SLOT_SEARCH_WINDOW:
+                # Ensure search_time_cursor respects job arrival time
+                actual_search_start = max(search_time_cursor, job.arrival_time)
+                
+                # Find the next available slot for this duration
+                found_slot = -1
+                for t_check in range(actual_search_start, LOCAL_SLOT_SEARCH_WINDOW):
+                    if has_capacity(inst, capacity_usage, server_id, t_check, op.duration, op.capacity_required):
+                        found_slot = t_check
+                        break
+                
+                if found_slot != -1:
+                    found_slots_on_server.append(found_slot)
+                    # To find next non-overlapping slot, jump past current proposed end time
+                    search_time_cursor = found_slot + op.duration 
+                else:
+                    # No more slots found on this server within the window
+                    break 
+            
+            for s_time in found_slots_on_server:
+                candidate_placements.append((server_id, s_time))
+
+        # Evaluate each candidate placement for the current operation
+        # This loop simulates the entire job's path for each candidate decision
+        for cand_server_id, cand_start_time in candidate_placements:
+            # Calculate compute cost of the current operation
+            current_op_actual_start_time = max(cand_start_time, job.arrival_time)
+            if current_op_actual_start_time != cand_start_time:
+                # This candidate is invalid if its start time is before job_arrival or previous op finish
+                # Or, if it was chosen from available slots based on previous_op_finish, it should respect that
+                # Re-check capacity for actual_start_time
+                if not has_capacity(inst, capacity_usage, cand_server_id, current_op_actual_start_time, op.duration, op.capacity_required):
+                    continue # Skip this candidate, it's not actually available at max(cand_start_time, job.arrival_time)
+            
+            current_op_compute_cost = sum(inst.server_cost[cand_server_id][t % inst.time_horizon]
+                                          for t in range(current_op_actual_start_time, current_op_actual_start_time + op.duration))
+            
+            # Create a temporary capacity usage for simulation of future operations
+            sim_capacity_usage = copy.deepcopy(capacity_usage)
+
+            # Reserve capacity for the current operation in the simulation copy
+            for t in range(current_op_actual_start_time, current_op_actual_start_time + op.duration):
+                sim_capacity_usage[cand_server_id][t] = sim_capacity_usage[cand_server_id].get(t, 0) + op.capacity_required
+
+            # Simulate remaining operations
+            sim_ops_cost, job_finish_time_if_this_path = _simulate_remaining_operations(
+                inst,
+                job,
+                op_idx + 1, # Start simulation from the next operation
+                current_op_actual_start_time + op.duration, # Predecessor finish time for next op
+                sim_capacity_usage,
+                job.deadline + inst.time_horizon * 5 # Max horizon for simulation, giving ample time
+            )
+
+            # Calculate total cost for this path
+            total_compute_cost_for_job = current_op_compute_cost + sim_ops_cost
+            delay = max(0, job_finish_time_if_this_path - job.deadline)
+            total_delay_penalty_for_job = delay * job.delay_weight
+            
+            # Total job cost
+            overall_job_cost = (
+                total_compute_cost_for_job * inst.weights['compute_cost']
+                + total_delay_penalty_for_job * inst.weights['delay_penalty']
+            )
+
+            if overall_job_cost < best_overall_job_cost:
+                best_overall_job_cost = overall_job_cost
+                best_placement_for_current_op = (cand_server_id, current_op_actual_start_time)
+        
+        # If no valid placement was found (e.g., extremely tight constraints),
+        # as a last resort, force to cloud immediately if possible.
+        if best_placement_for_current_op[0] is None:
+            if cloud_server_id:
+                best_placement_for_current_op = (cloud_server_id, current_op_predecessor_finish_time)
+            else:
+                # Should not happen if cloud servers are always present for required types
+                # but as a failsafe, pick first compatible local server and earliest time
+                # This path indicates a severe problem or impossible schedule.
+                fallback_server = None
+                fallback_start = current_op_predecessor_finish_time
+                for s_id, server_obj in inst.servers.items():
+                    if server_obj.server_type == op.server_type:
+                        fallback_server = s_id
+                        break
+                if fallback_server:
+                    # Find *any* capacity, even if it's very late
+                    for t_check in range(current_op_predecessor_finish_time, job.deadline + inst.time_horizon * 10):
+                        if has_capacity(inst, capacity_usage, fallback_server, t_check, op.duration, op.capacity_required):
+                            fallback_start = t_check
+                            break
+                best_placement_for_current_op = (fallback_server, fallback_start)
+                if fallback_server is None:
+                    raise Exception(f"Job {job.id} operation {op_idx}: No compatible server found even for fallback!")
+
+
+        chosen_server, chosen_start = best_placement_for_current_op
+
+        # Reserve capacity for the chosen operation in the actual capacity_usage
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_predecessor_finish_time = chosen_start + op.duration
+
+# EVOLVE-BLOCK-END

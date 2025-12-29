@@ -1,0 +1,44 @@
+<best_fit_local_search>
+Replace "first available slot" with "best available slot" for local servers within the search horizon.
+The previous implementation for local servers used a `break` statement to select the first time slot where an operation could fit. This is a "first-fit" heuristic. This change modifies the logic to instead evaluate *all* possible valid starting times for a given operation on a local server within a defined `MAX_LOCAL_SEARCH_HORIZON`. Each feasible slot's score is calculated using the `_calculate_placement_score` helper, and all valid `(score, server_id, start_time)` tuples are added to `candidate_options`.
+
+By doing this, the final selection `min(candidate_options, key=lambda x: x[0])` will then choose the globally optimal placement among all cloud options and all *best-fit* local options found within their respective search windows. This strategy promotes better resource utilization on local machines by not settling for the immediate first available slot, potentially reducing overall cost and delay penalties.
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Evaluate Local Options (First-Fit within Search Horizon) ---
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        candidate_options.append((score, server_id, proposed_start))
+                        break # Take the first available slot on this local server
+=======
+        # --- Evaluate Local Options (Best-Fit within Search Horizon) ---
+        # Instead of taking the first available slot, we will evaluate all possible slots
+        # within the search horizon for each local server and add them as candidates.
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_HORIZON)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+                        candidate_options.append((score, server_id, proposed_start))
+                        # DO NOT break here. Continue searching to find the *best* local slot,
+                        # all valid slots will be collected and `min(candidate_options)` will choose the overall best.
+>>>>>>> REPLACE
+</DIFF>

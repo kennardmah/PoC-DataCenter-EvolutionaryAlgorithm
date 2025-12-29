@@ -7,7 +7,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'helpers'))
 
 from helpers.scenario_loader import create_instance_from_csv
-from helpers.clairvoyant_solution import calculate_true_optimal
+from clairvoyant_solution import calculate_true_optimal
 from initial import construct_schedule, evaluate
 
 print("=" * 70)

@@ -66,13 +66,13 @@ Schedule = Dict[str, List[Dict[str, Any]]]
 # =============================================================================
 # INSTANCE CREATION
 # =============================================================================
-
+import random
 def create_instance(
     scenario: str = "baseline",
     failure_scenario: Optional[str] = None,
     enable_random_failures: bool = True,
     random_failure_rate: float = 6.0,
-    random_seed: Optional[int] = 42
+    random_seed: Optional[int] = random.randint(0, 1_000_000)
 ) -> Instance:
     """
     Create the problem instance from CSV files.

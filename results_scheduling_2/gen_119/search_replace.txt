@@ -1,0 +1,45 @@
+<NAME>
+local_first_fit_revert
+</NAME>
+
+<DESCRIPTION>
+This edit reverts the local server scheduling logic from a "best-fit within a search window" to a "first-fit within a search window" strategy for each local server.
+
+The previous program versions showed that a "first-fit" approach for local servers (where the first available slot on a given server type was chosen, and then the best among these "first-fit" options and cloud options was selected) yielded a better score (-16930.00) compared to the current "best-fit within window" approach (-17475.00).
+
+The current implementation for local servers (`else` block) iterates through the entire `LOCAL_SEARCH_WINDOW_HOURS` to find the *absolute best* slot for that specific local server, then compares this best slot against all other servers. While "best-fit" might seem intuitively superior, in an online context with limited lookahead, a greedy "best-fit" on an individual machine might lead to:
+1.  **Increased fragmentation**: Leaving smaller, unusable gaps earlier in the schedule.
+2.  **Delaying other operations**: Occupying a machine later for a "better" fit, while an earlier slot on that same machine could have been used, freeing it up sooner for subsequent operations of the same job or other jobs.
+3.  **Higher opportunity cost**: By waiting for a "best" slot, the overall flow of jobs might be hampered, leading to higher cumulative delays and penalties for the system.
+
+By reverting to "first-fit" for each local server, we prioritize filling the earliest available capacity on each machine. This promotes a more compact schedule, potentially reducing overall job completion times and mitigating future capacity crunch, which aligns with the better performance observed in earlier generations. The improved objective function (with priority multipliers and dynamic cloud deterrence) will still be used to compare these "first-fit" local options against each other and against cloud options, ensuring a holistic decision.
+
+The change involves adding a `break` statement inside the `for proposed_start` loop for local servers, immediately after finding the first available slot and evaluating its score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+                for proposed_start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration
+                        )
+                        if score < best_overall_candidate[0]:
+                            best_overall_candidate = (score, proposed_start, server_id, False)
+                        if score < best_local_candidate[0]:
+                            best_local_candidate = (score, proposed_start, server_id)
+=======
+                for proposed_start in range(op_start_time_for_job, search_end_time + 1):
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False,
+                            remaining_operations_duration
+                        )
+                        if score < best_overall_candidate[0]:
+                            best_overall_candidate = (score, proposed_start, server_id, False)
+                        if score < best_local_candidate[0]:
+                            best_local_candidate = (score, proposed_start, server_id)
+                        break  # Take the first available slot on this local server
+>>>>>>> REPLACE
+</DIFF>

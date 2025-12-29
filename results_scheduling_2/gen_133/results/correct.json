@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "name 'has_capacity_for_scheduling' is not defined"
+}

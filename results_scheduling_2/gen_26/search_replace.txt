@@ -1,0 +1,110 @@
+<dynamic_local_search_window>
+A shortened name summarizing the edit you are proposing. Lowercase, no spaces, underscores allowed.
+</dynamic_local_search_window>
+
+<DESCRIPTION>
+This edit introduces a dynamic local search window for scheduling operations on local machines, based on job priority.
+
+**Motivation:**
+The previous implementation used a fixed `MAX_LOCAL_SEARCH_WINDOW` for all jobs, which might not be optimal for balancing urgency and cost.
+-   **High-priority (Emergency/High) jobs:** For these jobs, it's crucial to minimize delay. A shorter search window for local machines encourages the scheduler to quickly determine if an immediate or near-term local slot is available. If not, it forces an earlier consideration of potentially more expensive but immediately available cloud resources, reducing overall job delay. This aligns with the "local search window for on-premise machines" recommendation, making it adaptive.
+-   **Low-priority (Medium/Low) jobs:** These jobs have more flexibility regarding their completion time. A longer search window allows the scheduler to explore further into the future for cheaper local slots, potentially waiting out peak times or capacity shortages, thus reducing compute costs without significantly impacting critical deadlines.
+
+**Changes Proposed:**
+1.  **Introduce `BASE_LOCAL_SEARCH_WINDOW_HOURS`**: A base duration for the local machine search window.
+2.  **Introduce `LOCAL_SEARCH_WINDOW_PRIORITY_FACTOR`**: A dictionary that maps job priorities to multipliers for the base search window. Emergency jobs get a factor less than 1 (shorter window), while low-priority jobs get a factor greater than 1 (longer window).
+3.  **Calculate `actual_local_search_window`**: This dynamically determined window will be used for `search_end_time` when evaluating local machine slots, replacing the fixed `MAX_LOCAL_SEARCH_WINDOW`. This makes the heuristic more responsive to job urgency, improving the balance between delay penalties and compute costs.
+
+This change aims to improve the combined score by making more intelligent trade-offs in local machine usage based on job priority, potentially leading to better critical job completion times (by moving them to cloud faster if local isn't immediately optimal) and lower costs for less critical jobs (by allowing them to search for better local slots).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Define a maximum horizon to search for available slots on local machines.
+    # This prevents excessively long searches and keeps decisions localized while still
+    # allowing for some lookahead to find optimal local slots.
+    # 2-3 times the time horizon (e.g., 48-72 hours) is a reasonable window.
+    MAX_LOCAL_SEARCH_WINDOW = inst.time_horizon * 2 + 12 # Extend a bit beyond 2 cycles (24*2+12 = 60 hours)
+
+    for idx, op in enumerate(job.operations):
+        # Calculate the remaining duration for subsequent operations in this job.
+        # This is crucial for accurately projecting the job's overall completion time
+        # and thus its delay penalty.
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Phase 1: Evaluate Local Options (Best-Fit Search) ---
+        # For local machines, we search for the *best* available slot within a reasonable future window,
+        # not just the first one. This is a greedy local optimization.
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                # Calculate the search end time for this local server.
+                # It's bounded by the job's deadline plus a buffer, or the current predecessor time plus the search window.
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + MAX_LOCAL_SEARCH_WINDOW)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    # Check if the proposed slot has enough capacity for the operation.
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        # Calculate the score for this potential placement.
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False, # This is NOT a cloud server
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+=======
+    # Define parameters for the dynamic local search window based on job priority.
+    # A shorter window for high-priority jobs to force quicker decisions (potentially cloud).
+    # A longer window for low-priority jobs to find cheaper local slots.
+    BASE_LOCAL_SEARCH_WINDOW_HOURS = inst.time_horizon # e.g., 24 hours
+    LOCAL_SEARCH_WINDOW_PRIORITY_FACTOR = {
+        'emergency': 0.75, # Search ~18 hours ahead (0.75 * 24)
+        'high': 1.0,       # Search ~24 hours ahead (1.0 * 24)
+        'medium': 1.5,     # Search ~36 hours ahead (1.5 * 24)
+        'low': 2.0,        # Search ~48 hours ahead (2.0 * 24)
+    }
+
+    schedule[job.id] = []
+    # op_start_time_predecessor tracks the earliest an operation can start based on
+    # the completion time of the previous operation in this job, and the job's arrival time.
+    op_start_time_predecessor = max(job.arrival_time, current_time)
+
+    # Calculate the actual local search window for the current job based on its priority.
+    priority_window_factor = LOCAL_SEARCH_WINDOW_PRIORITY_FACTOR.get(job.priority.lower(), 1.0)
+    actual_local_search_window = max(op.duration + 1, int(BASE_LOCAL_SEARCH_WINDOW_HOURS * priority_window_factor)) # Ensure minimum window for operation duration
+
+    for idx, op in enumerate(job.operations):
+        # Calculate the remaining duration for subsequent operations in this job.
+        # This is crucial for accurately projecting the job's overall completion time
+        # and thus its delay penalty.
+        remaining_operations_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best_score = float('inf')
+        chosen_server_id = None
+        chosen_start_time = None
+
+        # --- Phase 1: Evaluate Local Options (Best-Fit Search) ---
+        # For local machines, we search for the *best* available slot within a reasonable future window,
+        # not just the first one. This is a greedy local optimization.
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                # Calculate the search end time for this local server.
+                # It's bounded by the job's deadline plus a buffer, or the current predecessor time plus the actual dynamic search window.
+                search_end_time = min(job.deadline + inst.time_horizon,
+                                      op_start_time_predecessor + actual_local_search_window)
+
+                for proposed_start in range(op_start_time_predecessor, search_end_time + 1):
+                    # Check if the proposed slot has enough capacity for the operation.
+                    if has_capacity(inst, capacity_usage, server_id, proposed_start, op.duration, op.capacity_required):
+                        # Calculate the score for this potential placement.
+                        score = _calculate_placement_score(
+                            inst, job, op, proposed_start, server_id, False, # This is NOT a cloud server
+                            remaining_operations_duration, PRIORITY_MULTIPLIERS,
+                            CLOUD_DETERRENCE_BASE, CLOUD_EMERGENCY_DISCOUNT
+                        )
+>>>>>>> REPLACE
+
+</DIFF>

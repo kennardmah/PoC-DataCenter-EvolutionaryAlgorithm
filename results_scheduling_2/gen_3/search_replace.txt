@@ -1,0 +1,107 @@
+<NAME>
+refined_op_selection
+</NAME>
+
+<DESCRIPTION>
+This modification refines the operation selection logic within `schedule_job_online` by:
+
+1.  **Comprehensive Local Slot Search:** Instead of taking the *first* available local slot, the scheduler now searches for the *best* available slot within a defined `SEARCH_WINDOW_LIMIT` (e.g., 12 hours) for *each* compatible local machine. This allows for finding more optimal local placements that might be slightly later but yield a lower total objective cost (considering compute and delay). This also includes comparing these local options against cloud options.
+2.  **Improved Tie-breaking:** The `best_option` tracking tuple is changed from `(cost, server_id, start_time)` to `(cost, start_time, server_id)`. This ensures that when two options have the same minimum cost, the one that allows the operation to start earliest is preferred. If both cost and start time are the same, the server ID (lexicographically) is used as a tie-breaker. This heuristic tends to free up resources sooner and potentially reduce overall job completion times.
+3.  **Adaptive Search Window for Local:** The `SEARCH_WINDOW_LIMIT` for local machines is a crucial parameter. A larger window allows for more exhaustive search but increases computation. A smaller window prioritizes immediate availability. The current value of 12 hours is a heuristic attempt to balance these. This constraint also prevents the scheduler from looking too far into the future for extremely cheap but very delayed local slots when faster (even if slightly more expensive) options are available. The previous `job.deadline + inst.time_horizon` could lead to very long search loops.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+
+        _, chosen_server, chosen_start = best
+
+        # reserve capacity
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+=======
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    # Define a reasonable window to search for local slots.
+    # This prevents searching indefinitely far into the future and bounds computation.
+    # A value of 12 hours is chosen heuristically to balance exploration and performance.
+    SEARCH_WINDOW_LIMIT = 12
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Initialize best option for this operation.
+        # Format: (total_objective_cost, projected_start_time, server_id)
+        # This allows tie-breaking: prefer lower cost, then earlier start, then server_id (alphabetical).
+        best_option = (float('inf'), float('inf'), None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # Cloud servers: always available immediately at current_start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                # Cloud options are always considered.
+                # Tie-breaking: if costs are equal, prefer earlier start.
+                best_option = min(best_option, (cost, current_start, server_id))
+                continue
+
+            # Local servers: search forward for the best available slot within the window
+            # The search window ensures we don't look excessively far into the future for local slots,
+            # which could lead to suboptimal overall schedules in an online context.
+            for start in range(current_start, current_start + SEARCH_WINDOW_LIMIT):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    # For local, consider all valid slots within the window and pick the best.
+                    best_option = min(best_option, (cost, start, server_id))
+                    # DO NOT break here; we want to find the *best* slot within the window, not just the first.
+
+        # Unpack the chosen best option
+        _, chosen_start, chosen_server = best_option
+
+        # Error handling if no slot found (should not happen if cloud is always an option).
+        if chosen_server is None:
+            # This case should ideally not be reached if cloud capacity is truly unlimited and
+            # a server of the correct type exists (which it must for cloud to be an option).
+            # If it is reached, it implies no compatible server type was available or the cost remained infinite.
+            # In a real system, this would indicate an unfulfillable operation.
+            raise RuntimeError(f"No suitable server found for operation {idx} of job {job.id}. This indicates a problem with instance setup or logic.")
+
+
+        # Reserve capacity for the chosen slot
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+>>>>>>> REPLACE
+
+</DIFF>

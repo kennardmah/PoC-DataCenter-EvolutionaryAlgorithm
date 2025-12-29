@@ -71,8 +71,8 @@ elif strategy == "beam_search":
 
 db_config = DatabaseConfig(
     db_path="evolution_db.sqlite",
-    num_islands=2,
-    archive_size=40,
+    num_islands=3,
+    archive_size=30,
     # Inspiration parameters
     elite_selection_ratio=0.3,
     num_archive_inspirations=4,
@@ -89,7 +89,7 @@ search_task_sys_msg = """You are an expert in online job-shop scheduling and ope
 Your task is to design a function `construct_schedule(inst: Instance) -> Schedule`
 that minimizes total cost:
 
-Total Cost = compute_cost + 5 × delay_penalty
+Total Cost = compute_cost + delay_time × delay_penalty
 
 The schedule is evaluated across two scenarios:
 • Normal operations (80% weight)
@@ -123,14 +123,15 @@ evo_config = EvolutionConfig(
     task_sys_msg=search_task_sys_msg,
     patch_types=["diff", "full", "cross"],
     patch_type_probs=[0.6, 0.3, 0.1],
-    num_generations=140,
+    num_generations=150,
     max_parallel_jobs=5,
     max_patch_resamples=3,
     max_patch_attempts=3,
     job_type="local",
     language="python",
     llm_models=[
-        "gemini-2.5-flash"
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
     ],
     llm_kwargs=dict(
         temperatures=[0.0, 0.7, 1.0],
@@ -146,7 +147,7 @@ evo_config = EvolutionConfig(
     llm_dynamic_selection="ucb1",
     llm_dynamic_selection_kwargs=dict(exploration_coef=1.0),
     init_program_path="initial.py",
-    results_dir="results_scheduling",
+    results_dir="results_scheduling_3",
 )
 
 
