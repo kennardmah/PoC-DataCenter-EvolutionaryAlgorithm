@@ -1,0 +1,250 @@
+<NAME>
+dynamic_priority_staged_scheduling
+</NAME>
+
+<DESCRIPTION>
+This edit refactors the online job scheduling logic to implement a more sophisticated staged decision heuristic, incorporating dynamic search horizons and adaptive cost considerations based on job priority and slack. This directly addresses multiple recommendations:
+
+1.  **Dynamic Search Horizons (Recommendation 1):** The fixed `LOCAL_SEARCH_WINDOW` is replaced by `effective_local_search_horizon`. This horizon dynamically adjusts based on the job's priority and its remaining slack. Urgent jobs with low slack will have a shorter horizon to ensure timely completion, while low-priority jobs with ample slack can explore a wider range of future slots to find more cost-effective local placements. This adaptive approach helps balance urgency and cost optimization.
+
+2.  **Adaptive Procrastination Penalty (Recommendation 4):** A `procrastination_cost` component is integrated into the scoring function (`_calculate_full_score`). This penalty scales with how far into the future an operation is scheduled beyond its earliest possible start time (`current_op_earliest_start`). Crucially, the penalty rate (`PROCR_PENALTY_BASE_FACTOR`) is dynamically boosted based on job priority using `PRIORITY_PROCR_MULTIPLIER`, making it significantly more costly to delay urgent jobs. This encourages responsive scheduling for critical tasks.
+
+3.  **True Best-Fit Slot Selection for Local Resources (Recommendation 2):** For local machines, the code now explicitly iterates through all *feasible time slots* within the `effective_local_search_horizon` for *each compatible local server* to find the absolute `best_local_cost_for_server` and its corresponding `start_time`. This ensures the most optimal local placement is chosen within the considered window, rather than just the first available.
+
+4.  **Strategic Cloud Leveraging with Adaptive Fallback Thresholds (Recommendation 3):** The decision-making process is now a staged comparison:
+    *   The best possible cloud placement (always immediate start) is benchmarked (`best_cloud_score`).
+    *   The best local placement within the dynamic horizon is identified (`best_local_score`).
+    *   A decision is made by comparing `best_local_score` against `best_cloud_score` adjusted by an `effective_cloud_aversion` factor. This `effective_cloud_aversion` is also priority-dependent via `PRIORITY_CLOUD_BIAS`, allowing the system to be more (or less) willing to use local machines even if they are slightly more expensive than cloud, depending on the job's priority. This makes cloud a more strategic, adaptive fallback for urgent or problematic jobs.
+
+5.  **Refined Failsafe (Recommendation 5):** The failsafe logic is improved. If the main decision logic (local vs. cloud within horizon) doesn't yield a satisfactory result, the system first attempts an *unbounded search on the single cheapest compatible local machine* to guarantee placement. Only if no local machine is available even for unbounded search, does it fall back to the best cloud option (which should have already been identified) as an ultimate guarantee. This prioritizes local machines for guaranteed placement, as they are generally cheaper, while ensuring progress.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+#
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable.
+# =============================================================================
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search within a limited window for the best available slot
+            LOCAL_SEARCH_WINDOW = 12 # Define a reasonable lookahead window (e.g., 12 hours)
+
+            best_local_cost_for_server = float('inf')
+            best_local_start_for_server = None
+
+            # Search from current_start up to current_start + LOCAL_SEARCH_WINDOW
+            # This window allows evaluating multiple near-term options.
+            for start in range(current_start, current_start + LOCAL_SEARCH_WINDOW + 1): # +1 to include the end of the window
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    if cost < best_local_cost_for_server:
+                        best_local_cost_for_server = cost
+                        best_local_start_for_server = start
+
+            if best_local_start_for_server is not None:
+                # If a suitable local slot was found, compare it with the overall best
+                best = min(best, (best_local_cost_for_server, server_id, best_local_start_for_server))
+
+        _, chosen_server, chosen_start = best
+
+        # reserve capacity
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+=======
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+#
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable.
+# =============================================================================
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_op_earliest_start = max(job.arrival_time, current_time)
+
+    # Heuristic Parameters
+    BASE_LOCAL_SEARCH_HORIZON = 24  # Base hours to look ahead for local machines
+    PROCR_PENALTY_BASE_FACTOR = 0.05     # Base penalty for delaying start time (per hour)
+    CLOUD_AVERSION_BASE_FACTOR = 1.1     # Local preferred if its cost is <= Cloud cost * this factor
+                                         # (e.g., if local_cost <= cloud_cost * 1.1, choose local)
+
+    # Priority-based adjustments
+    PRIORITY_HORIZON_MULTIPLIER = { # Multiplier for BASE_LOCAL_SEARCH_HORIZON
+        'emergency': 0.5, 'urgent': 0.8, 'high': 1.0, 'medium': 1.2, 'low': 1.5
+    }
+    PRIORITY_PROCR_MULTIPLIER = { # Multiplier for PROCR_PENALTY_BASE_FACTOR
+        'emergency': 2.0, 'urgent': 1.5, 'high': 1.0, 'medium': 0.8, 'low': 0.5
+    }
+    PRIORITY_CLOUD_BIAS = { # Multiplier for CLOUD_AVERSION_BASE_FACTOR (factor < 1 means more willing to use cloud)
+        'emergency': 0.9, 'urgent': 0.95, 'high': 1.0, 'medium': 1.05, 'low': 1.1
+    }
+
+    def _calculate_full_score(server_id, start_time, op, job, remaining_duration, current_op_earliest_start_ref, effective_procrastination_factor):
+        """Calculates a composite score including compute, delay, and adaptive procrastination."""
+        compute = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                      for t in range(start_time, start_time + op.duration))
+        projected_completion = start_time + op.duration + remaining_duration
+        delay = max(0, projected_completion - job.deadline)
+
+        compute_cost = compute * inst.weights['compute_cost']
+        delay_cost = delay * job.delay_weight * inst.weights['delay_penalty']
+
+        # Adaptive procrastination penalty
+        procrastination_cost = effective_procrastination_factor * (start_time - current_op_earliest_start_ref)
+
+        return compute_cost + delay_cost + procrastination_cost
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration_after_op = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Determine dynamic search horizon and adaptive factors for the current operation
+        total_remaining_job_duration = op.duration + remaining_duration_after_op
+        current_job_slack = job.deadline - (current_op_earliest_start + total_remaining_job_duration)
+
+        horizon_multiplier = PRIORITY_HORIZON_MULTIPLIER.get(job.priority, 1.0)
+        procr_multiplier = PRIORITY_PROCR_MULTIPLIER.get(job.priority, 1.0)
+        cloud_aversion_bias = PRIORITY_CLOUD_BIAS.get(job.priority, 1.0)
+
+        # Adjust horizon by slack: less slack means tighter window, more slack means wider window
+        # Limit adjustment range to prevent excessively small or large horizons
+        slack_adjustment_factor = 1.0 + min(1.0, max(-0.5, current_job_slack / (TIME_HORIZON * 2)))
+
+        effective_local_search_horizon = int(BASE_LOCAL_SEARCH_HORIZON * horizon_multiplier * slack_adjustment_factor)
+        effective_local_search_horizon = max(op.duration, effective_local_search_horizon) # Ensure at least op duration
+
+        effective_procrastination_factor = PROCR_PENALTY_BASE_FACTOR * procr_multiplier
+        effective_cloud_aversion = CLOUD_AVERSION_BASE_FACTOR * cloud_aversion_bias
+
+        local_search_limit = current_op_earliest_start + effective_local_search_horizon + 1 # +1 to include the end of the window
+
+        # Initialize best candidates
+        best_cloud_score = float('inf')
+        best_cloud_server = None
+
+        # Step 1: Evaluate Cloud Options (immediate start for cloud)
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+            if server.is_cloud:
+                score = _calculate_full_score(server_id, current_op_earliest_start, op, job,
+                                              remaining_duration_after_op, current_op_earliest_start, effective_procrastination_factor)
+                if score < best_cloud_score:
+                    best_cloud_score = score
+                    best_cloud_server = server_id
+
+        # Step 2: Evaluate Local Options (best-fit within dynamic horizon)
+        best_local_score = float('inf')
+        best_local_server = None
+        best_local_start = None
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type or server.is_cloud:
+                continue
+
+            # Perform a true best-fit search within the calculated horizon for this local server
+            for start_time_candidate in range(current_op_earliest_start, local_search_limit):
+                if has_capacity(inst, capacity_usage, server_id, start_time_candidate, op.duration, op.capacity_required):
+                    score = _calculate_full_score(server_id, start_time_candidate, op, job,
+                                                  remaining_duration_after_op, current_op_earliest_start, effective_procrastination_factor)
+                    if score < best_local_score:
+                        best_local_score = score
+                        best_local_server = server_id
+                        best_local_start = start_time_candidate
+
+        # Step 3: Make the Decision based on comparisons with cloud aversion factor
+        chosen_server, chosen_start = None, -1
+
+        # Prefer local if it's available and competitive (within aversion factor)
+        if best_local_server is not None and best_local_score <= best_cloud_score * effective_cloud_aversion:
+            chosen_server, chosen_start = best_local_server, best_local_start
+        elif best_cloud_server is not None:
+            # Otherwise, use the best cloud option if available
+            chosen_server, chosen_start = best_cloud_server, current_op_earliest_start
+        else:
+            # Failsafe: No satisfactory local or cloud option found within the horizon.
+            # Perform an unbounded search on the cheapest compatible local machine to guarantee placement.
+            compatible_local_servers = sorted(
+                [s for s in inst.servers.values() if s.server_type == op.server_type and not s.is_cloud],
+                key=lambda s: sum(inst.server_cost[s.id][t % inst.time_horizon] for t in range(current_op_earliest_start, current_op_earliest_start + op.duration)) # Sort by average cost for duration
+            )
+
+            if compatible_local_servers:
+                failsafe_server_id = compatible_local_servers[0].id
+                failsafe_start_time = current_op_earliest_start
+                while True:
+                    if has_capacity(inst, capacity_usage, failsafe_server_id, failsafe_start_time, op.duration, op.capacity_required):
+                        chosen_server, chosen_start = failsafe_server_id, failsafe_start_time
+                        break
+                    failsafe_start_time += 1
+            elif best_cloud_server is not None:
+                # If no local servers available even in failsafe, fall back to the previously identified best cloud
+                chosen_server, chosen_start = best_cloud_server, current_op_earliest_start
+            else:
+                raise Exception(f"CRITICAL ERROR: No compatible servers (local or cloud) found for job {job.id} operation {idx} of type {op.server_type} even after failsafe.")
+
+        # Reserve capacity for the chosen placement
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_earliest_start = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

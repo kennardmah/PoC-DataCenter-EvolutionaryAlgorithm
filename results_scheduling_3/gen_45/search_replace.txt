@@ -1,0 +1,241 @@
+<NAME>
+best_fit_with_procrastination_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit refactors the scheduling logic to implement a more sophisticated **Best-Fit** strategy combined with a **procrastination penalty**. This creates a more intelligent trade-off between minimizing compute costs and meeting deadlines.
+
+### Key Changes:
+
+1.  **Best-Fit Search Strategy:** The previous First-Fit logic (`break` statement) is removed. The new algorithm now evaluates *all* available time slots on *all* compatible local machines within a search window. It selects the slot with the absolute lowest cost, allowing it to find cheaper, slightly later slots instead of greedily taking the first one.
+
+2.  **Procrastination Penalty:** A new cost component is added to the objective function (`operation_objective_comprehensive`). This penalty is proportional to the `wait_time` (the time between when an operation *could* start and when it *actually* starts). This penalty is scaled by job priority, strongly discouraging unnecessary delays for high-priority and emergency jobs, even for small cost savings.
+
+3.  **Cloud-First Benchmarking:** Instead of treating cloud and local servers equally in a single loop, the logic now first calculates the cost of using the cheapest available cloud server immediately. This score serves as a **benchmark**. The subsequent best-fit search on local machines only accepts a placement if its score is better than this cloud benchmark, simplifying the decision logic.
+
+4.  **Priority System Bugfix & Enhancement:** The priority factor dictionary keys have been corrected to lowercase (e.g., `"high"`) to match the actual job data, fixing a bug. The system has also been expanded to explicitly handle `"critical"` and `"emergency"` priorities with higher weights, making the scheduler more responsive in crisis scenarios.
+
+Together, these changes create a scheduler that is more cost-aware through best-fit searching, more urgency-aware via the procrastination penalty, and more robust in its decision-making by using the cloud as a clear benchmark.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# Constants for priority factors and cloud cost
+PRIORITY_FACTORS = {
+    "Emergency": 3.0,  # Higher penalty for emergency jobs
+    "High": 2.0,       # High penalty for high priority
+    "Medium": 1.0,     # Default penalty
+    "Low": 0.5         # Lower penalty for low priority
+}
+CLOUD_COST_MULTIPLIER = 1.5 # Make cloud machines more expensive to encourage local usage
+
+def operation_objective_improved(inst, server_id, start, op, job, remaining_duration, is_cloud):
+    """
+    Calculates the objective cost for a given operation, incorporating priority-based
+    delay penalties and cloud cost multiplier.
+    """
+    compute = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                  for t in range(start, start + op.duration))
+
+    if is_cloud:
+        compute *= CLOUD_COST_MULTIPLIER
+
+    projected_completion = start + op.duration + remaining_duration
+    delay = max(0, projected_completion - job.deadline)
+
+    # Apply priority factor to delay penalty
+    priority_factor = PRIORITY_FACTORS.get(job.priority, 1.0)
+
+    return (
+        compute * inst.weights['compute_cost']
+        + delay * job.delay_weight * inst.weights['delay_penalty'] * priority_factor
+    )
+
+def has_capacity_optimized(capacity_usage, server_id, start, duration, req, cached_server_capacity):
+    """
+    Optimized capacity check using a pre-computed/cached available capacity for the current server.
+    """
+    for t in range(start, start + duration):
+        used = capacity_usage[server_id].get(t, 0)
+        available = cached_server_capacity.get(t, 0)
+        if used + req > available:
+            return False
+    return True
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+        best = (float('inf'), None, None)
+
+        # Define a reasonable search window to balance performance and solution quality
+        max_search_horizon = current_start + 2 * inst.time_horizon
+        search_end_time = min(job.deadline + inst.time_horizon, max_search_horizon)
+
+        # Pre-cache available capacity for local servers to speed up the search
+        local_server_capacity_cache = defaultdict(dict)
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                for t_check in range(current_start, search_end_time + op.duration):
+                    local_server_capacity_cache[server_id][t_check] = get_available_capacity(inst, server_id, t_check)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # Cloud: immediate start, evaluated with improved objective
+            if server.is_cloud:
+                cost = operation_objective_improved(inst, server_id, current_start, op, job, remaining_duration, True)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # Local: search forward for first available slot using the optimized capacity check
+            for start in range(current_start, search_end_time):
+                if has_capacity_optimized(capacity_usage, server_id, start, op.duration, op.capacity_required, local_server_capacity_cache[server_id]):
+                    cost = operation_objective_improved(inst, server_id, start, op, job, remaining_duration, False)
+                    best = min(best, (cost, server_id, start))
+                    break  # FIRST-FIT: Take the first available slot on this server and move to the next server
+
+        _, chosen_server, chosen_start = best
+
+        # Fallback to cloud if no slot was found (e.g., if search window was too restrictive)
+        if chosen_server is None:
+            for server_id, server in inst.servers.items():
+                if server.is_cloud and server.server_type == op.server_type:
+                    cost = operation_objective_improved(inst, server_id, current_start, op, job, remaining_duration, True)
+                    best = min(best, (cost, server_id, current_start))
+                    # No need to check other cloud servers, they are identical in capacity
+                    break
+            _, chosen_server, chosen_start = best
+
+        # Reserve capacity
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+=======
+# --- Heuristic Parameters ---
+PRIORITY_FACTORS = {
+    "emergency": 5.0,
+    "critical": 4.0,
+    "high": 3.0,
+    "medium": 1.5,
+    "low": 1.0
+}
+PROCRASTINATION_PENALTY_FACTORS = {
+    "emergency": 0.8,
+    "critical": 0.5,
+    "high": 0.2,
+    "medium": 0.1,
+    "low": 0.05
+}
+CLOUD_COST_MULTIPLIER = 1.6
+
+def operation_objective_comprehensive(inst, server_id, start, op, job, remaining_duration, is_cloud, op_release_time):
+    """
+    A comprehensive objective function including compute cost, delay penalty, and procrastination penalty.
+    """
+    # 1. Compute Cost
+    compute = sum(inst.server_cost[server_id][t % inst.time_horizon] for t in range(start, start + op.duration))
+    if is_cloud:
+        compute *= CLOUD_COST_MULTIPLIER
+
+    # 2. Delay Penalty (how late the job finishes)
+    projected_completion = start + op.duration + remaining_duration
+    delay = max(0, projected_completion - job.deadline)
+    priority_factor = PRIORITY_FACTORS.get(job.priority, 1.0)
+    delay_penalty = delay * job.delay_weight * priority_factor
+
+    # 3. Procrastination Penalty (how long we wait to start the operation)
+    wait_time = start - op_release_time
+    procrastination_factor = PROCRASTINATION_PENALTY_FACTORS.get(job.priority, 0.1)
+    procrastination_penalty = wait_time * job.delay_weight * procrastination_factor
+
+    return (
+        compute * inst.weights['compute_cost']
+        + delay_penalty * inst.weights['delay_penalty']
+        + procrastination_penalty
+    )
+
+def has_capacity_optimized(capacity_usage, server_id, start, duration, req, cached_server_capacity):
+    """Optimized capacity check using a pre-computed capacity map."""
+    for t in range(start, start + duration):
+        used = capacity_usage[server_id].get(t, 0)
+        available = cached_server_capacity.get(t, 0, 0) # Default to 0 if not in cache
+        if used + req > available:
+            return False
+    return True
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+        best_placement = (float('inf'), None, None)  # (score, server_id, start_time)
+
+        compatible_servers = [(s_id, s) for s_id, s in inst.servers.items() if s.server_type == op.server_type]
+        local_servers = [(s_id, s) for s_id, s in compatible_servers if not s.is_cloud]
+        cloud_servers = [(s_id, s) for s_id, s in compatible_servers if s.is_cloud]
+
+        # 1. Establish a cloud benchmark as a default/fallback option.
+        if cloud_servers:
+            # Find the cheapest cloud server at the earliest possible start time
+            cheapest_cloud_id = min(cloud_servers, key=lambda s: inst.server_cost[s[0]][current_op_release_time % inst.time_horizon])[0]
+            cloud_score = operation_objective_comprehensive(inst, cheapest_cloud_id, current_op_release_time, op, job, remaining_duration, True, current_op_release_time)
+            best_placement = (cloud_score, cheapest_cloud_id, current_op_release_time)
+
+        # 2. Best-Fit Search on local machines.
+        search_horizon = 3 * inst.time_horizon # Search up to 3 days ahead
+        search_end_time = current_op_release_time + search_horizon
+
+        # Pre-cache capacity for the search window to improve performance.
+        local_server_capacity_cache = defaultdict(dict)
+        for server_id, _ in local_servers:
+            for t_check in range(current_op_release_time, search_end_time + op.duration):
+                local_server_capacity_cache[server_id][t_check] = get_available_capacity(inst, server_id, t_check)
+
+        # Find the best possible placement on any local server within the horizon.
+        for server_id, _ in local_servers:
+            for start_t in range(current_op_release_time, search_end_time):
+                if has_capacity_optimized(capacity_usage, server_id, start_t, op.duration, op.capacity_required, local_server_capacity_cache[server_id]):
+                    score = operation_objective_comprehensive(inst, server_id, start_t, op, job, remaining_duration, False, current_op_release_time)
+                    if score < best_placement[0]:
+                        best_placement = (score, server_id, start_t)
+
+        # 3. Failsafe: If no placement was found (e.g., high congestion and no cloud), find one exhaustively.
+        if best_placement[1] is None:
+            if not local_servers:
+                raise RuntimeError(f"FATAL: No compatible servers found for op {idx} of job {job.id}")
+
+            cheapest_local_id = min(local_servers, key=lambda s: sum(inst.server_cost[s[0]].values()))[0]
+            failsafe_start_t = current_op_release_time
+            while True:
+                if has_capacity(inst, capacity_usage, cheapest_local_id, failsafe_start_t, op.duration, op.capacity_required):
+                    score = operation_objective_comprehensive(inst, cheapest_local_id, failsafe_start_t, op, job, remaining_duration, False, current_op_release_time)
+                    best_placement = (score, cheapest_local_id, failsafe_start_t)
+                    break
+                failsafe_start_t += 1
+
+        # 4. Finalize placement and update state.
+        _, chosen_server, chosen_start = best_placement
+
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_release_time = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

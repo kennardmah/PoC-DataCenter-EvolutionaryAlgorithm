@@ -305,25 +305,49 @@ def operation_objective(inst, server_id, start, op, job, remaining_duration):
 
 # EVOLVE-BLOCK-START
 
-# INCREMENTAL ONLINE JOB SCHEDULER
-# =============================================================================
-# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
-#
-# STRICT ONLINE CONSTRAINT:
-# When scheduling a job, you can ONLY use:
-#   1. The current job being scheduled
-#   2. The current time (when this job arrived)
-#   3. Previously scheduled operations (in schedule and capacity_usage)
-#
-# You CANNOT:
-#   - Peek at future jobs (those arriving after current_time)
-#   - Reorder or reschedule already-placed operations
-#   - Use global knowledge about all jobs
-#
-# This simulates real-time scheduling where decisions are irrevocable.
-# =============================================================================
+# Constants for priority factors and cloud cost
+PRIORITY_FACTORS = {
+    "Emergency": 3.0,  # Higher penalty for emergency jobs
+    "High": 2.0,       # High penalty for high priority
+    "Medium": 1.0,     # Default penalty
+    "Low": 0.5         # Lower penalty for low priority
+}
+CLOUD_COST_MULTIPLIER = 1.5 # Make cloud machines more expensive to encourage local usage
 
-LOCAL_MACHINE_LOOKAHEAD_HOURS = 4 # How many hours to look ahead for local machine slots when scheduling operations
+def operation_objective_improved(inst, server_id, start, op, job, remaining_duration, is_cloud):
+    """
+    Calculates the objective cost for a given operation, incorporating priority-based
+    delay penalties and cloud cost multiplier.
+    """
+    compute = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                  for t in range(start, start + op.duration))
+    
+    if is_cloud:
+        compute *= CLOUD_COST_MULTIPLIER
+
+    projected_completion = start + op.duration + remaining_duration
+    delay = max(0, projected_completion - job.deadline)
+    
+    # Apply priority factor to delay penalty
+    priority_factor = PRIORITY_FACTORS.get(job.priority, 1.0)
+    
+    return (
+        compute * inst.weights['compute_cost']
+        + delay * job.delay_weight * inst.weights['delay_penalty'] * priority_factor
+    )
+
+def has_capacity_optimized(capacity_usage, server_id, start, duration, req, cached_server_capacity):
+    """
+    Optimized capacity check using a pre-computed/cached available capacity for the current server.
+    cached_server_capacity: dict {time: effective_capacity} for the specific server.
+    """
+    for t in range(start, start + duration):
+        used = capacity_usage[server_id].get(t, 0)
+        # Use cached available capacity if possible
+        available = cached_server_capacity.get(t, 0) # Fallback to 0 if not pre-cached (should be pre-cached though)
+        if used + req > available:
+            return False
+    return True
 
 def schedule_job_online(inst: Instance,
                         job: Job,
@@ -332,53 +356,101 @@ def schedule_job_online(inst: Instance,
                         current_time: int):
 
     schedule[job.id] = []
-    current_start = max(job.arrival_time, current_time)
+    # current_earliest_start is the earliest this operation can begin, considering previous ops in the job
+    # and the job's arrival time.
+    current_earliest_start = max(job.arrival_time, current_time)
 
     for idx, op in enumerate(job.operations):
         remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
 
-        best_overall = (float('inf'), None, None)
+        best_score = float('inf')
+        chosen_server = None
+        chosen_start = -1
 
+        # Determine a reasonable search window for local machines.
+        # From current_earliest_start up to deadline + op.duration + a buffer.
+        # Using TIME_HORIZON as a buffer provides flexibility, but also cap it.
+        # Let's cap the search window to avoid excessively long searches in very long horizons.
+        max_search_horizon = current_earliest_start + 2 * inst.time_horizon # search up to 2 full horizon cycles
+        search_end_time = max(current_earliest_start, job.deadline) + op.duration + inst.time_horizon
+        search_end_time = min(search_end_time, max_search_horizon) 
+        
+        # Pre-populate capacity cache for all local servers once per operation for the search window
+        local_server_capacity_cache = defaultdict(dict)
+        for server_id, server in inst.servers.items():
+            if not server.is_cloud and server.server_type == op.server_type:
+                # Pre-calculate available capacity for all relevant times for this local server
+                for t_check in range(current_earliest_start, search_end_time + op.duration): 
+                    local_server_capacity_cache[server_id][t_check] = get_available_capacity(inst, server_id, t_check)
+
+        # Iterate over all possible servers
         for server_id, server in inst.servers.items():
             if server.server_type != op.server_type:
                 continue
 
             if server.is_cloud:
-                # cloud: immediate start
-                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
-                best_overall = min(best_overall, (cost, server_id, current_start))
-            else:
-                # local: search within a lookahead window for the best slot
-                best_local_slot_cost = float('inf')
-                chosen_local_start = None
+                # Cloud: always available at current_earliest_start (or later if previous ops pushed it)
+                score = operation_objective_improved(inst, server_id, current_earliest_start, op, job, remaining_duration, True)
+                if score < best_score:
+                    best_score = score
+                    chosen_server = server_id
+                    chosen_start = current_earliest_start
+                continue
+            
+            # Local machine: search for available slots within the defined window
+            # Iterate through possible start times for this local server
+            for start_time_candidate in range(current_earliest_start, search_end_time + 1): # +1 to include search_end_time itself
+                
+                # Check if this slot has capacity using the optimized helper, leveraging the cache
+                if has_capacity_optimized(capacity_usage, server_id, start_time_candidate, op.duration, op.capacity_required, local_server_capacity_cache[server_id]):
+                    score = operation_objective_improved(inst, server_id, start_time_candidate, op, job, remaining_duration, False)
+                    if score < best_score:
+                        best_score = score
+                        chosen_server = server_id
+                        chosen_start = start_time_candidate
+                    # Continue searching for a better slot on this server within the window.
+                    # This is a key change from the original "first-fit" approach.
 
-                # Determine the maximum time to search for a local slot
-                # This combines the original implicit upper bound with the new lookahead window.
-                max_original_search_end = job.deadline + inst.time_horizon
-                lookahead_window_end = current_start + LOCAL_MACHINE_LOOKAHEAD_HOURS + 1 # +1 because range is exclusive
+        # If no slot was found (shouldn't happen with cloud as fallback, but for safety)
+        if chosen_server is None:
+            # This indicates an issue, possibly a too-restrictive search window or no cloud option if local failed.
+            # In a real scenario, this would likely trigger an error or emergency allocation.
+            # For competitive programming, we might force a high-cost cloud allocation.
+            # Let's re-evaluate cloud as a guaranteed fallback if chosen_server is still None.
+            # This could happen if the initial cloud score was worse than some local-but-unfeasible option
+            # which wasn't fully ruled out. A simpler approach is to always try cloud first
+            # and then try local if it can beat cloud.
 
-                search_end_time = min(max_original_search_end, lookahead_window_end)
+            # Re-attempt cloud as a guaranteed fallback if local search failed or was too costly
+            # This should generally not be necessary if the first cloud check was done correctly
+            # and 'best_score' was initialized to infinity.
+            # However, if 'search_end_time' somehow restricts options too much, or there's
+            # an edge case, this ensures a schedule is made.
+            
+            # Simple fallback to cloud if nothing else was chosen (should be rare)
+            for server_id, server in inst.servers.items():
+                if server.is_cloud and server.server_type == op.server_type:
+                    cloud_score = operation_objective_improved(inst, server_id, current_earliest_start, op, job, remaining_duration, True)
+                    if cloud_score < best_score: # Check if this "fallback" cloud is better than any potential best_score from previous failed local searches
+                        chosen_server = server_id
+                        chosen_start = current_earliest_start
+                        best_score = cloud_score
+                    break # Just pick the first compatible cloud server
 
-                for start_time_candidate in range(current_start, search_end_time):
-                    if has_capacity(inst, capacity_usage, server_id, start_time_candidate, op.duration, op.capacity_required):
-                        cost_candidate = operation_objective(inst, server_id, start_time_candidate, op, job, remaining_duration)
-                        if cost_candidate < best_local_slot_cost:
-                            best_local_slot_cost = cost_candidate
-                            chosen_local_start = start_time_candidate
+            # If still no server found, something is critically wrong (no compatible server exists?)
+            if chosen_server is None:
+                # This state should ideally not be reached if cloud is available for all types
+                # As a last resort, assign to a cloud server at current_earliest_start with a high penalty
+                # This ensures the schedule is complete, even if invalid.
+                # For this problem, assuming cloud is always available and compatible type.
+                raise Exception(f"Failed to schedule operation {idx} for job {job.id}. No compatible server found.")
 
-                if chosen_local_start is not None:
-                    best_overall = min(best_overall, (best_local_slot_cost, server_id, chosen_local_start))
-
-        _, chosen_server, chosen_start = best_overall
-
-        _, chosen_server, chosen_start = best
-
-        # reserve capacity
+        # Reserve capacity for the chosen slot
         for t in range(chosen_start, chosen_start + op.duration):
             capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
 
         schedule[job.id].append({"server": chosen_server, "start": chosen_start})
-        current_start = chosen_start + op.duration
+        current_earliest_start = chosen_start + op.duration
 
 # EVOLVE-BLOCK-END
 
@@ -391,17 +463,17 @@ def schedule_job_online(inst: Instance,
 def construct_schedule(inst: Instance) -> Schedule:
     """
     STRICT ONLINE SCHEDULER - NO FUTURE KNOWLEDGE
-
+    
     This function enforces the online constraint and is NOT evolved.
     Only schedule_job_online (above) can be modified during evolution.
-
+    
     CRITICAL ONLINE CONSTRAINT:
     When scheduling a job arriving at time T, you can ONLY access:
     - Jobs that have already been scheduled (arrival_time < T)
     - The current job (arrival_time == T)
-
+    
     You CANNOT access or analyze jobs with arrival_time > T
-
+    
     Implementation: Process jobs in arrival order, one at a time.
     """
     schedule = {}
@@ -412,7 +484,7 @@ def construct_schedule(inst: Instance) -> Schedule:
     # process them strictly in order without lookahead
     job_arrivals = [(job.arrival_time, job) for job in inst.jobs.values()]
     job_arrivals.sort(key=lambda x: x[0])  # Sort only by arrival time
-
+    
     # Process each job as it arrives (strict temporal order)
     for arrival_time, job in job_arrivals:
         # At this moment, only this job and earlier jobs exist in our world

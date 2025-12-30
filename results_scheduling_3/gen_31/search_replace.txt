@@ -1,0 +1,99 @@
+<dynamic_urgency_and_cloud_bias>
+This edit refines two key aspects of the scheduler's heuristic:
+1.  **Dynamic Procrastination Penalty with Exponential Urgency Scaling**: The existing `procrastination_penalty` for waiting time is enhanced. Instead of a linear scaling with slack, it now uses an exponential increase for operations projected to be late (`current_slack_for_op <= 0`), and a quadratic increase for operations with critically low positive slack. This makes the penalty for waiting *much more aggressive* when jobs are urgent or already delayed, compelling the scheduler to find a quicker (potentially cloud) slot. The base `urgency_factor` is also directly mapped to job priorities for clearer impact.
+2.  **Corrected Adaptive Cloud Fallback Threshold**: The `cloud_aggressiveness_threshold` values were inverted for their intended effect. The values have been corrected to reflect the desired behavior: higher priority jobs will now genuinely be *more willing to use cloud* even if local is slightly cheaper (requiring local to be significantly cheaper to be chosen), while lower priority jobs will *prefer local* even if it's slightly more expensive than cloud. This aligns the heuristic with the strategic goal of balancing cost vs. speed based on urgency.
+
+These changes aim to improve the scheduler's responsiveness to critical jobs and optimize cost for less urgent ones more effectively, especially under fluctuating capacity and emergency conditions.
+
+<DIFF>
+<<<<<<< SEARCH
+        self.priority_base_horizon = {'urgent': 8, 'high': 16, 'medium': 32, 'low': 64}
+        # Factor for dynamic procrastination penalty: penalty_per_hour * slack_ratio * urgency_factor
+        self.base_procrastination_penalty_factor = 0.05
+        # Adaptive cloud aggressiveness: how much cheaper local needs to be (e.g., 0.9 means local must be 10% cheaper)
+        self.cloud_aggressiveness_threshold = {'urgent': 1.1, 'high': 1.0, 'medium': 0.9, 'low': 0.8} # <1 means local preferred, >1 means cloud preferred
+
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+        """Calculates a composite score for a potential placement, including dynamic penalties."""
+
+        # 1. Compute Cost
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                           for t in range(start_time, start_time + op.duration))
+
+        # 2. Delay Penalty
+        projected_completion_time = start_time + op.duration + remaining_duration_after_op
+        delay = max(0, projected_completion_time - self.job.deadline)
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+
+        # 3. Dynamic Procrastination Penalty (Recommendation 4)
+        # Penalize waiting, but adapt based on urgency and existing slack
+        current_slack_for_op = self.job.deadline - (self.current_op_start_time + op.duration + remaining_duration_after_op)
+
+        # Urgency factor: higher for urgent jobs
+        urgency_factor = self.priority_base_horizon.get(self.job.priority, 32) / 32.0
+
+        # If the job is already late or has very little slack, waiting is more costly.
+        # Use a soft exponential increase for negative slack
+        slack_ratio = 1.0
+        if current_slack_for_op < 0:
+            slack_ratio = 1.0 + abs(current_slack_for_op) / (self.inst.time_horizon / 2.0) # More aggressive for very late ops
+        elif current_slack_for_op < self.inst.time_horizon / 4: # Small slack
+            slack_ratio = 1.0 + (self.inst.time_horizon / 4 - current_slack_for_op) / (self.inst.time_horizon / 4.0) * 0.5 # Moderate increase
+
+        # Procrastination penalty is higher for later starts and more urgent jobs
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_factor * slack_ratio
+
+        return compute_cost * self.inst.weights['compute_cost'] + delay_cost + procrastination_penalty
+=======
+        self.priority_base_horizon = {'critical': 6, 'high': 12, 'medium': 24, 'low': 48}
+        # Factor for dynamic procrastination penalty: penalty_per_hour * slack_scaling_factor * urgency_multiplier
+        self.base_procrastination_penalty_factor = 0.05
+        # Adaptive cloud aggressiveness: Controls how much better local needs to be.
+        # Value < 1.0 makes local harder to pick (prefers cloud).
+        # Value > 1.0 makes local easier to pick (prefers local).
+        self.cloud_aggressiveness_threshold = {'critical': 0.8, 'high': 0.9, 'medium': 1.0, 'low': 1.1}
+
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+        """Calculates a composite score for a potential placement, including dynamic penalties."""
+
+        # 1. Compute Cost
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                           for t in range(start_time, start_time + op.duration))
+
+        # 2. Delay Penalty
+        projected_completion_time = start_time + op.duration + remaining_duration_after_op
+        delay = max(0, projected_completion_time - self.job.deadline)
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+
+        # 3. Dynamic Procrastination Penalty with Exponential Urgency Scaling
+        # Penalize waiting, but adapt based on urgency and existing slack
+        current_slack_for_op = self.job.deadline - (start_time + op.duration + remaining_duration_after_op)
+
+        # Urgency multiplier: higher for urgent jobs
+        priority_procrastination_multiplier = {"low": 1.0, "medium": 1.5, "high": 2.5, "critical": 5.0}
+        urgency_multiplier = priority_procrastination_multiplier.get(self.job.priority, 1.0)
+
+        # Adaptive slack scaling: exponential for critical urgency, quadratic for small positive slack
+        slack_scaling_factor = 1.0
+        if current_slack_for_op <= 0:
+            # Exponentially penalize negative slack (already late)
+            # Scaling factor makes it more aggressive for larger delays relative to time horizon
+            slack_scaling_factor = math.exp(abs(current_slack_for_op) / (self.inst.time_horizon / 8.0))
+        elif current_slack_for_op < self.inst.time_horizon / 4:
+            # Quadratic increase for small positive slack, up to 2x amplification
+            ratio_to_threshold = (self.inst.time_horizon / 4 - current_slack_for_op) / (self.inst.time_horizon / 4.0)
+            slack_scaling_factor = 1.0 + ratio_to_threshold * ratio_to_threshold * 2.0
+
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_multiplier * slack_scaling_factor
+
+        return compute_cost * self.inst.weights['compute_cost'] + delay_cost + procrastination_penalty
+>>>>>>> REPLACE
+</DIFF>

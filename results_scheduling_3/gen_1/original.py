@@ -308,7 +308,7 @@ def operation_objective(inst, server_id, start, op, job, remaining_duration):
 # INCREMENTAL ONLINE JOB SCHEDULER
 # =============================================================================
 # YOU ARE EDITING THIS FUNCTION (schedule_job_online)
-#
+# 
 # STRICT ONLINE CONSTRAINT:
 # When scheduling a job, you can ONLY use:
 #   1. The current job being scheduled
@@ -375,17 +375,17 @@ def schedule_job_online(inst: Instance,
 def construct_schedule(inst: Instance) -> Schedule:
     """
     STRICT ONLINE SCHEDULER - NO FUTURE KNOWLEDGE
-
+    
     This function enforces the online constraint and is NOT evolved.
     Only schedule_job_online (above) can be modified during evolution.
-
+    
     CRITICAL ONLINE CONSTRAINT:
     When scheduling a job arriving at time T, you can ONLY access:
     - Jobs that have already been scheduled (arrival_time < T)
     - The current job (arrival_time == T)
-
+    
     You CANNOT access or analyze jobs with arrival_time > T
-
+    
     Implementation: Process jobs in arrival order, one at a time.
     """
     schedule = {}
@@ -396,7 +396,7 @@ def construct_schedule(inst: Instance) -> Schedule:
     # process them strictly in order without lookahead
     job_arrivals = [(job.arrival_time, job) for job in inst.jobs.values()]
     job_arrivals.sort(key=lambda x: x[0])  # Sort only by arrival time
-
+    
     # Process each job as it arrives (strict temporal order)
     for arrival_time, job in job_arrivals:
         # At this moment, only this job and earlier jobs exist in our world

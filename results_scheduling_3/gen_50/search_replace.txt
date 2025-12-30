@@ -1,0 +1,69 @@
+<priority_scaled_penalties>
+Apply priority-scaled penalties directly to time-sensitive cost components.
+
+The original code multiplied the entire `total_score` by `self.urgency_profile.criticality_factor` and then adjusted cloud costs. This edit refines the objective function by applying the `criticality_factor` directly to the `delay_cost`, `procrastination_penalty`, and `deadline_proximity_penalty` components. This ensures that urgency (driven by priority and slack) explicitly and proportionally amplifies the penalties for delays and unnecessary waiting, making the scheduler more sensitive to urgent jobs' time constraints. Compute cost, being a more fixed resource cost, is not scaled by urgency directly. The additional penalty for being late in `deadline_proximity_penalty` is also adjusted and scaled by the `criticality_factor`. The capacity hotspot penalty continues to be scaled by the criticality factor.
+</NAME>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Apply overall urgency factor to the total score
+        total_score *= self.urgency_profile.criticality_factor
+
+        # Add capacity hotspot penalty for local machines
+        if not is_cloud:
+            hotspot_penalty = 0.0
+            for t in range(start_time, start_time + self.op.duration + self.capacity_hotspot_lookahead):
+                current_used = self.capacity_usage[server_id].get(t, 0)
+                available_cap = get_available_capacity(self.inst, server_id, t)
+                if available_cap > 0: # Avoid division by zero
+                    # Penalize more if capacity is heavily utilized in the near future
+                    utilization = (current_used + self.op.capacity_required) / available_cap
+                    hotspot_penalty += max(0, utilization - 0.75) * self.capacity_hotspot_penalty_factor * self.inst.time_horizon
+
+            total_score += hotspot_penalty * self.urgency_profile.criticality_factor
+
+        # Adjust cloud cost based on tolerance
+        if is_cloud:
+            total_score *= self.urgency_profile.cloud_tolerance_factor
+
+        return total_score
+=======
+        # Apply urgency factor directly to delay_cost
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty'] * self.urgency_profile.criticality_factor
+
+        # Procrastination penalty: penalize waiting unnecessarily
+        procrastination_penalty = self.procrastination_penalty_base * (start_time - self.earliest_start)
+        procrastination_penalty *= self.urgency_profile.criticality_factor # Scale by job urgency
+
+        # Deadline proximity penalty: increases as completion nears/passes deadline
+        deadline_proximity_penalty = 0.0
+        remaining_slack_at_completion = self.job.deadline - projected_completion
+        if remaining_slack_at_completion < 0: # Already late, add significant extra penalty
+            # This penalty is additional to the scaled delay_cost
+            deadline_proximity_penalty = -remaining_slack_at_completion * 5.0
+            deadline_proximity_penalty *= self.urgency_profile.criticality_factor # Scale by job urgency
+        elif remaining_slack_at_completion < self.op.duration * 2: # Close to deadline, minor penalty
+            deadline_proximity_penalty = (self.op.duration * 2 - remaining_slack_at_completion) * self.deadline_proximity_penalty_factor
+            deadline_proximity_penalty *= self.urgency_profile.criticality_factor # Scale by job urgency
+
+        # Sum components
+        total_score = compute_cost + delay_cost + procrastination_penalty + deadline_proximity_penalty
+
+        # Add capacity hotspot penalty for local machines
+        if not is_cloud:
+            hotspot_penalty = 0.0
+            for t in range(start_time, start_time + self.op.duration + self.capacity_hotspot_lookahead):
+                current_used = self.capacity_usage[server_id].get(t, 0)
+                available_cap = get_available_capacity(self.inst, server_id, t)
+                if available_cap > 0:
+                    utilization = (current_used + self.op.capacity_required) / available_cap
+                    hotspot_penalty += max(0, utilization - 0.75) * self.capacity_hotspot_penalty_factor * self.inst.time_horizon
+            total_score += hotspot_penalty * self.urgency_profile.criticality_factor # Still scale hotspot penalty by urgency
+
+        # Adjust cloud cost based on tolerance (applied to the whole score)
+        if is_cloud:
+            total_score *= self.urgency_profile.cloud_tolerance_factor
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,110 @@
+<add_heuristic_parameters_and_dynamic_procrastination>
+Add heuristic parameters to PlacementEvaluator and refine _calculate_score with dynamic procrastination.
+
+This edit introduces several heuristic parameters directly within the `PlacementEvaluator` class's `__init__` method. These parameters will govern the dynamic behavior of the scheduler, specifically relating to procrastination penalties and thresholds for urgent job handling.
+
+The `_calculate_score` method is also refined to incorporate a more sophisticated dynamic procrastination penalty. This penalty now not only considers the job's priority and `delay_weight` but also dynamically adjusts based on the actual *slack* remaining for the current operation and the entire job. If an operation's projected completion pushes the job closer to or past its deadline, an exponential scaling factor is applied. This makes the scheduler significantly more aggressive about placing urgent operations quickly, aligning with Recommendation 3: "Implement a Dynamically Scaled Procrastination Penalty."
+
+By centralizing these parameters in `__init__`, they become easily tunable, and their adaptive nature allows for more nuanced decision-making, especially under pressure from emergencies or tight deadlines. The `TIME_HORIZON` constant is replaced with `self.inst.time_horizon` for consistency.
+
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.compatible_servers = [
+            (s_id, s) for s_id, s in self.inst.servers.items()
+            if s.server_type == self.op.server_type
+        ]
+
+    def _calculate_score(self, server_id, start_time):
+        """Calculates the objective score for a given placement, with adaptive procrastination."""
+        compute = sum(self.inst.server_cost[server_id].get(t % TIME_HORIZON, 1e6)
+                      for t in range(start_time, start_time + self.op.duration))
+
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+
+        delay_penalty = delay * self.job.delay_weight
+
+        # Adaptive procrastination penalty based on job priority
+        wait_time = start_time - self.earliest_start
+        procrastination_factor = 0.1 # Base factor
+        if self.job.priority == "critical":
+            procrastination_factor *= 2.5 # Higher penalty for critical jobs
+        elif self.job.priority == "high":
+            procrastination_factor *= 1.5 # Moderate penalty for high priority jobs
+        # No adjustment for medium/low priority, or can reduce it further
+
+        procrastination_penalty = wait_time * self.job.delay_weight * procrastination_factor
+
+        return (compute * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty)
+=======
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.compatible_servers = [
+            (s_id, s) for s_id, s in self.inst.servers.items()
+            if s.server_type == self.op.server_type
+        ]
+
+        # --- Heuristic Parameters ---
+        # Base factor for dynamic procrastination penalty: penalty_per_hour * slack_scaling_factor * urgency_multiplier
+        self.base_procrastination_penalty_factor = 0.05
+        # Priority-based multipliers for the procrastination penalty (Recommendation 3)
+        self.priority_procr_multiplier = {
+            "emergency": 3.0, "critical": 2.5, "high": 1.5, "medium": 1.0, "low": 0.5
+        }
+        # Thresholds for slack to trigger aggressive scaling (used in _calculate_score and _get_dynamic_local_search_horizon)
+        self.critical_slack_threshold = self.op.duration # If remaining slack is less than or equal to operation duration
+        self.urgent_slack_threshold = self.inst.time_horizon // 4 # e.g., 6 hours
+
+    def _calculate_score(self, server_id, start_time):
+        """Calculates the objective score for a given placement, with adaptive procrastination."""
+        compute = sum(self.inst.server_cost[server_id].get(t % self.inst.time_horizon, 1e6) # Standardize to self.inst.time_horizon
+                      for t in range(start_time, start_time + self.op.duration))
+
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+
+        delay_penalty = delay * self.job.delay_weight
+
+        # Adaptive procrastination penalty (Recommendation 3)
+        wait_time = start_time - self.earliest_start
+
+        # Urgency multiplier based on job priority
+        urgency_multiplier = self.priority_procr_multiplier.get(self.job.priority, 1.0)
+
+        # Slack-based scaling: exponentially penalize negative slack, moderately for low positive slack
+        current_op_projected_end = start_time + self.op.duration
+        total_job_projected_completion = current_op_projected_end + self.remaining_duration
+        current_slack_for_op_path = self.job.deadline - total_job_projected_completion
+
+        slack_scaling_factor = 1.0
+        if current_slack_for_op_path <= 0:
+            # Exponentially penalize negative slack (already late or very tight)
+            # The division by self.inst.time_horizon / 8.0 makes it aggressive for delays within a few hours
+            slack_scaling_factor = 1.0 + math.exp(abs(current_slack_for_op_path) / (self.inst.time_horizon / 8.0))
+        elif current_slack_for_op_path < self.urgent_slack_threshold:
+            # Moderate increase for small positive slack, up to 50% amplification
+            ratio_to_threshold = (self.urgent_slack_threshold - current_slack_for_op_path) / self.urgent_slack_threshold
+            slack_scaling_factor = 1.0 + ratio_to_threshold * 0.5
+
+        procrastination_penalty = wait_time * self.job.delay_weight * self.base_procrastination_penalty_factor * urgency_multiplier * slack_scaling_factor
+
+        return (compute * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty)
+>>>>>>> REPLACE
+</DIFF>

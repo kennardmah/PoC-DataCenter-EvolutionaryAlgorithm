@@ -1,0 +1,97 @@
+<NAME>
+slack_aware_best_fit_local_search
+</NAME>
+
+<DESCRIPTION>
+This edit implements a slack-aware best-fit local search with a dynamic horizon for local machine placements, directly addressing recommendation 1.
+
+The previous implementation for local server placement used a `_find_first_available_in_range` helper method, which would find the *first* available slot on a given local server and then compare these "first-available" options across different servers. This is a greedy approach, not a true best-fit search that explores all valid slots within a strategic horizon.
+
+The improved version modifies `PlacementEvaluator.find_best_placement` as follows:
+1.  **Removed `_find_first_available_in_range`**: This helper method is no longer needed.
+2.  **Dynamic Horizon Calculation**: The search horizon for local machines is now dynamically determined for each operation. It starts with a base horizon from `priority_map` and then adjusts this based on the job's remaining `slack`. Jobs with less slack (more urgent or already delayed) will have a tighter search window, forcing decisions sooner, while jobs with ample slack can explore further into the future for potentially cheaper or less congested slots. This directly incorporates `job.deadline - (self.earliest_start + self.op.duration + self.remaining_duration)` logic.
+3.  **True Best-Fit Local Search**: For each compatible local server, the algorithm now iterates through *all* feasible time slots within the dynamically calculated `search_limit`. It evaluates the `_calculate_score` for *every* feasible slot in this window and selects the combination of server and start time that yields the lowest score. This ensures a more optimal "best-fit" placement within the defined lookahead.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _find_first_available_in_range(self, server_id, start_search, end_search):
+        """Finds the first time slot with enough capacity on a server within a range."""
+        for t in range(start_search, end_search):
+            if has_capacity(self.inst, self.capacity_usage, server_id, t, self.op.duration, self.op.capacity_required):
+                return t
+        return None
+
+    def find_best_placement(self):
+        """Implements the staged decision logic: benchmark cloud, search local, then decide."""
+
+        # 1. Benchmark with the best cloud option
+        cloud_benchmark_score = float('inf')
+        best_cloud_server_id = None
+        compatible_cloud_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type and s.is_cloud]
+        for server in compatible_cloud_servers:
+            score = self._calculate_score(server.id, self.earliest_start)
+            if score < cloud_benchmark_score:
+                cloud_benchmark_score = score
+                best_cloud_server_id = server.id
+
+        # 2. Find the best local placement within a dynamic horizon
+        search_horizon = self.priority_map.get(self.job.priority, 48)
+        search_limit = self.earliest_start + search_horizon
+        best_local_score, best_local_server_id, best_local_start_time = float('inf'), None, -1
+        compatible_local_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type and not s.is_cloud]
+        for server in compatible_local_servers:
+            start_time = self._find_first_available_in_range(server.id, self.earliest_start, search_limit)
+            if start_time is not None:
+                score = self._calculate_score(server.id, start_time)
+                if score < best_local_score:
+                    best_local_score, best_local_server_id, best_local_start_time = score, server.id, start_time
+
+        # 3. Strategic Decision
+=======
+    def find_best_placement(self):
+        """Implements the staged decision logic: benchmark cloud, search local (best-fit), then decide."""
+
+        # 1. Benchmark with the best cloud option (always immediate start for cloud)
+        cloud_benchmark_score = float('inf')
+        best_cloud_server_id = None
+        compatible_cloud_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type and s.is_cloud]
+        for server in compatible_cloud_servers:
+            score = self._calculate_score(server.id, self.earliest_start)
+            if score < cloud_benchmark_score:
+                cloud_benchmark_score = score
+                best_cloud_server_id = server.id
+
+        # 2. Find the best local placement using a slack-aware best-fit within a dynamic horizon
+        # Calculate job's current slack to dynamically adjust the search horizon
+        total_remaining_op_duration = self.op.duration + self.remaining_duration
+        current_job_slack = self.job.deadline - (self.earliest_start + total_remaining_op_duration)
+
+        # Base search horizon from priority map (e.g., urgent jobs look less far ahead)
+        base_search_horizon = self.priority_map.get(self.job.priority, 48) # Default to 48 hours
+
+        # Adjust horizon based on slack:
+        # More slack -> allow longer search horizon (explore for cheaper options further in the future)
+        # Less slack (or negative) -> reduce search horizon (focus on immediate availability to meet deadline)
+        # The adjustment factor uses self.inst.time_horizon as a reference for a "full day" of slack
+        slack_adjustment_factor = 1.0 + (current_job_slack / self.inst.time_horizon) * 0.5 # Adjust by up to 50% for +/- one full day slack
+        slack_adjustment_factor = max(0.5, min(2.0, slack_adjustment_factor)) # Clamp factor to reasonable bounds (0.5x to 2.0x base horizon)
+
+        dynamic_search_horizon = int(base_search_horizon * slack_adjustment_factor)
+        dynamic_search_horizon = max(self.op.duration, dynamic_search_horizon) # Ensure horizon is at least operation duration
+
+        search_limit = self.earliest_start + dynamic_search_horizon
+
+        best_local_score, best_local_server_id, best_local_start_time = float('inf'), None, -1
+        compatible_local_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type and not s.is_cloud]
+        for server in compatible_local_servers:
+            # Perform a true best-fit search for this server within the dynamic horizon
+            for start_time_candidate in range(self.earliest_start, search_limit):
+                if has_capacity(self.inst, self.capacity_usage, server.id, start_time_candidate, self.op.duration, self.op.capacity_required):
+                    score = self._calculate_score(server.id, start_time_candidate)
+                    if score < best_local_score:
+                        best_local_score, best_local_server_id, best_local_start_time = score, server.id, start_time_candidate
+
+        # 3. Strategic Decision (comparing best local vs. cloud)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,37 @@
+<local_preference_bonus>
+Introduce a `local_preference_bonus` to slightly incentivize the use of local machines over cloud resources when their overall scores are competitive. This acts as a tie-breaker or a nudge, leveraging local infrastructure cost-effectiveness without forcing it at the expense of critical deadlines or high delays. This aligns with the "local vs. cloud cost tradeoffs" and similar successful heuristics from prior generations (e.g., `local_incentive` from `QueueCompetitionDispatcher`). Additionally, a misleading comment regarding `cloud_aggressiveness_threshold` interpretation is corrected for clarity.
+</NAME>
+
+<DESCRIPTION>
+The existing scoring mechanism calculates a composite score for each potential operation placement, considering compute cost, delay penalties, and a dynamic procrastination penalty. However, it lacks an explicit preference for local machines when they are nearly as good as cloud options. By adding a `local_preference_bonus` (a negative value, thus reducing the score) to local machine placements, the scheduler will be subtly biased towards utilizing cheaper, local infrastructure if it doesn't significantly compromise other objectives. This should help reduce overall `compute_cost` by preventing premature migration to more expensive cloud resources in marginal cases.
+
+The `cloud_aggressiveness_threshold` comment was also clarified to accurately reflect its functionality: a value `< 1.0` makes local harder to pick (preferring cloud), while `> 1.0` makes local easier to pick (preferring local). This ensures future modifications correctly interpret its impact.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Value < 1.0 makes local harder to pick (prefers cloud).
+        # Value > 1.0 makes local easier to pick (prefers local).
+        self.cloud_aggressiveness_threshold = {'critical': 0.8, 'high': 0.9, 'medium': 1.0, 'low': 1.1}
+=======
+        # Value < 1.0 means local must be cheaper (prefers cloud).
+        # Value > 1.0 means local can be slightly more expensive (prefers local).
+        self.cloud_aggressiveness_threshold = {'critical': 0.8, 'high': 0.9, 'medium': 1.0, 'low': 1.1}
+        # Bonus applied to local machine scores to slightly prefer them over cloud (negative value)
+        self.local_preference_bonus = -10.0
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        return compute_cost * self.inst.weights['compute_cost'] + delay_cost + procrastination_penalty
+=======
+        total_score = compute_cost * self.inst.weights['compute_cost'] + delay_cost + procrastination_penalty
+
+        # Apply local preference bonus (Recommendation based on prior successful generations)
+        if not self.inst.servers[server_id].is_cloud:
+            total_score += self.local_preference_bonus
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,128 @@
+Okay, my apologies for the previous error. I missed the strict boundary of the `EVOLVE-BLOCK`. I understand that modifications are restricted to *within* the `schedule_job_online` function definition.
+
+I will now propose two edits that respect this constraint:
+1.  **Priority-Aware Cost Adjustment:** I will introduce priority multipliers *inside* the `schedule_job_online` function and apply them to the calculated cost for each operation. This directly influences the min-cost selection within the allowed scope.
+2.  **Best-Fit Local Search:** I will replace the "first available slot" logic for local machines with a "best available slot" logic within the same search horizon, ensuring it also uses the priority-adjusted cost.
+
+Crucially, the SEARCH block for the second edit will reflect the code *after* the first edit has been applied, as per instructions.
+
+---
+
+<NAME>
+priority_cost_adjustment
+</NAME>
+
+<DESCRIPTION>
+This edit introduces a mechanism to prioritize jobs based on their `priority` attribute. Within the `schedule_job_online` function, `PRIORITY_MULTIPLIERS` are defined as a local dictionary. When evaluating the cost of assigning an operation to a server using `operation_objective`, the returned cost is then multiplied by a factor corresponding to the job's priority. Urgent jobs receive a high multiplier, making any delays or compute costs associated with them appear much more "expensive" to the scheduler. This biases the scheduler to find earlier slots or cheaper resources for high-priority jobs, addressing the requirement to handle emergency jobs effectively without modifying the `operation_objective` function itself.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+
+        _, chosen_server, chosen_start = best
+=======
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    # Define priority multipliers locally within the evolvable function
+    priority_multipliers = {"urgent": 10.0, "high": 2.0, "medium": 1.0, "low": 0.5}
+    current_job_priority_multiplier = priority_multipliers.get(job.priority, 1.0) # Default to 1.0 if priority not found
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                adjusted_cost = cost * current_job_priority_multiplier # Apply priority multiplier
+                best = min(best, (adjusted_cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    adjusted_cost = cost * current_job_priority_multiplier # Apply priority multiplier
+                    best = min(best, (adjusted_cost, server_id, start))
+                    break  # Take first available slot on this server
+
+        _, chosen_server, chosen_start = best
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+best_fit_local_servers
+</NAME>
+
+<DESCRIPTION>
+This edit refines the scheduling heuristic for local machines by changing from a "first-fit" to a "best-fit" approach. Instead of selecting the very first available time slot it encounters, the scheduler now explores all possible valid start times within the job's deadline and the global time horizon for each local server. It calculates the `operation_objective` (which now includes the priority adjustment from the previous edit) for each slot and selects the one that results in the minimum overall cost. This allows for more optimal placement of operations on local resources, potentially reducing total cost by finding slots with lower time-of-day costs or better overall delay penalties, rather than just the earliest possible one.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    adjusted_cost = cost * current_job_priority_multiplier # Apply priority multiplier
+                    best = min(best, (adjusted_cost, server_id, start))
+                    break  # Take first available slot on this server
+=======
+            # local: search forward for the best available slot within the horizon
+            best_local_cost_for_server = float('inf')
+            best_local_start_for_server = None
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    adjusted_cost = cost * current_job_priority_multiplier # Apply priority multiplier
+                    if adjusted_cost < best_local_cost_for_server:
+                        best_local_cost_for_server = adjusted_cost
+                        best_local_start_for_server = start
+
+            # If a suitable slot was found on this local server, compare it with the overall best
+            if best_local_start_for_server is not None:
+                best = min(best, (best_local_cost_for_server, server_id, best_local_start_for_server))
+>>>>>>> REPLACE
+</DIFF>

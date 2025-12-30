@@ -1,0 +1,95 @@
+<NAME>
+load_balancing_penalty
+</NAME>
+
+<DESCRIPTION>
+To improve system throughput and resilience, I am introducing a load-balancing mechanism that discourages scheduling operations on already congested local machines. This preserves capacity on cheap, high-demand servers for future urgent jobs, preventing low-priority tasks from causing bottlenecks.
+
+This is implemented by adding a `load_penalty` to the `_calculate_score` function within the `PlacementEvaluator`. The penalty is calculated as follows:
+
+1.  **Scope**: The penalty only applies to local machines, as cloud resources have unlimited capacity.
+2.  **Load Measurement**: For a potential placement, the heuristic calculates the average machine utilization within a time window surrounding the operation (from `op.duration` before the start to `op.duration * 2` after). This calculation correctly accounts for capacity reductions due to machine failures.
+3.  **Priority Scaling**: The penalty is scaled by job priority. Low-priority jobs receive a high penalty multiplier, strongly encouraging them to use less-congested resources or wait for off-peak times. Conversely, high-priority and emergency jobs have a very low multiplier, allowing them to be placed on the best machine regardless of its current load.
+4.  **Cost Integration**: The final penalty is scaled by a new `load_penalty_factor` and the job's `delay_weight`, ensuring its magnitude is proportional to other cost components in the objective function.
+
+This change makes the scheduling decision process more holistic, considering not just the cost of the current operation in isolation but also its impact on the overall system health and future flexibility.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters ---
+        # Base factor for dynamic procrastination penalty: penalty_per_hour * slack_scaling_factor * urgency_multiplier
+        self.base_procrastination_penalty_factor = 0.05
+        # Priority-based multipliers for the procrastination penalty (Recommendation 3)
+        self.priority_procr_multiplier = {
+            "emergency": 3.0, "critical": 2.5, "high": 1.5, "medium": 1.0, "low": 0.5
+        }
+        # Thresholds for slack to trigger aggressive scaling (used in _calculate_score and _get_dynamic_local_search_horizon)
+        self.critical_slack_threshold = self.op.duration # If remaining slack is less than or equal to operation duration
+        self.urgent_slack_threshold = self.inst.time_horizon // 4 # e.g., 6 hours
+=======
+        # --- Heuristic Parameters ---
+        # Base factor for dynamic procrastination penalty: penalty_per_hour * slack_scaling_factor * urgency_multiplier
+        self.base_procrastination_penalty_factor = 0.05
+        # Priority-based multipliers for the procrastination penalty (Recommendation 3)
+        self.priority_procr_multiplier = {
+            "emergency": 3.0, "critical": 2.5, "high": 1.5, "medium": 1.0, "low": 0.5
+        }
+        # Thresholds for slack to trigger aggressive scaling (used in _calculate_score and _get_dynamic_local_search_horizon)
+        self.critical_slack_threshold = self.op.duration # If remaining slack is less than or equal to operation duration
+        self.urgent_slack_threshold = self.inst.time_horizon // 4 # e.g., 6 hours
+
+        # Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0 # General scaling factor for the load penalty
+        self.priority_load_multiplier = {
+            "emergency": 0.1, "critical": 0.2, "high": 0.5, "medium": 1.0, "low": 2.0
+        }
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        procrastination_penalty = wait_time * self.job.delay_weight * self.base_procrastination_penalty_factor * urgency_multiplier * slack_scaling_factor
+
+        return (compute * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty)
+=======
+        procrastination_penalty = wait_time * self.job.delay_weight * self.base_procrastination_penalty_factor * urgency_multiplier * slack_scaling_factor
+
+        # Load-balancing penalty: Discourage placing jobs on already congested local machines.
+        load_penalty = 0.0
+        server = self.inst.servers.get(server_id)
+        if server and not server.is_cloud:
+            # Define a window around the operation to check for load.
+            window_start = max(0, start_time - self.op.duration)
+            window_end = start_time + self.op.duration * 2
+
+            total_utilization = 0.0
+            num_timesteps = 0
+
+            for t in range(window_start, window_end):
+                used_capacity = self.capacity_usage.get(server_id, {}).get(t, 0)
+                # Use the global get_available_capacity which accounts for failures
+                total_capacity = get_available_capacity(self.inst, server_id, t)
+
+                if total_capacity > 0:
+                    # Calculate utilization at time t
+                    total_utilization += used_capacity / total_capacity
+
+                num_timesteps += 1
+
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+
+                # Priority scaling: low-priority jobs are penalized more for using busy machines.
+                load_priority_multiplier = self.priority_load_multiplier.get(self.job.priority, 1.0)
+
+                # The final penalty is scaled by the average utilization, a base factor, priority, and the job's own delay weight.
+                load_penalty = avg_utilization * self.load_penalty_factor * load_priority_multiplier * self.job.delay_weight
+
+        return (compute * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty +
+                load_penalty)
+>>>>>>> REPLACE
+</DIFF>

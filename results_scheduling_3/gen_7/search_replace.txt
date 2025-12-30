@@ -1,0 +1,93 @@
+<priority_inversion>
+Invert priority multiplier logic: The previous implementation multiplied the calculated operation cost by a `current_job_priority_multiplier` which was *greater than 1* for high-priority jobs. This made high-priority jobs *appear more expensive* to the greedy heuristic, causing the scheduler to seek out cheaper (potentially later or less optimal for urgency) slots for them, which is counter to the concept of prioritization. This edit inverts the multipliers:
+-   "Urgent" jobs now have their costs effectively divided by a large factor (e.g., 100), making them appear very cheap, thus heavily favoring their immediate scheduling.
+-   "High" priority jobs are also made cheaper.
+-   "Low" priority jobs are made to appear more expensive, encouraging the scheduler to use local resources for higher priority jobs first or defer low-priority jobs.
+This re-aligns the heuristic's cost perception with the real-world meaning of job priority: urgent jobs should be fast-tracked even if they are genuinely more expensive.
+</NAME>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Define priority multipliers locally within the evolvable function
+    priority_multipliers = {"urgent": 10.0, "high": 2.0, "medium": 1.0, "low": 0.5}
+    current_job_priority_multiplier = priority_multipliers.get(job.priority, 1.0) # Default to 1.0 if priority not found
+=======
+    # Define priority multipliers locally within the evolvable function.
+    # Lower multiplier means the job appears 'cheaper' to the heuristic, thus prioritized.
+    priority_multipliers = {"urgent": 0.01, "high": 0.1, "medium": 1.0, "low": 2.0}
+    current_job_priority_multiplier = priority_multipliers.get(job.priority, 1.0) # Default to 1.0 if priority not found
+>>>>>>> REPLACE
+
+</DIFF>
+
+<tie_breaking_start_time>
+Optimize tie-breaking in slot selection: The previous method for selecting the 'best' slot used a tuple `(adjusted_cost, server_id, start_time)`. When `min()` is called on such tuples, if two options have the same `adjusted_cost`, it would then compare `server_id` lexicographically. This means if `(cost, "M1", 5)` and `(cost, "M2", 3)` had the same cost, "M1" would be chosen because "M1" < "M2", even though "M2" offers an earlier start time. This edit reorders the tuple to `(adjusted_cost, start_time, server_id)`. This ensures that in case of identical costs, the earlier start time is always preferred, which generally leads to lower overall completion times and better system flow.
+</NAME>
+
+<DIFF>
+<<<<<<< SEARCH
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                adjusted_cost = cost * current_job_priority_multiplier # Apply priority multiplier
+                best = min(best, (adjusted_cost, server_id, current_start))
+                continue
+
+            # local: search forward for the best available slot within the horizon
+            best_local_cost_for_server = float('inf')
+            best_local_start_for_server = None
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    adjusted_cost = cost * current_job_priority_multiplier # Apply priority multiplier
+                    if adjusted_cost < best_local_cost_for_server:
+                        best_local_cost_for_server = adjusted_cost
+                        best_local_start_for_server = start
+
+            # If a suitable slot was found on this local server, compare it with the overall best
+            if best_local_start_for_server is not None:
+                best = min(best, (best_local_cost_for_server, server_id, best_local_start_for_server))
+=======
+        # Initialize best with (cost, start_time, server_id) to prioritize earlier start times on cost ties
+        best = (float('inf'), float('inf'), None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # Cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                adjusted_cost = cost * current_job_priority_multiplier # Apply priority multiplier
+                # Use (cost, start_time, server_id) for tie-breaking: prefer earlier start if costs are equal
+                best = min(best, (adjusted_cost, current_start, server_id))
+                continue
+
+            # Local: search forward for the best available slot within the horizon
+            best_local_cost_for_server = float('inf')
+            best_local_start_for_server = float('inf') # Initialize with infinity to prefer smaller start times
+            best_local_server_id = None # Track server_id for tie-breaking
+
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    adjusted_cost = cost * current_job_priority_multiplier # Apply priority multiplier
+
+                    # Compare using (adjusted_cost, start_time, server_id) for tie-breaking
+                    if (adjusted_cost, start, server_id) < (best_local_cost_for_server, best_local_start_for_server, best_local_server_id):
+                        best_local_cost_for_server = adjusted_cost
+                        best_local_start_for_server = start
+                        best_local_server_id = server_id
+
+            # If a suitable slot was found on this local server, compare it with the overall best
+            if best_local_server_id is not None: # Check if a valid local slot was found
+                best = min(best, (best_local_cost_for_server, best_local_start_for_server, best_local_server_id))
+>>>>>>> REPLACE
+
+</DIFF>

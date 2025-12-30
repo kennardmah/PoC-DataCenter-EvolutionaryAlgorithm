@@ -1,0 +1,69 @@
+<NAME>
+fix_and_refine_priority_heuristics
+</NAME>
+
+<DESCRIPTION>
+This edit addresses two key issues in the `JobScheduler`. First, it fixes a bug in the `_calculate_operation_score` where the `urgency_factor` for the procrastination penalty was incorrectly scaled, penalizing low-priority jobs more than high-priority ones. This is replaced with a direct `priority_procrastination_multiplier` that correctly applies aggressive penalties for waiting on critical and urgent jobs. Second, it enhances the heuristic parameter maps (`priority_base_horizon`, `cloud_aggressiveness_threshold`) to include the 'critical' priority level, making the scheduler more robust for emergency scenarios. Additionally, the slack-based penalty is intensified using exponential and quadratic scaling to make the scheduler more responsive to jobs approaching their deadlines. This creates a more logical and effective trade-off between waiting for cheap local resources and using expensive cloud resources to meet deadlines.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters ---
+        # Base search horizon based on job priority. Urgent jobs look less into the future.
+        self.priority_base_horizon = {'urgent': 8, 'high': 16, 'medium': 32, 'low': 64}
+        # Factor for dynamic procrastination penalty: penalty_per_hour * slack_ratio * urgency_factor
+        self.base_procrastination_penalty_factor = 0.05
+        # Adaptive cloud aggressiveness: how much cheaper local needs to be (e.g., 0.9 means local must be 10% cheaper)
+        self.cloud_aggressiveness_threshold = {'urgent': 1.1, 'high': 1.0, 'medium': 0.9, 'low': 0.8} # <1 means local preferred, >1 means cloud preferred
+=======
+        # --- Heuristic Parameters ---
+        # Base search horizon. Urgent/critical jobs have shorter horizons to prioritize speed over long-term cost savings.
+        self.priority_base_horizon = {'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+
+        # Direct multiplier for procrastination penalty based on priority. Fixes bug and improves responsiveness.
+        self.priority_procrastination_multiplier = {'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+
+        # Adaptive cloud aggressiveness: value > 1.0 prefers cloud, < 1.0 prefers local.
+        # Critical jobs are pushed to cloud unless local is significantly cheaper/faster.
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # Urgency factor: higher for urgent jobs
+        urgency_factor = self.priority_base_horizon.get(self.job.priority, 32) / 32.0
+
+        # If the job is already late or has very little slack, waiting is more costly.
+        # Use a soft exponential increase for negative slack
+        slack_ratio = 1.0
+        if current_slack_for_op < 0:
+            slack_ratio = 1.0 + abs(current_slack_for_op) / (self.inst.time_horizon / 2.0) # More aggressive for very late ops
+        elif current_slack_for_op < self.inst.time_horizon / 4: # Small slack
+            slack_ratio = 1.0 + (self.inst.time_horizon / 4 - current_slack_for_op) / (self.inst.time_horizon / 4.0) * 0.5 # Moderate increase
+
+        # Procrastination penalty is higher for later starts and more urgent jobs
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_factor * slack_ratio
+=======
+        # Urgency multiplier, corrected to properly penalize waiting for high-priority jobs.
+        urgency_multiplier = self.priority_procrastination_multiplier.get(self.job.priority, 1.0)
+
+        # If the job is already late or has very little slack, waiting is more costly.
+        # Use a refined exponential/quadratic increase for negative/low slack
+        slack_ratio = 1.0
+        if current_slack_for_op < 0:
+            # Exponentially increase penalty for jobs that are already projected to be late
+            slack_ratio = 1.0 + (math.exp(abs(current_slack_for_op) / (self.inst.time_horizon / 4.0)) - 1.0)
+        elif current_slack_for_op < self.inst.time_horizon / 4: # Small slack
+            # Quadratically increase penalty as slack approaches zero
+            ratio_to_threshold = (self.inst.time_horizon / 4.0 - current_slack_for_op) / (self.inst.time_horizon / 4.0)
+            slack_ratio = 1.0 + (ratio_to_threshold**2) * 2.0
+
+        # Procrastination penalty is higher for later starts and more urgent jobs
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_multiplier * slack_ratio
+>>>>>>> REPLACE
+</DIFF>

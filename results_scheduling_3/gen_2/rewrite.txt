@@ -1,0 +1,165 @@
+# =============================================================================
+# =============================================================================
+# SCHEDULE CONSTRUCTOR (ONLINE, EVOLVABLE)
+# =============================================================================
+
+# EVOLVE-BLOCK-START
+
+# INCREMENTAL ONLINE JOB SCHEDULER (Urgency-Aware Lookahead)
+# =============================================================================
+# This new algorithm introduces a context-aware, adaptive heuristic.
+# Instead of a simple greedy choice, it assesses job urgency (slack)
+# to decide whether to prioritize cost-savings (long lookahead on local
+# machines) or speed (short lookahead, willingness to use cloud).
+# =============================================================================
+
+def calculate_placement_score(inst: Instance,
+                              server_id: str,
+                              start: int,
+                              op: Operation,
+                              job: Job,
+                              remaining_processing_time: int,
+                              is_critical: bool,
+                              is_urgent: bool,
+                              is_failsafe: bool = False) -> float:
+    """
+    Calculates a score for a potential operation placement, factoring in urgency.
+    A lower score is better.
+    """
+    # 1. Compute Cost: Sum of costs over the operation's duration.
+    compute_cost = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                       for t in range(start, start + op.duration))
+
+    # 2. Projected Delay Penalty: Cost incurred for missing the deadline.
+    projected_completion = start + op.duration + remaining_processing_time
+    delay = max(0, projected_completion - job.deadline)
+    delay_penalty = delay * job.delay_weight
+
+    # 3. Base weighted score from problem's objective function.
+    score = (compute_cost * inst.weights['compute_cost'] +
+             delay_penalty * inst.weights['delay_penalty'])
+
+    # 4. Urgency-based strategic adjustments for cloud usage.
+    server = inst.servers[server_id]
+    if server.is_cloud:
+        # In failsafe mode, we are forced to use the cloud; don't apply penalties.
+        if is_failsafe:
+            return score
+
+        # Adjust score to make cloud more or less attractive based on need.
+        if is_critical:
+            score *= 0.5  # High incentive for critical jobs to use cloud to meet deadlines.
+        elif is_urgent:
+            score *= 0.9  # Moderate incentive for urgent jobs.
+        else:
+            # High penalty for using expensive cloud when there is ample time.
+            # Penalty is stronger for lower priority jobs.
+            priority_penalty_map = {"low": 5.0, "medium": 3.0, "high": 2.0, "critical": 1.5}
+            score *= priority_penalty_map.get(job.priority, 3.0)
+
+    return score
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    """
+    Schedules a single job online using an urgency-aware lookahead heuristic.
+    """
+    schedule[job.id] = []
+    # The earliest this job's first operation can start.
+    op_release_time = max(job.arrival_time, current_time)
+
+    # Thresholds for urgency based on slack time (time to deadline - work left)
+    CRITICAL_SLACK = 0
+    URGENT_SLACK = inst.time_horizon // 4 # e.g., 6 hours
+
+    for op_idx, op in enumerate(job.operations):
+        remaining_processing_time = sum(o.duration for o in job.operations[op_idx + 1:])
+
+        # Calculate slack and determine urgency
+        slack = job.deadline - (op_release_time + op.duration + remaining_processing_time)
+        is_critical = slack <= CRITICAL_SLACK
+        is_urgent = slack <= URGENT_SLACK
+
+        # Define search window based on urgency
+        if is_critical:
+            lookahead_window = op.duration * 2 # very short, just find a spot NOW
+        elif is_urgent:
+            lookahead_window = inst.time_horizon // 2 # medium window
+        else:
+            lookahead_window = inst.time_horizon * 2 # long window to find cheap slots
+
+        best_placement = (float('inf'), None, None) # (score, server_id, start_time)
+
+        # Separate servers into local and cloud for different strategies
+        compatible_local_servers = [
+            s_id for s_id, s in inst.servers.items()
+            if s.server_type == op.server_type and not s.is_cloud
+        ]
+        compatible_cloud_servers = [
+            s_id for s_id, s in inst.servers.items()
+            if s.server_type == op.server_type and s.is_cloud
+        ]
+
+        # 1. Evaluate local servers within the lookahead window
+        for server_id in compatible_local_servers:
+            # Search for the best (not just first) slot in the window
+            for start_t in range(op_release_time, op_release_time + lookahead_window):
+                if has_capacity(inst, capacity_usage, server_id, start_t, op.duration, op.capacity_required):
+                    score = calculate_placement_score(inst, server_id, start_t, op, job,
+                                                      remaining_processing_time, is_critical, is_urgent)
+                    if score < best_placement[0]:
+                        best_placement = (score, server_id, start_t)
+
+        # 2. Evaluate cloud servers (only at the earliest possible start time)
+        if compatible_cloud_servers:
+            # Find the cheapest cloud server
+            cheapest_cloud_server = min(compatible_cloud_servers,
+                                       key=lambda s_id: inst.server_cost[s_id][op_release_time % inst.time_horizon])
+            score = calculate_placement_score(inst, cheapest_cloud_server, op_release_time, op, job,
+                                              remaining_processing_time, is_critical, is_urgent)
+            if score < best_placement[0]:
+                best_placement = (score, cheapest_cloud_server, op_release_time)
+
+        # 3. Failsafe: If no slot was found (e.g., extreme congestion), force place on cloud.
+        if best_placement[1] is None:
+            if not compatible_cloud_servers:
+                 # This is a catastrophic case: no cloud option and local is full.
+                 # Fallback to the original's behavior: find the absolute first available local slot, no matter how far.
+                 # This ensures a valid schedule is always produced.
+                failsafe_best = (float('inf'), None, None)
+                for server_id in compatible_local_servers:
+                    start_t = op_release_time
+                    while True:
+                        if has_capacity(inst, capacity_usage, server_id, start_t, op.duration, op.capacity_required):
+                            score = calculate_placement_score(inst, server_id, start_t, op, job,
+                                                      remaining_processing_time, is_critical, is_urgent, is_failsafe=True)
+                            if score < failsafe_best[0]:
+                                failsafe_best = (score, server_id, start_t)
+                            break
+                        start_t += 1
+                best_placement = failsafe_best
+            else:
+                 # Standard failsafe: use the cheapest cloud server immediately.
+                cheapest_cloud_server = min(compatible_cloud_servers,
+                                       key=lambda s_id: inst.server_cost[s_id][op_release_time % inst.time_horizon])
+                score = calculate_placement_score(inst, cheapest_cloud_server, op_release_time, op, job,
+                                                  remaining_processing_time, is_critical, is_urgent, is_failsafe=True)
+                best_placement = (score, cheapest_cloud_server, op_release_time)
+
+
+        # Finalize the chosen placement for this operation
+        _, chosen_server, chosen_start = best_placement
+
+        # Reserve capacity for the chosen operation
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        # Record the schedule and update the release time for the next operation
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        op_release_time = chosen_start + op.duration
+
+# EVOLVE-BLOCK-END

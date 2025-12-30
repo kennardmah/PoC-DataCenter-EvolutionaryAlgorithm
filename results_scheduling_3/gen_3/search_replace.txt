@@ -1,0 +1,46 @@
+<NAME>
+local_window_search
+</NAME>
+
+<DESCRIPTION>
+The original scheduling heuristic for local machines was to find the *first* available slot starting from `current_start` and immediately assign the operation to it. This greedy approach can miss opportunities to optimize costs or delay penalties by overlooking slightly later, but potentially cheaper or more strategically beneficial, slots.
+
+This edit enhances the local machine scheduling:
+1.  A new constant, `LOCAL_SEARCH_WINDOW`, is introduced (set to 12 hours initially). This defines a fixed lookahead window for local machine assignments.
+2.  For each local server, instead of picking the first available slot, the scheduler now iterates through all possible start times within the `current_start` to `current_start + LOCAL_SEARCH_WINDOW` range.
+3.  For every feasible slot (where capacity is available), the `operation_objective` is calculated.
+4.  The slot that results in the minimum cost (considering compute cost and projected delay penalties) within this search window for that specific local server is selected as the best option for that server.
+5.  Finally, this best local server option is compared against the best cloud option (which is always scheduled at `current_start` due to unlimited capacity) and the overall minimum is chosen.
+
+This change allows the online scheduler to make more informed, yet still computationally bounded, decisions for local machine operations. It balances the need for speed in online scheduling with a more intelligent local optimization, aiming to reduce total cost by selecting better available slots.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+=======
+            # local: search within a limited window for the best available slot
+            LOCAL_SEARCH_WINDOW = 12 # Define a reasonable lookahead window (e.g., 12 hours)
+
+            best_local_cost_for_server = float('inf')
+            best_local_start_for_server = None
+
+            # Search from current_start up to current_start + LOCAL_SEARCH_WINDOW
+            # This window allows evaluating multiple near-term options.
+            for start in range(current_start, current_start + LOCAL_SEARCH_WINDOW + 1): # +1 to include the end of the window
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    if cost < best_local_cost_for_server:
+                        best_local_cost_for_server = cost
+                        best_local_start_for_server = start
+
+            if best_local_start_for_server is not None:
+                # If a suitable local slot was found, compare it with the overall best
+                best = min(best, (best_local_cost_for_server, server_id, best_local_start_for_server))
+>>>>>>> REPLACE
+</DIFF>

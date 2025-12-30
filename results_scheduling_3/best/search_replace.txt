@@ -1,0 +1,42 @@
+<NAME>
+refined_score_and_load_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit refines the operation scoring heuristic by making two targeted improvements:
+
+1.  **Inverted Load-Balancing Penalty:** The logic for `priority_load_multiplier` has been inverted. Previously, high-priority jobs were *less* penalized for being placed on highly congested machines. This is counter-intuitive, as congestion increases the risk of delay, which is most critical for urgent jobs. The new logic makes high-priority jobs more sensitive to machine load. This encourages them to seek less congested resources, improving schedule robustness and potentially reducing cascading delays, while allowing lower-priority jobs with more slack to backfill the busier machines. I also added the `urgent` priority level for completeness, as it is used in other heuristic dictionaries.
+
+2.  **Removed Static Local Preference Bonus:** The constant `local_preference_bonus` of `-10.0` has been removed. This bonus was a small, static nudge in favor of local machines. The existing `cloud_aggressiveness_threshold` provides a much more dynamic and powerful mechanism for managing the local vs. cloud trade-off, as it scales with the overall calculated score. Removing the redundant bonus simplifies the scoring function, reduces the number of "magic numbers," and makes the scheduling decision reliant on the more sophisticated core cost components (compute, delay, procrastination, and load).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        self.priority_load_multiplier = {"emergency": 0.1, "critical": 0.2, "high": 0.5, "medium": 1.0, "low": 2.0}
+        # 2. Local preference bonus
+        self.local_preference_bonus = -10.0
+=======
+        self.priority_load_multiplier = {"emergency": 3.0, "urgent": 2.5, "critical": 2.0, "high": 1.5, "medium": 1.0, "low": 0.5}
+        # Local preference bonus was removed in favor of the more dynamic cloud_aggressiveness_threshold heuristic.
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        # 5. Local Preference Bonus (Crossover Feature)
+        if not server.is_cloud:
+            total_score += self.local_preference_bonus
+
+        return total_score
+=======
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

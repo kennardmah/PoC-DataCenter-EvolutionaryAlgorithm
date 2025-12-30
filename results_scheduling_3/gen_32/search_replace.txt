@@ -1,0 +1,296 @@
+<NAME>
+re_adaptive_heuristics_optimized_capacity
+</NAME>
+
+<DESCRIPTION>
+The previous edit failed due to a mismatch in the SEARCH block. This revised edit re-applies the intended improvements, ensuring the SEARCH block accurately reflects the current code.
+
+The core idea is to enhance the online scheduling logic with adaptive heuristics and performance optimizations:
+
+1.  **Centralized Heuristic Parameters:** `CLOUD_COST_MULTIPLIER`, `PRIORITY_PROCR_PENALTY_FACTOR`, and `SLACK_BASED_SEARCH_HORIZONS` are defined as local constants within `schedule_job_online`. This makes the tuning parameters explicit and easier to manage.
+    *   `CLOUD_COST_MULTIPLIER` is set to 1.75 to further discourage non-critical cloud usage.
+    *   `PRIORITY_PROCR_PENALTY_FACTOR` is introduced to scale the procrastination penalty based on job priority (Emergency jobs get highest penalty for waiting, Low priority jobs get lowest), making the scheduler more responsive to urgent tasks.
+    *   `SLACK_BASED_SEARCH_HORIZONS` adapt the search window for local machines based on the job's remaining slack, balancing exploration for cost optimization with quick placement for urgent jobs.
+
+2.  **Enhanced `_calculate_score`:** The nested `_calculate_score` function is updated:
+    *   It now accepts an `is_cloud_server` boolean, applying the `CLOUD_COST_MULTIPLIER` when true.
+    *   The procrastination penalty uses the `PRIORITY_PROCR_PENALTY_FACTOR` and explicitly calculates `wait_time = max(0, start_time - current_op_release_time)` to avoid negative penalties.
+
+3.  **Optimized Capacity Check with Caching:**
+    *   A local helper function `_has_capacity_optimized` is introduced within `schedule_job_online`. This function takes a `cached_server_capacity` dictionary, allowing pre-computation of available capacity for local servers over the search horizon. This significantly reduces redundant calls to the global `get_available_capacity`, especially when evaluating many `(server, start_time)` pairs.
+    *   The `local_server_capacity_cache` is populated once per operation for the relevant time range.
+
+4.  **Best-Fit Local Search within Dynamic Horizon:** The local machine search logic is modified:
+    *   Instead of `current_op_release_time + search_horizon`, the end time for searching is `min(current_op_release_time + search_horizon_value, absolute_max_search_time)`. This ensures a dynamic yet bounded search.
+    *   The `has_capacity` call for local servers is replaced with `_has_capacity_optimized` using the generated cache.
+
+5.  **Robust Failsafe Logic:** The failsafe now explicitly prioritizes cloud if local options within the horizon are non-existent or worse than the cloud benchmark, and only resorts to an indefinite exhaustive search on the *cheapest local machine* if *no cloud option* is available for that type and local search within the horizon also failed. This ensures a placement is always found without excessive delay, falling back to a guaranteed (though potentially expensive) cloud slot if local capacity is an issue or a more strategic (cheapest) local if cloud isn't an option.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+#
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable.
+# =============================================================================
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    """
+    Schedules a single job online using a slack-aware, best-fit heuristic.
+    """
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        def _calculate_score(server_id, start_time):
+            """Calculates a placement score, including a penalty for waiting."""
+            compute_cost = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                               for t in range(start_time, start_time + op.duration))
+
+            projected_completion = start_time + op.duration + remaining_duration
+            delay = max(0, projected_completion - job.deadline)
+            delay_penalty = delay * job.delay_weight
+
+            # Procrastination Penalty: Penalize waiting time, scaled by job importance.
+            wait_time = start_time - current_op_release_time
+            procrastination_penalty = wait_time * job.delay_weight * 0.1
+
+            return (compute_cost * inst.weights['compute_cost'] +
+                    delay_penalty * inst.weights['delay_penalty'] +
+                    procrastination_penalty)
+
+        best_placement = (float('inf'), None, None)  # (score, server_id, start_time)
+
+        compatible_servers = [s_id for s_id, s in inst.servers.items() if s.server_type == op.server_type]
+        local_servers = [s_id for s_id in compatible_servers if not inst.servers[s_id].is_cloud]
+        cloud_servers = [s_id for s_id in compatible_servers if inst.servers[s_id].is_cloud]
+
+        # 1. Establish a cloud benchmark if available.
+        if cloud_servers:
+            cheapest_cloud_id = min(cloud_servers, key=lambda s_id: inst.server_cost[s_id][current_op_release_time % inst.time_horizon])
+            cloud_score = _calculate_score(cheapest_cloud_id, current_op_release_time)
+            best_placement = (cloud_score, cheapest_cloud_id, current_op_release_time)
+
+        # 2. Define a dynamic search horizon based on job slack.
+        slack = job.deadline - (current_op_release_time + op.duration + remaining_duration)
+        if slack <= 0:
+            search_horizon = 12  # Critical: short horizon to force immediate action
+        elif slack <= 24:
+            search_horizon = 48  # Urgent: medium horizon
+        else:
+            search_horizon = 96 # Ample time: long horizon for cost optimization
+
+        # 3. Best-Fit Search: Find the best slot on local machines within the horizon.
+        for server_id in local_servers:
+            for start_t in range(current_op_release_time, current_op_release_time + search_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start_t, op.duration, op.capacity_required):
+                    score = _calculate_score(server_id, start_t)
+                    if score < best_placement[0]:
+                        best_placement = (score, server_id, start_t)
+
+        # 4. Failsafe: If no slot was found (e.g., local congestion and no cloud), find one exhaustively.
+        if best_placement[1] is None:
+            if local_servers:
+                # Find the generally cheapest local server to search on.
+                cheapest_local_id = min(local_servers, key=lambda s_id: sum(inst.server_cost[s_id].values()))
+                start_t = current_op_release_time
+                while True: # Search indefinitely to guarantee a placement
+                    if has_capacity(inst, capacity_usage, cheapest_local_id, start_t, op.duration, op.capacity_required):
+                        score = _calculate_score(cheapest_local_id, start_t)
+                        best_placement = (score, cheapest_local_id, start_t)
+                        break
+                    start_t += 1
+            else:
+                # This case should ideally not be reached if instance is valid
+                raise RuntimeError(f"Could not find any compatible server for job {job.id}, op {idx}")
+
+        _, chosen_server, chosen_start = best_placement
+
+        # Reserve capacity for the chosen operation.
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_release_time = chosen_start + op.duration
+=======
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+#
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable.
+# =============================================================================
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    """
+    Schedules a single job online using a slack-aware, best-fit heuristic.
+    """
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+
+    # Heuristic Parameters
+    CLOUD_COST_MULTIPLIER = 1.75 # Increased multiplier to further discourage unnecessary cloud use
+
+    # Procrastination penalty factors based on priority
+    # Higher factor means more penalty for waiting
+    PRIORITY_PROCR_PENALTY_FACTOR = {
+        "Emergency": 0.5, # Very high penalty for Emergency jobs to start late
+        "High": 0.2,      # High penalty for High priority jobs
+        "Medium": 0.05,   # Moderate penalty for Medium jobs
+        "Low": 0.01       # Low penalty for Low priority jobs
+    }
+
+    # Slack-based search horizons for local machines
+    SLACK_BASED_SEARCH_HORIZONS = {
+        "critical": 12, # For jobs already past deadline or very little slack
+        "tight": 48,    # For jobs with some slack but still urgent
+        "normal": 96    # For jobs with ample slack
+    }
+
+    def _has_capacity_optimized(current_capacity_usage, server_id, start, duration, req, cached_server_capacity):
+        """
+        Optimized capacity check using a pre-computed/cached available capacity for the specific server.
+        """
+        for t in range(start, start + duration):
+            used = current_capacity_usage[server_id].get(t, 0)
+            # Use cached available capacity if possible
+            available = cached_server_capacity.get(t, 0)
+            if used + req > available:
+                return False
+        return True
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        def _calculate_score(server_id, start_time, is_cloud_server: bool):
+            """Calculates a placement score, including a penalty for waiting."""
+            compute_cost = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                               for t in range(start_time, start_time + op.duration))
+
+            if is_cloud_server:
+                compute_cost *= CLOUD_COST_MULTIPLIER
+
+            projected_completion = start_time + op.duration + remaining_duration
+            delay = max(0, projected_completion - job.deadline)
+            delay_penalty = delay * job.delay_weight
+
+            # Procrastination Penalty: Penalize waiting time, scaled by job importance.
+            wait_time = max(0, start_time - current_op_release_time) # Ensure wait_time is non-negative
+            procrastination_factor = PRIORITY_PROCR_PENALTY_FACTOR.get(job.priority, 0.05)
+            procrastination_penalty = wait_time * job.delay_weight * procrastination_factor
+
+            return (compute_cost * inst.weights['compute_cost'] +
+                    delay_penalty * inst.weights['delay_penalty'] +
+                    procrastination_penalty)
+
+        best_placement = (float('inf'), None, None)  # (score, server_id, start_time)
+
+        compatible_servers = [s_id for s_id, s in inst.servers.items() if s.server_type == op.server_type]
+        local_servers = [s_id for s_id in compatible_servers if not inst.servers[s_id].is_cloud]
+        cloud_servers = [s_id for s_id in compatible_servers if inst.servers[s_id].is_cloud]
+
+        # 1. Establish a cloud benchmark if available, as a guaranteed fallback.
+        if cloud_servers:
+            # Find the cheapest cloud server for this operation type
+            cheapest_cloud_id = min(cloud_servers, key=lambda s_id: inst.server_cost[s_id][current_op_release_time % inst.time_horizon])
+            cloud_score = _calculate_score(cheapest_cloud_id, current_op_release_time, True)
+            best_placement = (cloud_score, cheapest_cloud_id, current_op_release_time)
+
+        # 2. Determine dynamic search horizon for local machines based on job slack.
+        time_to_deadline = job.deadline - (current_op_release_time + op.duration + remaining_duration)
+        if time_to_deadline <= 0:
+            search_horizon_value = SLACK_BASED_SEARCH_HORIZONS["critical"]
+        elif time_to_deadline <= 24:
+            search_horizon_value = SLACK_BASED_SEARCH_HORIZONS["tight"]
+        else:
+            search_horizon_value = SLACK_BASED_SEARCH_HORIZONS["normal"]
+
+        # Cap the search horizon to a reasonable absolute maximum to prevent excessive computation
+        absolute_max_search_time = current_op_release_time + 3 * inst.time_horizon
+        search_end_time = min(current_op_release_time + search_horizon_value, absolute_max_search_time)
+
+        # Pre-cache available capacity for local servers to speed up the search.
+        local_server_capacity_cache = defaultdict(dict)
+        for server_id in local_servers:
+            for t_check in range(current_op_release_time, search_end_time + op.duration + 1):
+                local_server_capacity_cache[server_id][t_check] = get_available_capacity(inst, server_id, t_check)
+
+        # 3. Best-Fit Search: Find the best slot on local machines within the dynamic horizon.
+        for server_id in local_servers:
+            for start_t in range(current_op_release_time, search_end_time + 1): # +1 to include search_end_time
+                if _has_capacity_optimized(capacity_usage, server_id, start_t, op.duration, op.capacity_required, local_server_capacity_cache[server_id]):
+                    score = _calculate_score(server_id, start_t, False)
+                    if score < best_placement[0]:
+                        best_placement = (score, server_id, start_t)
+
+        # 4. Failsafe: If no satisfactory placement was found, especially if local search failed or cloud was not initially
+        # the best option, ensure a placement.
+        if best_placement[1] is None:
+            # This should ideally not happen if a cloud server exists and was evaluated.
+            # However, for robustness, if for some reason chosen_server is still None:
+            if cloud_servers:
+                # Fallback to the cheapest cloud server at earliest possible time
+                cheapest_cloud_id = min(cloud_servers, key=lambda s_id: inst.server_cost[s_id][current_op_release_time % inst.time_horizon])
+                score = _calculate_score(cheapest_cloud_id, current_op_release_time, True)
+                best_placement = (score, cheapest_cloud_id, current_op_release_time)
+            elif local_servers:
+                # If no cloud is available for this type, and local search within horizon failed,
+                # perform an exhaustive search on the cheapest local machine to guarantee placement.
+                cheapest_local_id = min(local_servers, key=lambda s_id: sum(inst.server_cost[s_id].values()))
+                start_t = current_op_release_time
+                while True: # Search indefinitely to guarantee a placement
+                    # Use the standard has_capacity for indefinite search as the cached horizon might be too short
+                    if has_capacity(inst, capacity_usage, cheapest_local_id, start_t, op.duration, op.capacity_required):
+                        score = _calculate_score(cheapest_local_id, start_t, False)
+                        best_placement = (score, cheapest_local_id, start_t)
+                        break
+                    start_t += 1
+            else:
+                # This should only happen if there are no compatible servers at all
+                raise RuntimeError(f"Could not find any compatible server for job {job.id}, op {idx}")
+
+        _, chosen_server, chosen_start = best_placement
+
+        # Reserve capacity for the chosen operation.
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_release_time = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,123 @@
+<NAME>
+best_fit_priority_aware
+</NAME>
+
+<DESCRIPTION>
+The current scheduling heuristic uses a "first-fit" greedy algorithm, selecting the first available time slot on a local machine. This is suboptimal as it ignores potentially cheaper slots that might be available shortly after, and it does not explicitly use job priority in its decision-making.
+
+This edit improves the heuristic in two ways:
+
+1.  **Best-Fit Slot Selection**: I have removed the `break` statement in the search loop for local machines. This changes the logic from "first-fit" to "best-fit". The algorithm now evaluates all available time slots within its search window and chooses the one with the lowest overall objective score, allowing for better trade-offs between compute cost and start time. For example, it might choose to start slightly later if electricity costs are significantly lower, reducing the total compute cost.
+
+2.  **Priority-Aware Cost Function**: I have introduced a new term into the cost calculation that directly accounts for job priority. A `start_penalty` is added, calculated as `start_time * priority_factor * weight`. This small penalty nudges higher-priority jobs towards earlier start times, especially when other costs are comparable. This makes the scheduler more responsive to job urgency, which is critical for handling high-priority jobs in both normal and emergency scenarios.
+
+These changes transform the simple greedy scheduler into a more sophisticated and context-aware heuristic, better equipped to balance the complex trade-offs in this online scheduling problem.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+
+        _, chosen_server, chosen_start = best
+
+        # reserve capacity
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+=======
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    # Priority mapping to give a small nudge for high-priority jobs to be scheduled earlier.
+    PRIORITY_MAP = {'high': 1.0, 'medium': 0.5, 'low': 0.1}
+    priority_factor = PRIORITY_MAP.get(job.priority, 0.1)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        # Local objective function to evaluate a scheduling choice (server, start_time)
+        def _get_op_cost(server_id, start):
+            compute = sum(inst.server_cost[server_id][t % inst.time_horizon]
+                          for t in range(start, start + op.duration))
+
+            projected_completion = start + op.duration + remaining_duration
+            delay = max(0, projected_completion - job.deadline)
+
+            # Add a small penalty for starting later, scaled by job priority.
+            # This encourages urgent jobs to be placed into earlier slots if costs are similar.
+            start_penalty = start * priority_factor * 0.05
+
+            return (
+                compute * inst.weights['compute_cost']
+                + delay * job.delay_weight * inst.weights['delay_penalty']
+                + start_penalty
+            )
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # Cloud: unlimited capacity, can start immediately
+            if server.is_cloud:
+                cost = _get_op_cost(server_id, current_start)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # Local: search forward for the BEST available slot, not just the first one.
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = _get_op_cost(server_id, start)
+                    best = min(best, (cost, server_id, start))
+                    # REMOVED: `break`. We now search for the best slot on this machine,
+                    # not just the first available one. This allows trading a slightly later
+                    # start for a much lower cost (e.g., off-peak electricity prices).
+
+        _, chosen_server, chosen_start = best
+
+        # Reserve capacity for the chosen slot
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

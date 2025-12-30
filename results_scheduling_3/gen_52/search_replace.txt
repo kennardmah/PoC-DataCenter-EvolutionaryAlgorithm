@@ -1,0 +1,54 @@
+<NAME>
+refine_heuristic_parameters
+</NAME>
+
+<DESCRIPTION>
+This edit proposes three coordinated improvements to the scheduling heuristics to create a more coherent and logically sound decision-making process:
+
+1.  **Corrected Load-Balancing Logic:** The `priority_load_multiplier` has been inverted. Previously, high-priority jobs were *less* penalized for choosing congested machines, which could create bottlenecks. The new logic makes high-priority jobs *more* sensitive to machine load, encouraging them to pick less-utilized servers to improve overall system throughput and reduce contention. The `urgent` priority level was also added for consistency with other parameter dictionaries.
+
+2.  **Corrected Cloud Aggressiveness:** The `cloud_aggressiveness_threshold` values have been inverted. The prior logic incorrectly made it harder for critical jobs to use the cloud. The new logic correctly reflects that high-priority jobs should be more willing to use expensive but immediately available cloud resources to meet tight deadlines (threshold < 1.0), while low-priority jobs should be incentivized to wait for cheaper local resources (threshold > 1.0).
+
+3.  **Simplified Scoring Function:** The static `local_preference_bonus` has been removed. This bonus was a blunt instrument, and the trade-off between local and cloud resources is more effectively and dynamically managed by the now-corrected `cloud_aggressiveness_threshold` and other cost components. Removing it simplifies the scoring model and eliminates a "magic number".
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        self.priority_load_multiplier = {"emergency": 0.1, "critical": 0.2, "high": 0.5, "medium": 1.0, "low": 2.0}
+        # 2. Local preference bonus
+        self.local_preference_bonus = -10.0
+=======
+        # Inverted: high-priority jobs are more willing to use cloud
+        self.cloud_aggressiveness_threshold = {'critical': 0.8, 'urgent': 0.9, 'high': 1.0, 'medium': 1.1, 'low': 1.2}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        # Inverted: high-priority jobs avoid congested servers more
+        self.priority_load_multiplier = {"emergency": 5.0, "critical": 4.0, "urgent": 3.0, "high": 2.0, "medium": 1.0, "low": 0.5}
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        # 5. Local Preference Bonus (Crossover Feature)
+        if not server.is_cloud:
+            total_score += self.local_preference_bonus
+
+        return total_score
+=======
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

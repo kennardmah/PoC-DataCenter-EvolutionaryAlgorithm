@@ -1,0 +1,98 @@
+<NAME>
+best_fit_with_dynamic_horizon
+</NAME>
+
+<DESCRIPTION>
+This change refactors the core placement logic to be more intelligent and adaptive, incorporating two key improvements:
+
+1.  **Best-Fit Slot Selection:** The original `_find_first_available` method used a "first-fit" heuristic, scheduling an operation in the first available time slot on a local machine. This is replaced with a "best-fit" strategy. The new logic iterates through *all* available time slots within the search horizon on local machines, calculates the score for each, and selects the one with the absolute lowest cost. This allows the scheduler to find cheaper time slots that might be slightly later than the first available one, optimizing the trade-off between waiting and compute cost.
+
+2.  **Dynamic Slack-Based Search Horizon:** The search horizon for local machines was previously determined by a static mapping based on job priority. This is replaced with a more accurate, dynamic calculation based on the job's "slack" (the amount of buffer time before the deadline).
+    *   Jobs with little or negative slack (high urgency) are given a short search horizon, forcing a quick placement decision and making them more likely to use the cloud if local resources are congested.
+    *   Jobs with ample slack are given a long search horizon, allowing the best-fit algorithm to explore a wider range of future options to find the most cost-effective placement.
+
+This combined approach makes the scheduler more context-aware. It prioritizes speed and deadline adherence for urgent jobs while aggressively seeking cost savings for less critical tasks. The `_find_first_available` helper function has been removed as it is now redundant.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _find_first_available(self, server_id, max_search_horizon):
+        """Finds the first available time slot for an operation on a server."""
+        for start_t in range(self.earliest_start, self.earliest_start + max_search_horizon):
+            if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                return start_t
+        return None
+
+    def find_best_placement(self):
+        """
+        Evaluates local and cloud options to find the optimal placement.
+        Uses a cloud benchmark to decide if waiting for a local machine is worth it.
+        """
+        best_placement = (float('inf'), None, None) # (score, server_id, start_time)
+
+        cloud_options = [(s_id, s) for s_id, s in self.compatible_servers if s.is_cloud]
+        local_options = [(s_id, s) for s_id, s in self.compatible_servers if not s.is_cloud]
+
+        # 1. Establish a cloud benchmark: cost of scheduling immediately on the cheapest cloud server.
+        if cloud_options:
+            cheapest_cloud_id = min(cloud_options, key=lambda x: self.inst.server_cost[x[0]][self.earliest_start % TIME_HORIZON])[0]
+            cloud_benchmark_score = self._calculate_score(cheapest_cloud_id, self.earliest_start)
+            best_placement = (cloud_benchmark_score, cheapest_cloud_id, self.earliest_start)
+
+        # 2. Evaluate local machines: find first available slot and compare its score to the cloud benchmark.
+        priority_map = {"low": 48, "medium": 24, "high": 12, "critical": 6}
+        search_horizon = priority_map.get(self.job.priority, 24)
+
+        for server_id, server in local_options:
+            available_start = self._find_first_available(server_id, search_horizon)
+            if available_start is not None:
+                local_score = self._calculate_score(server_id, available_start)
+                if local_score < best_placement[0]:
+                    best_placement = (local_score, server_id, available_start)
+
+        # 3. Failsafe: If no placement was found, perform an exhaustive search on the cheapest local machine.
+        if best_placement[1] is None and local_options:
+=======
+    def find_best_placement(self):
+        """
+        Evaluates local and cloud options to find the optimal placement.
+        It performs a "best-fit" search within a dynamic, slack-aware search horizon,
+        using an immediate cloud placement as a baseline to beat.
+        """
+        best_placement = (float('inf'), None, None) # (score, server_id, start_time)
+
+        cloud_options = [(s_id, s) for s_id, s in self.compatible_servers if s.is_cloud]
+        local_options = [(s_id, s) for s_id, s in self.compatible_servers if not s.is_cloud]
+
+        # 1. Establish a cloud benchmark: cost of scheduling immediately on the cheapest cloud server.
+        if cloud_options:
+            cheapest_cloud_id = min(cloud_options, key=lambda x: self.inst.server_cost[x[0]][self.earliest_start % TIME_HORIZON])[0]
+            cloud_benchmark_score = self._calculate_score(cheapest_cloud_id, self.earliest_start)
+            best_placement = (cloud_benchmark_score, cheapest_cloud_id, self.earliest_start)
+
+        # 2. Evaluate local machines using a dynamic search horizon based on job slack.
+        # Slack is the buffer time we have before hitting the deadline.
+        slack = self.job.deadline - (self.earliest_start + self.op.duration + self.remaining_duration)
+
+        # Define search horizon: more slack allows for a wider search for cheaper slots.
+        if slack <= 0:
+            search_horizon = 6  # Critical: very short horizon to force quick placement
+        elif slack <= self.op.duration * 2:
+            search_horizon = 12 # Urgent: short horizon
+        elif slack <= 24:
+            search_horizon = 36 # Normal: medium horizon
+        else:
+            search_horizon = 72 # Plenty of time: search far and wide for cost savings
+
+        # 3. Find the BEST available slot on local machines within the horizon, not just the first.
+        for server_id, server in local_options:
+            for start_t in range(self.earliest_start, self.earliest_start + search_horizon):
+                if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                    local_score = self._calculate_score(server_id, start_t)
+                    if local_score < best_placement[0]:
+                        best_placement = (local_score, server_id, start_t)
+
+        # 4. Failsafe: If no placement was found, perform an exhaustive search on the cheapest local machine.
+        if best_placement[1] is None and local_options:
+>>>>>>> REPLACE
+</DIFF>

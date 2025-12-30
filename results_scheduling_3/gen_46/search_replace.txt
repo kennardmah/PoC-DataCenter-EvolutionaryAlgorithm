@@ -1,0 +1,7 @@
+<NAME>
+congestion_aware_scoring
+</NAME>
+<DESCRIPTION>
+This edit introduces a congestion-aware scoring heuristic to improve scheduling decisions. The current scoring function considers compute cost, delay penalty, and a small "procrastination" penalty for waiting. However, it does not account for the existing load on local machines. This can lead to scheduling operations on already busy servers, creating "hotspots" that reduce flexibility and increase contention for future jobs, especially in the capacity-constrained earthquake scenario.
+
+To address this, I've modified
