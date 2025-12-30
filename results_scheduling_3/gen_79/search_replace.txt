@@ -1,0 +1,66 @@
+<NAME>
+hotspot_avoidance_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit introduces a "hotspot avoidance" penalty to the operation scoring function. The goal is to improve system resilience and throughput, particularly in high-contention scenarios like the earthquake emergency.
+
+The core idea is to discourage scheduling decisions that completely exhaust the capacity of a local server. While such a placement might be optimal for the current job in isolation (e.g., it's the earliest available slot), it creates a "hotspot" or bottleneck, leaving zero capacity for any other jobs—including high-priority or emergency jobs that may arrive shortly after.
+
+This is implemented by adding a new penalty term, `hotspot_penalty`, to `_calculate_operation_score`.
+1.  A new parameter, `hotspot_penalty_factor`, is introduced to control the magnitude of this penalty. I've set it to `10.0`, making it a significant but not overpowering factor.
+2.  When evaluating a placement on a local server, the logic now checks if adding the operation would cause the server's used capacity to equal its available capacity at any point during the operation's runtime.
+3.  If such a hotspot is created, a penalty is applied. This penalty is scaled by the job's `delay_weight` and its `priority_load_multiplier`. Scaling by priority means that more critical jobs are more strongly discouraged from creating bottlenecks, compelling them to consider alternatives (like the cloud) to keep local resources free for the overall health of the system.
+
+This change encourages leaving a buffer of capacity on local machines, making the schedule more robust to unexpected events and improving the system's ability to handle urgent workloads without cascading delays.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        self.priority_load_multiplier = {"emergency": 3.0, "urgent": 2.5, "critical": 2.0, "high": 1.5, "medium": 1.0, "low": 0.5}
+        # Local preference bonus was removed in favor of the more dynamic cloud_aggressiveness_threshold heuristic.
+=======
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        self.hotspot_penalty_factor = 10.0 # New parameter
+        self.priority_load_multiplier = {"emergency": 3.0, "urgent": 2.5, "critical": 2.0, "high": 1.5, "medium": 1.0, "low": 0.5}
+        # Local preference bonus was removed in favor of the more dynamic cloud_aggressiveness_threshold heuristic.
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        return total_score
+=======
+        # 5. Hotspot Penalty (New Feature)
+        # Penalize placements that leave zero remaining capacity on a local server,
+        # making it unavailable for other jobs, especially unexpected urgent ones.
+        hotspot_penalty = 0.0
+        if not server.is_cloud:
+            is_creating_hotspot = False
+            for t in range(start_time, start_time + op.duration):
+                used_at_t = self.capacity_usage.get(server_id, {}).get(t, 0)
+                capacity_at_t = get_available_capacity(self.inst, server_id, t)
+                # Check if this op would fully consume capacity. has_capacity ensures we don't exceed it.
+                if used_at_t + op.capacity_required >= capacity_at_t:
+                    is_creating_hotspot = True
+                    break
+
+            if is_creating_hotspot:
+                prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                hotspot_penalty = self.hotspot_penalty_factor * self.job.delay_weight * prio_mult
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty + hotspot_penalty)
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

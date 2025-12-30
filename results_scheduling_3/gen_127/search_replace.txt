@@ -1,0 +1,93 @@
+<NAME>
+priority_tuned_dispatch_heuristic
+</NAME>
+<DESCRIPTION>
+This edit introduces a comprehensive overhaul of the scheduling heuristic, focusing on correctness, more intelligent parameter tuning, and proactive load management.
+
+1.  **Correctness Fix & Parameter Tuning**: The parameter dictionaries for priority-based scheduling (`priority_base_horizon`, etc.) contained incorrect keys (e.g., 'critical', 'high') that did not match the actual job data ('Emergency', 'High', etc.). This has been corrected to use title-cased keys like `Emergency`, `Urgent`, `High`, `Medium`, and `Low`, making the priority-based logic effective for the first time.
+2.  **Re-calibrated Heuristics**: The `cloud_aggressiveness_threshold` has been re-tuned to logically favor local resources for low-priority jobs (allowing them to wait for cost savings) while pushing high-priority jobs towards the cloud if local slots aren't immediately available. The `priority_load_multiplier` has been inverted, making high-priority jobs *more* sensitive to machine load, thus steering them away from potential contention and delays.
+3.  **Quadratic Hotspot Avoidance**: The previous linear load penalty has been replaced with a more sophisticated non-linear (quadratic) penalty. This new system strongly penalizes scheduling on any local machine where placing the operation would push utilization above a 70% threshold. This proactively prevents the creation of performance hotspots, which is critical for maintaining throughput, especially during the capacity-constrained earthquake scenario.
+4.  **Streamlined Logic**: The flat `local_preference_bonus` has been removed, as its role is now more effectively and dynamically handled by the properly tuned `cloud_aggressiveness_threshold`.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters from Base Implementation ---
+        self.priority_base_horizon = {'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+        self.priority_procrastination_multiplier = {'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        self.priority_load_multiplier = {"emergency": 0.1, "critical": 0.2, "high": 0.5, "medium": 1.0, "low": 2.0}
+        # 2. Local preference bonus
+        self.local_preference_bonus = -10.0
+=======
+        # --- Corrected & Tuned Heuristic Parameters ---
+        # Job priority keys are now corrected to match data (e.g., "High", "Emergency")
+        self.priority_base_horizon = {"Emergency": 12, "Urgent": 18, "High": 24, "Medium": 48, "Low": 72}
+        self.priority_procrastination_multiplier = {"Emergency": 8.0, "Urgent": 6.0, "High": 4.0, "Medium": 2.0, "Low": 1.0}
+        self.base_procrastination_penalty_factor = 0.05
+        # Higher value = more local preference. Low-prio jobs will wait longer for a cheap local slot.
+        self.cloud_aggressiveness_threshold = {"Emergency": 1.05, "Urgent": 1.1, "High": 1.15, "Medium": 1.25, "Low": 1.4}
+
+        # --- Enhanced Load-Balancing Parameters ---
+        self.load_penalty_factor = 25.0  # Increased base factor for stronger effect
+        # High-priority jobs are now MORE sensitive to load to avoid contention.
+        self.priority_load_multiplier = {"Emergency": 5.0, "Urgent": 4.0, "High": 2.5, "Medium": 1.0, "Low": 0.5}
+        self.hotspot_utilization_threshold = 0.7  # Penalize utilization above 70%
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # 4. Load-Balancing Penalty (Crossover Feature)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+            window_end = start_time + op.duration * 2
+            total_utilization, num_timesteps = 0.0, 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = avg_utilization * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        # 5. Local Preference Bonus (Crossover Feature)
+        if not server.is_cloud:
+            total_score += self.local_preference_bonus
+
+        return total_score
+=======
+        # 4. Non-Linear Load-Balancing / Hotspot Avoidance Penalty
+        load_penalty = 0.0
+        if not server.is_cloud:
+            load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+            for t in range(start_time, start_time + op.duration):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                # We care about the utilization *after* this op is placed
+                prospective_used = used + op.capacity_required
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    utilization = prospective_used / available
+                    if utilization > self.hotspot_utilization_threshold:
+                        # Quadratic penalty for exceeding threshold
+                        penalty = (utilization - self.hotspot_utilization_threshold) ** 2
+                        load_penalty += penalty * self.load_penalty_factor * load_prio_mult
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

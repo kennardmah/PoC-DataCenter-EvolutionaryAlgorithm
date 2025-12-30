@@ -1,0 +1,177 @@
+<NAME>
+cumulative_slack_debt_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit introduces a "cumulative slack debt" tracker for each job to enhance the procrastination penalty.
+
+Currently, the procrastination penalty for an operation only considers the waiting time for that specific operation. This can lead to myopic decisions where small delays on early operations are not penalized heavily enough, allowing them to cascade and consume all available slack, resulting in significant delays for the final operations.
+
+This change implements the following logic:
+1.  **Track Cumulative Debt:** In `schedule_job_online`, a `cumulative_slack_debt` variable is initialized for each job. After each operation is scheduled, the `wait_time` (the difference between its actual start time and its earliest possible start time) is added to this cumulative total.
+2.  **Amplify Penalty:** This `cumulative_slack_debt` is passed to the `PlacementDecisionMaker`. Inside the scoring function, the procrastination penalty for the *current* operation is amplified by a factor proportional to the already accumulated debt.
+
+The effect is that if a job's initial operations have already been delayed, the scheduler becomes increasingly "impatient" and penalizes any further waiting for subsequent operations much more harshly. This creates a strong incentive to "catch up" on jobs that are falling behind their ideal schedule, preserving slack for later operations and reducing the risk of large deadline violations. This proactive, history-aware penalty improves the scheduler's foresight within the context of a single job's lifecycle.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class PlacementDecisionMaker:
+    """Finds the best placement for a single operation using a multi-faceted scoring model."""
+    BASE_PROCRASTINATION_PENALTY_PER_HOUR = 0.04
+    HOTSPOT_PENALTY_FACTOR = 75.0
+    CRITICAL_UTIL_THRESHOLD = 0.8
+    SAFE_RESERVE_THRESHOLD = 0.2
+    CAPACITY_PRESERVATION_PENALTY_FACTOR = 40.0
+
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration, num_remaining_ops, urgency_profile):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.num_remaining_ops = num_remaining_ops
+        self.urgency = urgency_profile
+
+    def _calculate_operation_score(self, server_id, start_time):
+        server = self.inst.servers[server_id]
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon] for t in range(start_time, start_time + self.op.duration))
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+        delay_penalty = delay * self.job.delay_weight
+
+        # Procrastination Penalty with Multi-Operation Slack Impact
+        wait_time = start_time - self.earliest_start
+        procrastination_penalty = wait_time * self.BASE_PROCRASTINATION_PENALTY_PER_HOUR * self.urgency.procrastination_penalty_multiplier
+        if self.num_remaining_ops > 0:
+            job_final_slack = self.job.deadline - projected_completion
+            critical_slack_buffer = self.remaining_duration * 0.5 + self.num_remaining_ops * 1.0
+            if job_final_slack < critical_slack_buffer:
+                slack_shortfall = critical_slack_buffer - job_final_slack
+                procrastination_penalty += (math.exp(slack_shortfall * 0.1) - 1.0) * self.job.delay_weight * self.urgency.urgency_score
+
+        # Non-Linear Hotspot and Capacity Preservation Penalties
+        hotspot_penalty, cap_preservation_penalty = 0.0, 0.0
+=======
+class PlacementDecisionMaker:
+    """Finds the best placement for a single operation using a multi-faceted scoring model."""
+    BASE_PROCRASTINATION_PENALTY_PER_HOUR = 0.04
+    HOTSPOT_PENALTY_FACTOR = 75.0
+    CRITICAL_UTIL_THRESHOLD = 0.8
+    SAFE_RESERVE_THRESHOLD = 0.2
+    CAPACITY_PRESERVATION_PENALTY_FACTOR = 40.0
+
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration, num_remaining_ops, urgency_profile, cumulative_slack_debt: float):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.num_remaining_ops = num_remaining_ops
+        self.urgency = urgency_profile
+        self.cumulative_slack_debt = cumulative_slack_debt
+
+    def _calculate_operation_score(self, server_id, start_time):
+        server = self.inst.servers[server_id]
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon] for t in range(start_time, start_time + self.op.duration))
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+        delay_penalty = delay * self.job.delay_weight
+
+        # Procrastination Penalty with Multi-Operation Slack Impact and Cumulative Debt
+        wait_time = start_time - self.earliest_start
+
+        # Amplify penalty based on past delays for this job's earlier operations
+        debt_amplification_factor = 1.0 + (self.cumulative_slack_debt / (self.inst.time_horizon / 4.0))
+        procrastination_penalty = wait_time * self.BASE_PROCRASTINATION_PENALTY_PER_HOUR * self.urgency.procrastination_penalty_multiplier * debt_amplification_factor
+
+        if self.num_remaining_ops > 0:
+            job_final_slack = self.job.deadline - projected_completion
+            critical_slack_buffer = self.remaining_duration * 0.5 + self.num_remaining_ops * 1.0
+            if job_final_slack < critical_slack_buffer:
+                slack_shortfall = critical_slack_buffer - job_final_slack
+                procrastination_penalty += (math.exp(slack_shortfall * 0.1) - 1.0) * self.job.delay_weight * self.urgency.urgency_score
+
+        # Non-Linear Hotspot and Capacity Preservation Penalties
+        hotspot_penalty, cap_preservation_penalty = 0.0, 0.0
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance, job: Job, schedule: Schedule, capacity_usage: Dict[str, Dict[int, int]], current_time: int):
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+    total_job_duration = sum(op.duration for op in job.operations)
+
+    # Calculate system-wide local load
+    total_cap, total_used = 0, 0
+    load_window = inst.time_horizon // 2
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            for t in range(current_time, current_time + load_window):
+                total_cap += get_available_capacity(inst, server_id, t)
+                total_used += capacity_usage.get(server_id, {}).get(t, 0)
+    system_load = total_used / total_cap if total_cap > 0 else 0.0
+
+    urgency_profile = JobUrgencyProfile(inst, job, current_time, total_job_duration, system_load)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+        num_remaining_ops = len(job.operations) - (idx + 1)
+
+        decision_maker = PlacementDecisionMaker(
+            inst, job, op, capacity_usage, current_op_release_time,
+            remaining_duration, num_remaining_ops, urgency_profile
+        )
+
+        chosen_server, chosen_start = decision_maker.find_best_placement()
+
+        # Update shared state
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_release_time = chosen_start + op.duration
+=======
+def schedule_job_online(inst: Instance, job: Job, schedule: Schedule, capacity_usage: Dict[str, Dict[int, int]], current_time: int):
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+    total_job_duration = sum(op.duration for op in job.operations)
+    cumulative_slack_debt = 0.0
+
+    # Calculate system-wide local load
+    total_cap, total_used = 0, 0
+    load_window = inst.time_horizon // 2
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            for t in range(current_time, current_time + load_window):
+                total_cap += get_available_capacity(inst, server_id, t)
+                total_used += capacity_usage.get(server_id, {}).get(t, 0)
+    system_load = total_used / total_cap if total_cap > 0 else 0.0
+
+    urgency_profile = JobUrgencyProfile(inst, job, current_time, total_job_duration, system_load)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+        num_remaining_ops = len(job.operations) - (idx + 1)
+
+        decision_maker = PlacementDecisionMaker(
+            inst, job, op, capacity_usage, current_op_release_time,
+            remaining_duration, num_remaining_ops, urgency_profile,
+            cumulative_slack_debt=cumulative_slack_debt
+        )
+
+        chosen_server, chosen_start = decision_maker.find_best_placement()
+
+        # Update cumulative slack debt based on the wait time for this operation
+        wait_time_for_op = chosen_start - current_op_release_time
+        cumulative_slack_debt += wait_time_for_op
+
+        # Update shared state
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_release_time = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

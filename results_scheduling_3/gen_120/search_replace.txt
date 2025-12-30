@@ -1,0 +1,206 @@
+<NAME>
+tune_urgency_profile
+</NAME>
+
+<DESCRIPTION>
+This edit refines the `JobUrgencyProfile` class by making the `slack_urgency_multiplier` more aggressive for jobs falling behind schedule. Specifically, the denominator for negative slack is reduced from `self.inst.time_horizon / 2.0` to `self.inst.time_horizon / 4.0`, meaning a smaller negative slack will result in a higher urgency boost.
+
+Additionally, the minimum `search_horizon` for local placements is adjusted. Instead of `job.operations[0].duration + 2`, it now uses `self.inst.time_horizon // 8` (e.g., 3 hours for a 24-hour horizon). This ensures a more consistent and potentially smaller base search window for operations, encouraging quicker local placements when appropriate, especially for less urgent jobs where the derived `search_horizon` might otherwise be very large. This change balances the need for focused search with ensuring sufficient initial exploration.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        if current_slack < 0:
+            slack_urgency_multiplier = 1.0 + abs(current_slack) / (self.inst.time_horizon / 2.0) # More urgent if late
+        elif current_slack < self.inst.time_horizon / 4: # If slack is getting tight (e.g., less than 6 hours for a 24-hr horizon)
+            slack_urgency_multiplier = 1.0 + (self.inst.time_horizon / 4 - current_slack) / (self.inst.time_horizon / 4) * 0.5
+
+        self.urgency_score = base_priority_urgency * slack_urgency_multiplier
+        self.urgency_score = max(0.5, min(10.0, self.urgency_score)) # Clamp to reasonable range
+
+        # Derived parameters:
+
+        # 1. Cloud Aggressiveness: Higher urgency -> lower factor -> favors cloud speed
+        #    Also reduce factor if system-wide local load is high, making cloud more attractive
+        #    The range of cloud_aggressiveness_factor is designed to give local a slight edge by default (e.g., 1.05-1.15)
+        #    but can shift below 1.0 for very urgent jobs or high load.
+        base_cloud_factor = 1.15
+        urgency_influence = (self.urgency_score - 2.0) * 0.05 # Adjust based on urgency, center around medium (priority_val=2)
+        load_influence = (system_load - 0.5) * 0.15 # If load > 0.5, reduce factor; if < 0.5, increase factor
+
+        self.cloud_aggressiveness_factor = base_cloud_factor - urgency_influence - load_influence
+        self.cloud_aggressiveness_factor = max(0.8, min(1.3, self.cloud_aggressiveness_factor))
+
+
+        # 2. Local Search Horizon: Higher urgency -> shorter horizon to find a slot quickly
+        #    Ensures at least the operation duration + a small buffer
+        base_search_horizon = self.inst.time_horizon * 3 # e.g., 72 hours
+        self.search_horizon = int(base_search_horizon / (1 + 0.2 * self.urgency_score))
+        self.search_horizon = max(job.operations[0].duration + 2, self.search_horizon) # Minimum horizon
+
+        # 3. Procrastination Penalty Multiplier: Higher urgency -> greater penalty for waiting
+        self.procrastination_penalty_multiplier = 1.0 + (self.urgency_score / 3.0)
+
+        # 4. Capacity Preservation Multiplier: Higher urgency -> more critical to preserve capacity for it
+        #    Lower values mean less penalty for *this* job, implying its need is high.
+        self.capacity_preservation_multiplier = max(0.5, 2.0 - (self.urgency_score / 2.0))
+=======
+        if current_slack < 0:
+            slack_urgency_multiplier = 1.0 + abs(current_slack) / (self.inst.time_horizon / 4.0) # More urgent if late, made more aggressive
+        elif current_slack < self.inst.time_horizon / 4: # If slack is getting tight (e.g., less than 6 hours for a 24-hr horizon)
+            slack_urgency_multiplier = 1.0 + (self.inst.time_horizon / 4 - current_slack) / (self.inst.time_horizon / 4) * 0.5
+
+        self.urgency_score = base_priority_urgency * slack_urgency_multiplier
+        self.urgency_score = max(0.5, min(10.0, self.urgency_score)) # Clamp to reasonable range
+
+        # Derived parameters:
+
+        # 1. Cloud Aggressiveness: Higher urgency -> lower factor -> favors cloud speed
+        #    Also reduce factor if system-wide local load is high, making cloud more attractive
+        #    The range of cloud_aggressiveness_factor is designed to give local a slight edge by default (e.g., 1.05-1.15)
+        #    but can shift below 1.0 for very urgent jobs or high load.
+        base_cloud_factor = 1.15
+        urgency_influence = (self.urgency_score - 2.0) * 0.05 # Adjust based on urgency, center around medium (priority_val=2)
+        load_influence = (system_load - 0.5) * 0.15 # If load > 0.5, reduce factor; if < 0.5, increase factor
+
+        self.cloud_aggressiveness_factor = base_cloud_factor - urgency_influence - load_influence
+        self.cloud_aggressiveness_factor = max(0.8, min(1.3, self.cloud_aggressiveness_factor))
+
+
+        # 2. Local Search Horizon: Higher urgency -> shorter horizon to find a slot quickly
+        #    Ensures at least the operation duration + a small buffer
+        base_search_horizon = self.inst.time_horizon * 3 # e.g., 72 hours
+        self.search_horizon = int(base_search_horizon / (1 + 0.2 * self.urgency_score))
+        self.search_horizon = max(self.inst.time_horizon // 8, self.search_horizon) # Minimum horizon: e.g., 3 hours for 24-hr horizon. Ensures a baseline search space.
+
+        # 3. Procrastination Penalty Multiplier: Higher urgency -> greater penalty for waiting
+        self.procrastination_penalty_multiplier = 1.0 + (self.urgency_score / 3.0)
+
+        # 4. Capacity Preservation Multiplier: Higher urgency -> more critical to preserve capacity for it
+        #    Lower values mean less penalty for *this* job, implying its need is high.
+        self.capacity_preservation_multiplier = max(0.5, 2.0 - (self.urgency_score / 2.0))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+adjust_penalty_constants
+</NAME>
+
+<DESCRIPTION>
+This edit adjusts several penalty constants in `PlacementDecisionMaker` to make the heuristics more assertive.
+
+1.  **`HOTSPOT_PENALTY_FACTOR`**: Increased from `100.0` to `150.0`. This makes the quadratic penalty for exceeding the critical utilization threshold significantly stronger, further discouraging placements that create or exacerbate resource bottlenecks on local machines.
+2.  **`CAPACITY_PRESERVATION_PENALTY_FACTOR`**: Increased from `50.0` to `75.0`. This boosts the penalty for consuming capacity that falls below the `SAFE_RESERVE_THRESHOLD`, enhancing the scheduler's effort to maintain a buffer for future, potentially high-priority, jobs or to improve resilience during failures.
+3.  **`HOTSPOT_LOOKAHEAD_WINDOW`**: Extended from `6` to `8` hours. A longer lookahead window for hotspot detection allows the scheduler to anticipate and avoid future congestion more proactively.
+4.  **`CAPACITY_LOOKAHEAD_WINDOW`**: Extended from `12` to `16` hours. A longer lookahead for capacity preservation ensures that decisions consider the impact on resource availability further into the future, which is especially beneficial in scenarios with fluctuating capacity due to failures.
+
+These changes aim to improve load balancing, resource resilience, and proactive avoidance of problematic placements.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Penalty constants
+    BASE_PROCRASTINATION_PENALTY_PER_HOUR = 0.05 # Cost per hour of waiting
+    HOTSPOT_PENALTY_FACTOR = 100.0 # Multiplier for quadratic load penalty
+    CRITICAL_UTIL_THRESHOLD = 0.7 # Utilization % above which hotspot penalty starts
+    HOTSPOT_LOOKAHEAD_WINDOW = 6 # Hours to look ahead for potential hotspots
+
+    SAFE_RESERVE_THRESHOLD = 0.2 # Fraction of total capacity to preserve
+    CAPACITY_PRESERVATION_PENALTY_FACTOR = 50.0 # Multiplier for capacity preservation penalty
+    CAPACITY_LOOKAHEAD_WINDOW = 12 # Hours to look ahead for capacity preservation
+=======
+    # Penalty constants
+    BASE_PROCRASTINATION_PENALTY_PER_HOUR = 0.05 # Cost per hour of waiting
+    HOTSPOT_PENALTY_FACTOR = 150.0 # Multiplier for quadratic load penalty (Increased)
+    CRITICAL_UTIL_THRESHOLD = 0.7 # Utilization % above which hotspot penalty starts
+    HOTSPOT_LOOKAHEAD_WINDOW = 8 # Hours to look ahead for potential hotspots (Increased)
+
+    SAFE_RESERVE_THRESHOLD = 0.2 # Fraction of total capacity to preserve
+    CAPACITY_PRESERVATION_PENALTY_FACTOR = 75.0 # Multiplier for capacity preservation penalty (Increased)
+    CAPACITY_LOOKAHEAD_WINDOW = 16 # Hours to look ahead for capacity preservation (Increased)
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+refine_local_search_iterative_window
+</NAME>
+
+<DESCRIPTION>
+This edit refines the `find_best_placement` method's local search strategy. The current implementation uses a fixed `current_search_limit` initially derived from `self.urgency.search_horizon` and expands it `max_search_iterations` times.
+
+The proposed change:
+1.  **Initial Search Window**: Instead of starting the `current_search_limit` with the full `self.urgency.search_horizon`, it initializes with a tighter window: `self.earliest_start + max(self.op.duration * 2, self.inst.time_horizon // 6)`. This means the scheduler first attempts to find a slot very close to the earliest possible start time, reflecting a preference for immediate execution. This prioritizes efficiency and aims to reduce procrastination.
+2.  **Iterative Expansion**: If no satisfactory local placement is found within this initial window (or if the best local score is still not competitive with the cloud benchmark), the search window is expanded. The increment for expansion is `self.inst.time_horizon // 4`, and it now explicitly caps the `current_search_limit` at `self.earliest_start + self.urgency.search_horizon` to ensure the overall search does not exceed the maximum horizon derived from the job's urgency profile.
+3.  **Iteration Limit and Max Horizon**: `max_search_iterations` is adjusted to `4` (from `3`) to allow for slightly more granular expansions, and the upper bound of the search (`max_total_search_end`) is explicitly introduced to ensure the iterative expansion does not run indefinitely beyond the intended job-specific search horizon.
+
+This strategy balances searching for immediate, low-cost slots with a controlled expansion to find a viable placement, improving search efficiency and resource utilization while respecting urgency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        local_options = [s_id for s_id in compatible_servers if not self.inst.servers[s_id].is_cloud]
+
+        current_search_limit = self.earliest_start + self.urgency.search_horizon
+        max_search_iterations = 3 # Max number of times to expand the search window
+
+        for iteration in range(max_search_iterations):
+            found_better_local_in_this_iteration = False
+
+            for server_id in local_options:
+                # Search from earliest_start up to current_search_limit
+                for start_t in range(self.earliest_start, current_search_limit):
+                    if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                        score = self._calculate_operation_score(server_id, start_t)
+                        if score < best_local_placement.score:
+                            best_local_placement = PlacementCandidate(score, server_id, start_t)
+                            found_better_local_in_this_iteration = True
+                        break # Found first-fit in window for this server, move to next server
+
+            # If a local placement was found that is better than the current cloud benchmark
+            # (considering cloud aggressiveness), we can stop iterating and commit.
+            # Or if no cloud option exists.
+            if best_local_placement.server_id is not None and \
+               (cloud_benchmark.server_id is None or \
+                best_local_placement.score <= cloud_benchmark.score * self.urgency.cloud_aggressiveness_factor):
+                break
+
+            # Expand search limit for next iteration
+            current_search_limit += self.urgency.search_horizon // 2 # Incrementally expand horizon
+=======
+        local_options = [s_id for s_id in compatible_servers if not self.inst.servers[s_id].is_cloud]
+
+        # Initial tighter search window, then iteratively expand
+        initial_search_window_size = max(self.op.duration * 2, self.inst.time_horizon // 6) # Start with a tight window (e.g., op_duration * 2 or 4 hours)
+        current_search_limit = self.earliest_start + initial_search_window_size
+        max_total_search_end = self.earliest_start + self.urgency.search_horizon # Overall max search horizon
+
+        # Max number of times to expand the search window, for controlled iteration
+        max_iterations = 4
+
+        for iteration in range(max_iterations):
+            found_better_local_in_this_iteration = False
+
+            for server_id in local_options:
+                # Search from earliest_start up to current_search_limit
+                for start_t in range(self.earliest_start, current_search_limit):
+                    if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                        score = self._calculate_operation_score(server_id, start_t)
+                        if score < best_local_placement.score:
+                            best_local_placement = PlacementCandidate(score, server_id, start_t)
+                            found_better_local_in_this_iteration = True
+                        break # Found first-fit in window for this server, move to next server
+
+            # If a sufficiently good local placement is found, or if no cloud exists, stop iterating early.
+            if best_local_placement.server_id is not None and \
+               (cloud_benchmark.server_id is None or \
+                best_local_placement.score <= cloud_benchmark.score * self.urgency.cloud_aggressiveness_factor):
+                break
+
+            # If current_search_limit already reached or exceeded max_total_search_end, stop
+            if current_search_limit >= max_total_search_end:
+                break
+
+            # Expand search limit for next iteration, capped by the overall max_total_search_end
+            current_search_limit = min(max_total_search_end, current_search_limit + self.inst.time_horizon // 4) # Incrementally expand horizon
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,92 @@
+<NAME>
+slack_crunch_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit introduces a "slack crunch" penalty within the local machine scoring function (`_calculate_operation_score`). This new penalty component is forward-looking within the scope of a single job. It evaluates how a potential placement for the current operation affects the feasibility and flexibility of scheduling all subsequent operations of the same job.
+
+The penalty has two parts:
+1.  **Infeasibility Prevention:** If placing the current operation at a given `start_time` makes it arithmetically impossible for the remaining operations to complete before the job's deadline (i.e., `projected_remaining_slack < 0`), it applies a prohibitively large penalty (`1e9`). This acts as a soft constraint to reject schedules that guarantee a deadline miss for the job.
+2.  **Flexibility Preservation:** For feasible placements, it calculates a `future_ops_density` ratio (`remaining_ops_duration / time_available_for_future_ops`). This ratio represents how tight the schedule for the rest of the job will become. The penalty increases quadratically with this density, discouraging placements that consume almost all remaining slack and leave no room for future contention or delays.
+
+This change directly addresses the weakness of myopic, single-operation scheduling by making the scheduler aware of the downstream consequences of its decisions for a given job. This promotes schedules that preserve flexibility and are more likely to meet deadlines for complex, multi-operation jobs. A new tuning parameter, `self.slack_crunch_penalty_factor`, is introduced to control the magnitude of this effect.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        self.cloud_aggressiveness_threshold = { # Cost ratio at which using cloud is acceptable
+            JobPriority.LOW: 1.2,
+            JobPriority.MEDIUM: 1.1,
+            JobPriority.HIGH: 1.0,
+            JobPriority.EMERGENCY: 0.9,
+        }
+=======
+        self.cloud_aggressiveness_threshold = { # Cost ratio at which using cloud is acceptable
+            JobPriority.LOW: 1.2,
+            JobPriority.MEDIUM: 1.1,
+            JobPriority.HIGH: 1.0,
+            JobPriority.EMERGENCY: 0.9,
+        }
+        self.slack_crunch_penalty_factor = 0.8 # Penalty for consuming job slack
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        lookahead_window = op.duration * 3
+        utilization = self._get_utilization_in_window(
+            machine, start_time, start_time + lookahead_window
+        )
+        load_penalty = self.load_penalty_factor * (utilization**3) * op.duration
+
+        base_cost = op.duration * machine.cost_per_tick
+        total_score = (
+            base_cost
+            + procrastination_penalty
+            + deadline_urgency_penalty
+            + load_penalty
+        )
+=======
+        lookahead_window = op.duration * 3
+        utilization = self._get_utilization_in_window(
+            machine, start_time, start_time + lookahead_window
+        )
+        load_penalty = self.load_penalty_factor * (utilization**3) * op.duration
+
+        # --- Slack Crunch Penalty ---
+        # Penalizes placements that consume too much of the job's slack,
+        # endangering the timely completion of subsequent operations.
+        slack_crunch_penalty = 0
+        if op_index < len(job.operations) - 1:
+            current_op_end_time = start_time + op.duration
+
+            # Sum of durations for all operations that come after this one.
+            remaining_ops_duration = sum(
+                job.operations[i].duration for i in range(op_index + 1, len(job.operations))
+            )
+
+            # The earliest time the job can possibly finish if we schedule this op at start_time.
+            projected_job_finish_time = current_op_end_time + remaining_ops_duration
+            projected_remaining_slack = job.deadline - projected_job_finish_time
+
+            if projected_remaining_slack < 0:
+                # This placement makes it impossible to finish on time.
+                slack_crunch_penalty = 1e9
+            else:
+                time_available_for_future_ops = job.deadline - current_op_end_time
+                if time_available_for_future_ops > 0:
+                    # This ratio represents how "tight" the schedule for the rest of the job becomes.
+                    future_ops_density = remaining_ops_duration / time_available_for_future_ops
+                    # Penalize quadratically as the schedule gets tighter.
+                    slack_crunch_penalty = self.slack_crunch_penalty_factor * (future_ops_density ** 2) * op.duration
+
+
+        base_cost = op.duration * machine.cost_per_tick
+        total_score = (
+            base_cost
+            + procrastination_penalty
+            + deadline_urgency_penalty
+            + load_penalty
+            + slack_crunch_penalty
+        )
+>>>>>>> REPLACE
+</DIFF>

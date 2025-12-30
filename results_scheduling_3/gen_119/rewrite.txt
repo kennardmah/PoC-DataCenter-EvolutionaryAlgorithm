@@ -1,0 +1,527 @@
+# Modified initial.py with ONLINE scheduling support
+# Key change: incremental, event-driven scheduling without future job knowledge
+
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional
+import math
+from collections import defaultdict
+
+# =============================================================================
+# DATA STRUCTURES (unchanged)
+# =============================================================================
+
+TIME_HORIZON = 24
+
+@dataclass
+class Server:
+    id: str
+    server_type: str
+    capacity: int
+    is_cloud: bool = False
+
+
+@dataclass
+class Operation:
+    server_type: str
+    duration: int
+    capacity_required: int = 1
+
+
+@dataclass
+class Job:
+    id: str
+    description: str
+    priority: str
+    deadline: int
+    delay_weight: float
+    operations: List[Operation]
+    arrival_time: int = 0
+
+
+@dataclass
+class MachineFailure:
+    machine_id: str
+    failure_start: int
+    failure_end: int
+    capacity_reduction: int
+    failure_rate: float = 1.0
+    recovery_rate: float = 1.0
+    reason: str = ""
+    is_random: bool = False
+
+
+@dataclass
+class Instance:
+    servers: Dict[str, Server]
+    jobs: Dict[str, Job]
+    server_cost: Dict[str, Dict[int, float]]
+    time_horizon: int
+    weights: Dict[str, float]
+    machine_failures: Optional[List[MachineFailure]] = None
+
+
+Schedule = Dict[str, List[Dict[str, Any]]]
+
+
+# =============================================================================
+# INSTANCE CREATION
+# =============================================================================
+import random
+def create_instance(
+    scenario: str = "baseline",
+    failure_scenario: Optional[str] = None,
+    enable_random_failures: bool = True,
+    random_failure_rate: float = 6.0,
+    random_seed: Optional[int] = random.randint(0, 1_000_000)
+) -> Instance:
+    """
+    Create the problem instance from CSV files.
+
+    Args:
+        scenario: Job scenario to load from CSV
+        failure_scenario: Machine failure scenario or None for no failures
+        enable_random_failures: If True, add stochastic background failures
+        random_failure_rate: Mean hours between random failures per machine
+        random_seed: Random seed for reproducible failures (None for true randomness)
+
+    Returns:
+        Instance object with jobs, servers, and optional machine failures from CSV
+    """
+    from helpers.scenario_loader import create_instance_from_csv
+    return create_instance_from_csv(
+        scenario=scenario,
+        failure_scenario=failure_scenario,
+        enable_random_failures=enable_random_failures,
+        random_failure_rate=random_failure_rate,
+        random_seed=random_seed
+    )
+
+
+# =============================================================================
+# FITNESS EVALUATION
+# =============================================================================
+
+@dataclass
+class Fitness:
+    score: float
+    compute_cost: float
+    delay_penalty: float
+    violations: List[str]
+    job_completion_times: Dict[str, int]
+    cloud_relocations: List[str] = None
+
+    def __post_init__(self):
+        if self.cloud_relocations is None:
+            self.cloud_relocations = []
+
+    def is_valid(self) -> bool:
+        return len(self.violations) == 0
+
+
+def evaluate(inst: Instance, schedule: Schedule) -> Fitness:
+    """
+    Evaluate a schedule with capacity constraints.
+    """
+    violations = []
+    total_compute_cost = 0
+    total_delay_penalty = 0
+    job_completion_times = {}
+    cloud_relocations = []
+
+    # Track capacity usage per machine per timestep
+    capacity_usage = {s: {} for s in inst.servers}
+
+    def get_available_capacity_at_time(server_id: str, time: int) -> int:
+        """Calculate available capacity considering exponential failure/recovery."""
+        base_capacity = inst.servers[server_id].capacity
+
+        if not inst.machine_failures:
+            return base_capacity
+
+        total_reduction = 0
+        for failure in inst.machine_failures:
+            if failure.machine_id != server_id:
+                continue
+
+            if time < failure.failure_start:
+                continue
+            elif time >= failure.failure_end:
+                time_since_end = time - failure.failure_end
+                recovery_factor = 1.0 - math.exp(-failure.recovery_rate * time_since_end)
+                reduction = failure.capacity_reduction * (1.0 - recovery_factor)
+                total_reduction += reduction
+            else:
+                time_since_start = time - failure.failure_start
+                failure_factor = 1.0 - math.exp(-failure.failure_rate * time_since_start)
+                reduction = failure.capacity_reduction * failure_factor
+                total_reduction += reduction
+
+        return max(0, base_capacity - int(total_reduction))
+
+    # Process each job's operations
+    for job_id, ops in schedule.items():
+        if job_id not in inst.jobs:
+            violations.append(f"Unknown job {job_id}")
+            continue
+
+        job = inst.jobs[job_id]
+        current_time = 0
+
+        for idx, op_sched in enumerate(ops):
+            if idx >= len(job.operations):
+                violations.append(f"{job_id}: too many operations")
+                continue
+
+            operation = job.operations[idx]
+            server_id = op_sched["server"]
+            start = op_sched["start"]
+            duration = operation.duration
+            capacity_req = operation.capacity_required
+
+            # Check server exists and type matches
+            if server_id not in inst.servers:
+                violations.append(f"{job_id} op {idx}: unknown server {server_id}")
+                continue
+
+            server = inst.servers[server_id]
+            if server.server_type != operation.server_type:
+                violations.append(
+                    f"{job_id} op {idx}: type mismatch ({server.server_type} != {operation.server_type})"
+                )
+                continue
+
+            # Check precedence
+            if start < current_time:
+                violations.append(f"{job_id} op {idx}: starts at {start} before previous ends at {current_time}")
+
+            current_time = start + duration
+
+            # Calculate compute cost
+            for t in range(start, start + duration):
+                hour = t % inst.time_horizon
+                cost_per_hour = inst.server_cost[server_id][hour]
+                total_compute_cost += cost_per_hour
+
+            # Track capacity usage
+            for t in range(start, start + duration):
+                if t not in capacity_usage[server_id]:
+                    capacity_usage[server_id][t] = 0
+                capacity_usage[server_id][t] += capacity_req
+
+        # Record job completion time
+        job_completion_times[job_id] = current_time
+
+        # Calculate delay penalty
+        delay = max(0, current_time - job.deadline)
+        total_delay_penalty += delay * job.delay_weight
+
+    # Check capacity constraints
+    for server_id, usage_by_time in capacity_usage.items():
+        server = inst.servers[server_id]
+        if server.is_cloud:
+            continue  # Cloud has unlimited capacity
+
+        for time, used in usage_by_time.items():
+            available = get_available_capacity_at_time(server_id, time)
+            if used > available:
+                violations.append(
+                    f"{server_id}: capacity exceeded at t={time} (used: {used}, available: {available})"
+                )
+
+    # Calculate weighted score
+    score = (
+        total_compute_cost * inst.weights["compute_cost"]
+        + total_delay_penalty * inst.weights["delay_penalty"]
+    )
+
+    # Add penalty for violations
+    if violations:
+        score += 1e6 * len(violations)
+
+    return Fitness(
+        score=score,
+        compute_cost=total_compute_cost,
+        delay_penalty=total_delay_penalty,
+        violations=violations,
+        job_completion_times=job_completion_times,
+        cloud_relocations=cloud_relocations,
+    )
+
+
+# =============================================================================
+# ONLINE SCHEDULING CORE
+# =============================================================================
+def get_available_capacity(inst: Instance, server_id: str, time: int) -> int:
+    base_capacity = inst.servers[server_id].capacity
+    if not inst.machine_failures: return base_capacity
+    total_reduction = 0
+    for failure in inst.machine_failures:
+        if failure.machine_id != server_id: continue
+        if time < failure.failure_start: continue
+        elif time >= failure.failure_end:
+            recovery_factor = 1.0 - math.exp(-failure.recovery_rate * (time - failure.failure_end))
+            total_reduction += failure.capacity_reduction * (1.0 - recovery_factor)
+        else:
+            failure_factor = 1.0 - math.exp(-failure.failure_rate * (time - failure.failure_start))
+            total_reduction += failure.capacity_reduction * failure_factor
+    return max(0, base_capacity - int(total_reduction))
+
+
+# =============================================================================
+# =============================================================================
+# SCHEDULE CONSTRUCTOR (ONLINE, EVOLVABLE)
+# =============================================================================
+
+# EVOLVE-BLOCK-START
+class SchedulingContext:
+    """Manages the global scheduling state and provides query/update methods."""
+    def __init__(self, inst: Instance, capacity_usage: Dict[str, Dict[int, int]]):
+        self.inst = inst
+        self.capacity_usage = capacity_usage
+
+    def get_capacity(self, server_id: str, time: int) -> int:
+        return get_available_capacity(self.inst, server_id, time)
+
+    def check_capacity_for_op(self, server_id: str, start: int, duration: int, req: int) -> bool:
+        for t in range(start, start + duration):
+            used = self.capacity_usage.get(server_id, {}).get(t, 0)
+            if used + req > self.get_capacity(server_id, t):
+                return False
+        return True
+
+    def update_usage(self, server_id: str, start: int, duration: int, req: int):
+        for t in range(start, start + duration):
+            self.capacity_usage[server_id][t] = self.capacity_usage[server_id].get(t, 0) + req
+
+
+class ScoringHeuristics:
+    """A collection of static methods for calculating placement cost components."""
+    PRIORITY_PROCRASTINATION_MULTIPLIER = {'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+    BASE_PROCRASTINATION_PENALTY_FACTOR = 0.05
+    LOAD_PENALTY_FACTOR = 5.0
+    PRIORITY_LOAD_MULTIPLIER = {"emergency": 0.1, "critical": 0.2, "high": 0.5, "medium": 1.0, "low": 2.0}
+    LOCAL_PREFERENCE_BONUS = -10.0
+
+    @staticmethod
+    def calculate_total_score(context: SchedulingContext, job: Job, op: Operation, server_id: str, start_time: int, earliest_start: int, rem_duration: int) -> float:
+        server = context.inst.servers[server_id]
+        compute_cost = ScoringHeuristics._compute_cost(context, server_id, start_time, op.duration)
+        delay_cost = ScoringHeuristics._delay_cost(context, job, start_time, op.duration, rem_duration)
+        procrastination_penalty = ScoringHeuristics._procrastination_penalty(context, job, start_time, earliest_start, op.duration, rem_duration)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            load_penalty = ScoringHeuristics._load_penalty(context, job, server_id, start_time, op.duration)
+        
+        total_score = (compute_cost * context.inst.weights['compute_cost'] + delay_cost + procrastination_penalty + load_penalty)
+        if not server.is_cloud:
+            total_score += ScoringHeuristics.LOCAL_PREFERENCE_BONUS
+        return total_score
+
+    @staticmethod
+    def _compute_cost(ctx: SchedulingContext, server_id: str, start: int, dur: int) -> float:
+        return sum(ctx.inst.server_cost[server_id][t % ctx.inst.time_horizon] for t in range(start, start + dur))
+
+    @staticmethod
+    def _delay_cost(ctx: SchedulingContext, job: Job, start: int, op_dur: int, rem_dur: int) -> float:
+        delay = max(0, start + op_dur + rem_dur - job.deadline)
+        return delay * job.delay_weight * ctx.inst.weights['delay_penalty']
+
+    @staticmethod
+    def _procrastination_penalty(ctx: SchedulingContext, job: Job, start: int, earliest: int, op_dur: int, rem_dur: int) -> float:
+        slack = job.deadline - (earliest + op_dur + rem_dur)
+        urgency_mult = ScoringHeuristics.PRIORITY_PROCRASTINATION_MULTIPLIER.get(job.priority, 1.0)
+        slack_ratio = 1.0
+        if slack < 0:
+            slack_ratio = 1.0 + (math.exp(abs(slack) / (ctx.inst.time_horizon / 4.0)) - 1.0)
+        elif slack < ctx.inst.time_horizon / 4:
+            ratio = (ctx.inst.time_horizon / 4.0 - slack) / (ctx.inst.time_horizon / 4.0)
+            slack_ratio = 1.0 + (ratio ** 2) * 2.0
+        return ScoringHeuristics.BASE_PROCRASTINATION_PENALTY_FACTOR * (start - earliest) * urgency_mult * slack_ratio
+
+    @staticmethod
+    def _load_penalty(ctx: SchedulingContext, job: Job, server_id: str, start: int, dur: int) -> float:
+        win_start, win_end = max(0, start - dur), start + dur * 2
+        util, steps = 0.0, 0
+        for t in range(win_start, win_end):
+            used = ctx.capacity_usage.get(server_id, {}).get(t, 0)
+            avail = ctx.get_capacity(server_id, t)
+            if avail > 0: util += used / avail
+            steps += 1
+        if steps > 0:
+            avg_util = util / steps
+            load_mult = ScoringHeuristics.PRIORITY_LOAD_MULTIPLIER.get(job.priority, 1.0)
+            return avg_util * ScoringHeuristics.LOAD_PENALTY_FACTOR * load_mult * job.delay_weight
+        return 0.0
+
+class OperationScheduler:
+    """Worker class to find the best placement for a single operation."""
+    PRIORITY_BASE_HORIZON = {'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+    CLOUD_AGGRESSIVENESS = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+    def __init__(self, context: SchedulingContext, job: Job, op: Operation, earliest_start: int, rem_duration: int):
+        self.context, self.job, self.op = context, job, op
+        self.earliest_start, self.rem_duration = earliest_start, rem_duration
+        self.compatible = [s for s in context.inst.servers.values() if s.server_type == op.server_type]
+
+    def schedule(self) -> (str, int):
+        cloud_res = self._find_best_cloud_placement()
+        local_res = self._find_best_local_placement()
+        cloud_score = cloud_res[0] if cloud_res else float('inf')
+        local_score = local_res[0] if local_res else float('inf')
+        cloud_pref = self.CLOUD_AGGRESSIVENESS.get(self.job.priority, 1.0)
+
+        if local_res and local_score < (cloud_score * cloud_pref):
+            return local_res[1], local_res[2]
+        elif cloud_res:
+            return cloud_res[1], cloud_res[2]
+        else:
+            return self._failsafe_placement()
+
+    def _find_best_cloud_placement(self) -> Optional[tuple]:
+        best_score, best_id = float('inf'), None
+        for s in self.compatible:
+            if s.is_cloud:
+                score = ScoringHeuristics.calculate_total_score(self.context, self.job, self.op, s.id, self.earliest_start, self.earliest_start, self.rem_duration)
+                if score < best_score: best_score, best_id = score, s.id
+        return (best_score, best_id, self.earliest_start) if best_id else None
+
+    def _find_best_local_placement(self) -> Optional[tuple]:
+        best_score, best_place = float('inf'), None
+        slack = self.job.deadline - (self.earliest_start + self.op.duration + self.rem_duration)
+        base_h = self.PRIORITY_BASE_HORIZON.get(self.job.priority, 48)
+        slack_mult = max(0.25, min(3.0, 1.0 + (slack / self.context.inst.time_horizon / 2.0)))
+        limit = self.earliest_start + max(self.op.duration, int(base_h * slack_mult))
+        for s in self.compatible:
+            if not s.is_cloud:
+                for start in range(self.earliest_start, limit + 1):
+                    if self.context.check_capacity_for_op(s.id, start, self.op.duration, self.op.capacity_required):
+                        score = ScoringHeuristics.calculate_total_score(self.context, self.job, self.op, s.id, start, self.earliest_start, self.rem_duration)
+                        if score < best_score: best_score, best_place = score, (score, s.id, start)
+        return best_place
+
+    def _failsafe_placement(self) -> (str, int):
+        locals = [s for s in self.compatible if not s.is_cloud]
+        if locals:
+            cheapest = min(locals, key=lambda s: sum(self.context.inst.server_cost[s.id].values()))
+            t = self.earliest_start
+            while True:
+                if self.context.check_capacity_for_op(cheapest.id, t, self.op.duration, self.op.capacity_required): return cheapest.id, t
+                t += 1
+        clouds = [s for s in self.compatible if s.is_cloud]
+        if clouds:
+            cheapest = min(clouds, key=lambda s: self.context.inst.server_cost[s.id][self.earliest_start % TIME_HORIZON])
+            return cheapest.id, self.earliest_start
+        raise RuntimeError(f"Could not schedule op for job {self.job.id}")
+
+def schedule_job_online(inst: Instance, job: Job, schedule: Schedule, capacity_usage: Dict[str, Dict[int, int]], current_time: int):
+    schedule[job.id] = []
+    context = SchedulingContext(inst, capacity_usage)
+    release_time = max(job.arrival_time, current_time)
+    for idx, op in enumerate(job.operations):
+        rem_dur = sum(o.duration for o in job.operations[idx + 1:])
+        op_scheduler = OperationScheduler(context, job, op, release_time, rem_dur)
+        server_id, start_time = op_scheduler.schedule()
+        context.update_usage(server_id, start_time, op.duration, op.capacity_required)
+        schedule[job.id].append({"server": server_id, "start": start_time})
+        release_time = start_time + op.duration
+# EVOLVE-BLOCK-END
+
+
+# =============================================================================
+# EVENT-DRIVEN ONLINE EXECUTION LOOP (NOT EVOLVABLE - ENFORCES ONLINE CONSTRAINT)
+# =============================================================================
+
+
+def construct_schedule(inst: Instance) -> Schedule:
+    """
+    STRICT ONLINE SCHEDULER - NO FUTURE KNOWLEDGE
+
+    This function enforces the online constraint and is NOT evolved.
+    Only schedule_job_online (above) can be modified during evolution.
+
+    CRITICAL ONLINE CONSTRAINT:
+    When scheduling a job arriving at time T, you can ONLY access:
+    - Jobs that have already been scheduled (arrival_time < T)
+    - The current job (arrival_time == T)
+
+    You CANNOT access or analyze jobs with arrival_time > T
+
+    Implementation: Process jobs in arrival order, one at a time.
+    """
+    schedule = {}
+    capacity_usage = defaultdict(dict)
+
+    # Create list of (arrival_time, job) tuples and sort ONLY by arrival time
+    # Note: We must access inst.jobs to know when they arrive, but we
+    # process them strictly in order without lookahead
+    job_arrivals = [(job.arrival_time, job) for job in inst.jobs.values()]
+    job_arrivals.sort(key=lambda x: x[0])  # Sort only by arrival time
+
+    # Process each job as it arrives (strict temporal order)
+    for arrival_time, job in job_arrivals:
+        # At this moment, only this job and earlier jobs exist in our world
+        # Jobs arriving later are "in the future" and unknown
+        schedule_job_online(inst, job, schedule, capacity_usage, arrival_time)
+
+    return schedule
+
+
+# =============================================================================
+# RUN SCHEDULING (ENTRY POINT FOR EVALUATION)
+# =============================================================================
+
+def run_scheduling(
+    scenario: str = "baseline",
+    failure_scenario: Optional[str] = None,
+    multi_scenario: bool = False,
+    scenarios: Optional[List[str]] = None,
+    scenario_weights: Optional[Dict[str, float]] = None,
+    failure_scenarios: Optional[Dict[str, str]] = None
+):
+    """
+    Run the schedule constructor and return results.
+
+    Args:
+        scenario: Job scenario to load from CSV (for single-scenario mode)
+        failure_scenario: Machine failure scenario from CSV or None (for single-scenario mode)
+        multi_scenario: If True, evaluate across multiple scenarios
+        scenarios: List of scenario names to evaluate (for multi-scenario mode)
+        scenario_weights: Weight for each scenario in final score (for multi-scenario mode)
+        failure_scenarios: Mapping of scenario name to failure scenario (for multi-scenario mode)
+    """
+    if multi_scenario and scenarios:
+        # Multi-scenario evaluation
+        results = {}
+        weighted_score = 0.0
+
+        for scenario_name in scenarios:
+            # Get failure scenario for this scenario (if any)
+            fail_scenario = None
+            if failure_scenarios and scenario_name in failure_scenarios:
+                fail_scenario = failure_scenarios[scenario_name]
+
+            # Create instance and run scheduling
+            inst = create_instance(scenario=scenario_name, failure_scenario=fail_scenario)
+            schedule = construct_schedule(inst)
+            fitness = evaluate(inst, schedule)
+            score = float(fitness.score)
+
+            # Store results
+            results[scenario_name] = (schedule, fitness, score)
+
+            # Add weighted contribution
+            weight = scenario_weights.get(scenario_name, 1.0) if scenario_weights else 1.0
+            weighted_score += weight * score
+
+        # Return multi-scenario results
+        return {
+            "scenarios": results,
+            "weighted_score": weighted_score,
+            "weights": scenario_weights or {s: 1.0 for s in scenarios}
+        }
+    else:
+        # Single scenario evaluation (backward compatibility)
+        inst = create_instance(scenario=scenario, failure_scenario=failure_scenario)
+        schedule = construct_schedule(inst)
+        fitness = evaluate(inst, schedule)
+        return schedule, fitness, float(fitness.score)

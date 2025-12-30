@@ -1,0 +1,113 @@
+<consistent_priority_maps_and_advanced_load_penalty>
+This edit refactors the `JobScheduler` to implement a more sophisticated, non-linear load-balancing penalty, as inspired by recommendation #1, and ensures consistent priority key mapping.
+
+**Key Changes:**
+1.  **Consistent Priority Maps:** The priority mapping dictionaries (`priority_base_horizon`, `priority_procrastination_multiplier`, `cloud_aggressiveness_threshold`, `priority_load_multiplier`) have been updated to use consistent, capitalized keys (e.g., "Emergency", "Urgent", "High", "Medium", "Low") to match the `Job.priority` attribute directly. This resolves a potential inconsistency and improves readability. The values for `cloud_aggressiveness_threshold` are also slightly adjusted to better reflect the intent of favoring local for higher priority jobs (tolerating higher relative cost for local).
+2.  **Advanced Load-Balancing Penalty Parameters:** New parameters (`high_utilization_threshold`, `critical_capacity_buffer_ratio`, `cubic_penalty_scale`, `buffer_penalty_scale`) are introduced in `JobScheduler.__init__` to control the new penalty behavior.
+3.  **Non-Linear Load-Balancing Penalty Logic:** The `_calculate_operation_score` method's `load_penalty` calculation is significantly enhanced.
+    *   **Predictive Lookahead:** The load analysis now considers the time window from the operation's `start_time` up to `start_time + op.duration * 3` (operation duration + 2x duration lookahead) to predict future congestion.
+    *   **Non-Linear High Utilization Penalty:** A cubic penalty is applied if the *prospective utilization* (including the current operation) at any point in the lookahead window exceeds `high_utilization_threshold` (e.g., 85%). This dramatically penalizes placements that push a server close to its limits.
+    *   **Critical Capacity Buffer Penalty:** A linear penalty is introduced if the `remaining_capacity` (after placing the operation) falls below a `critical_capacity_buffer_ratio` (e.g., 10%) of the server's *current available capacity* at any point in the lookahead. This incentivizes maintaining a minimum operational buffer for resilience.
+    *   **Robustness for Zero Capacity:** An extremely high penalty is added if an operation is attempted on a server with zero available capacity after the proposed placement.
+    *   The `load_penalty_factor` and `priority_load_multiplier` are now applied to scale these non-linear penalties, allowing for more granular control over how load impacts the score based on job priority.
+
+These changes aim to improve performance by proactively managing local server congestion and reserving capacity buffers, especially critical during emergency scenarios, while still balancing cloud vs. local costs based on job urgency. The consistency in priority mapping reduces potential errors and improves maintainability.
+</NAME>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters from Base Implementation ---
+        self.priority_base_horizon = {'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+        self.priority_procrastination_multiplier = {'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        # high-priority jobs prefer local to save cost, low-prio pushed to cloud
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        # Inverted: high-priority jobs avoid congested servers more
+        self.priority_load_multiplier = {"emergency": 5.0, "critical": 4.0, "urgent": 3.0, "high": 2.0, "medium": 1.0, "low": 0.5}
+=======
+        # --- Heuristic Parameters from Base Implementation ---
+        # Priority keys adjusted for consistency (e.g., "Emergency", "Urgent")
+        self.priority_base_horizon = {'Emergency': 6, 'Urgent': 12, 'High': 24, 'Medium': 48, 'Low': 72}
+        self.priority_procrastination_multiplier = {'Emergency': 8.0, 'Urgent': 4.0, 'High': 2.0, 'Medium': 1.0, 'Low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        # Cloud aggressiveness: Higher value means higher tolerance for local cost vs. cloud.
+        # High-priority jobs (Emergency, Urgent) are less aggressive to go to cloud (i.e., prefer local more for stability/cost)
+        self.cloud_aggressiveness_threshold = {'Emergency': 1.05, 'Urgent': 1.1, 'High': 1.15, 'Medium': 1.25, 'Low': 1.4}
+
+        # --- Enhanced Load-Balancing Parameters (Crossover Feature) ---
+        self.load_penalty_factor = 50.0  # Increased base factor for stronger effect of load
+        # Priority load multiplier: High-priority jobs are MORE sensitive to load to avoid contention.
+        self.priority_load_multiplier = {"Emergency": 5.0, "Urgent": 4.0, "High": 2.5, "Medium": 1.0, "Low": 0.5}
+        self.high_utilization_threshold = 0.85 # Start applying cubic penalty above 85% utilization
+        self.critical_capacity_buffer_ratio = 0.1 # Maintain 10% capacity buffer, penalize if below
+        self.cubic_penalty_scale = 100.0 # Scale for the cubic penalty
+        self.buffer_penalty_scale = 200.0 # Scale for the critical buffer penalty
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # 4. Load-Balancing Penalty (Crossover Feature)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+            window_end = start_time + op.duration * 2
+            total_utilization, num_timesteps = 0.0, 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = avg_utilization * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+=======
+        # 4. Non-Linear Load-Balancing / Hotspot Avoidance Penalty (Crossover Feature)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+
+            # Look ahead for a window: current op duration + 2x op duration, minimum 1 hour
+            lookahead_window = max(1, op.duration * 3)
+            window_end = start_time + lookahead_window
+
+            for t in range(start_time, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                # Prospective available capacity after considering failures but *before* placing this op
+                available_capacity_at_t = get_available_capacity(self.inst, server_id, t)
+
+                # Check for zero capacity after placing this op
+                if available_capacity_at_t < op.capacity_required:
+                    # This should ideally be caught by has_capacity, but as a hard penalty
+                    load_penalty += 1e9 * self.load_penalty_factor * load_prio_mult
+                    continue # No more calculations for this timestep if it's already invalid
+
+                prospective_used = used + op.capacity_required
+
+                # Non-linear penalty for high utilization (cubic growth)
+                if available_capacity_at_t > 0:
+                    utilization = prospective_used / available_capacity_at_t
+                    if utilization > self.high_utilization_threshold:
+                        # Cubic penalty: (utilization - threshold)^3
+                        penalty_amount = (utilization - self.high_utilization_threshold)**3 * self.cubic_penalty_scale
+                        load_penalty += penalty_amount * self.load_penalty_factor * load_prio_mult
+
+                # Penalty for dipping below a critical capacity buffer
+                base_server_capacity = self.inst.servers[server_id].capacity
+                critical_buffer = base_server_capacity * self.critical_capacity_buffer_ratio
+                remaining_capacity = available_capacity_at_t - prospective_used
+                if remaining_capacity < critical_buffer:
+                    # Linear penalty for capacity crunch
+                    penalty_amount = (critical_buffer - remaining_capacity) / critical_buffer * self.buffer_penalty_scale
+                    load_penalty += penalty_amount * self.load_penalty_factor * load_prio_mult
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+>>>>>>> REPLACE
+</DIFF>

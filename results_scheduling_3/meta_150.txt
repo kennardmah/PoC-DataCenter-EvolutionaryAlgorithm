@@ -1,0 +1,946 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Online Incremental Job Scheduler with Failure Awareness**
+- **Implementation**: The `schedule_job_online` function greedily schedules each operation by finding the first available slot on local servers or immediately on cloud servers, minimizing a combined cost and projected job delay objective. It dynamically updates capacity usage and accounts for machine failures with exponential capacity reduction/recovery.
+- **Performance**: The program achieved a `weighted_score` of `16980.00` across diverse scenarios, including a complex machine failure (`earthquake`) scenario. All schedules produced were valid, indicating successful adherence to capacity and other constraints.
+- **Feedback**: The greedy heuristic of selecting the "first available slot" combined with cloud fallback effectively manages resource contention and dynamic capacity changes due to failures. The scheduler successfully produces valid schedules under realistic failure models by adapting to time-varying available capacity.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Online Event-Driven Priority-Based Heuristic Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time, making greedy decisions for each operation. It prioritizes lower objective costs, which incorporate compute cost (with cloud multiplier), delay penalties adjusted by job priority, and uses pre-cached server capacities to efficiently find feasible slots within a defined search window.
+- **Performance**: The scheduler achieved a weighted score of 18006.00 across 'normal' and 'earthquake' scenarios, successfully producing valid schedules for all evaluated instances.
+- **Feedback**: The combination of priority-based delay penalties, a cloud cost multiplier, and an optimized capacity check mechanism (with caching and a bounded search window) effectively balances cost, timeliness, and resource allocation in an online setting, even under machine failure conditions.
+**Program Identifier:** Generation 1 - Patch Name none - Correct Program: True
+
+**Program Name: Online Urgency-Aware Adaptive Job Scheduler**
+- **Implementation**: This online scheduler uses an urgency-aware heuristic, dynamically adjusting its lookahead window and cloud server preference based on a job's slack to deadline. It evaluates placements on local machines within the adaptive window, prioritizing cheaper cloud options only when urgency demands or local resources are constrained, and includes a failsafe to guarantee a valid schedule.
+- **Performance**: The scheduler achieved a weighted score of 20702.50 across 'normal' and 'earthquake' scenarios, successfully producing valid and complete schedules for all jobs without violations.
+- **Feedback**: The implementation effectively balances cost and deadline adherence by strategically leveraging cloud resources based on job urgency. The adaptive lookahead window and cloud preference, coupled with the robust failsafe mechanism, enable it to navigate diverse capacity and failure scenarios successfully under strict online constraints.
+**Program Identifier:** Generation 2 - Patch Name urgency_aware_lookahead - Correct Program: True
+
+**Program Name: Online Job Scheduler with Local Search**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by their arrival time. For each operation, it uses a `LOCAL_SEARCH_WINDOW` of 12 hours to find the best start time on local servers, evaluating options based on a combined objective of compute cost and projected delay penalty; cloud servers are considered for immediate placement due to infinite capacity.
+- **Performance**: The scheduler achieved a `weighted_score: 17440.50` across multiple scenarios, including one with machine failures, successfully scheduling all 30 jobs in both scenarios with `is_valid: True` schedules.
+- **Feedback**: The local search window is an effective heuristic for online scheduling, allowing the algorithm to make near-optimal choices for immediate operations while respecting capacity and precedence. The explicit objective function guides decisions towards minimizing both cost and delay, and the scheduler successfully handles dynamic capacity due to machine failures without producing violations.
+**Program Identifier:** Generation 3 - Patch Name local_window_search - Correct Program: True
+
+**Program Name: Online Best-Slot Scheduler with Priority Heuristic**
+- **Implementation**: The scheduler processes jobs online by arrival time, and for each operation, it exhaustively searches all eligible servers and possible start times up to the job's deadline plus the time horizon. It selects the option minimizing a cost function that combines compute cost, projected job delay penalty, and a new penalty for starting later, scaled by job priority.
+- **Performance**: The scheduler achieved a weighted score of 17834.00 across multiple scenarios, successfully producing valid schedules without capacity violations.
+- **Feedback**: Moving from selecting the "first available slot" to the "best available slot" significantly improves cost efficiency by allowing operations to be placed during cheaper or less congested periods. The introduction of a priority-scaled `start_penalty` effectively guides the greedy decision-making to prioritize earlier execution for high-priority jobs, enhancing responsiveness without violating constraints.
+**Program Identifier:** Generation 4 - Patch Name best_fit_priority_aware - Correct Program: True
+
+**Program Name: Priority-Aware Incremental Online Job Scheduler**
+- **Implementation**: This program implements an incremental, event-driven online scheduler that processes jobs strictly by arrival time. For each operation, it evaluates available slots on both local (capacity-constrained) and cloud servers, selecting the option with the lowest objective cost, which is dynamically adjusted using job-priority-based multipliers.
+- **Performance**: The scheduler achieved a combined weighted score of 17758.00 across multiple scenarios (normal and earthquake), successfully producing valid schedules for all jobs in each scenario.
+- **Feedback**: The implementation's core strength lies in its strict online adherence and the use of priority multipliers to influence scheduling decisions; by magnifying the cost component of higher-priority jobs, the scheduler implicitly prioritizes their timely completion and lower compute costs, ensuring robustness even under dynamic conditions like machine failures.
+**Program Identifier:** Generation 5 - Patch Name priority_cost_adjustment - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Adaptive Placement**
+- **Implementation**: This program implements an online, event-driven scheduling algorithm where jobs are processed strictly by arrival time. A `PlacementEvaluator` service determines the best server and start time for each operation, dynamically considering machine failures, compute costs, delay penalties, and an explicit penalty for waiting on local machines versus using cloud resources.
+- **Performance**: The scheduler achieved a `weighted_score` of 16908.00 across multiple scenarios, with all schedules being valid (`is_valid: True`) for both 'normal' and 'earthquake' conditions.
+- **Feedback**: The implementation successfully adheres to strict online constraints and robustly handles dynamic capacity changes due to machine failures. The adaptive `PlacementEvaluator` strategy, balancing local vs. cloud costs and job priority-based search horizons, results in valid schedules even under disruptive failure scenarios.
+**Program Identifier:** Generation 6 - Patch Name service_scheduler - Correct Program: True
+
+**Program Name: Online Greedy Job Scheduler with Priority and Failure Handling**
+- **Implementation**: This program implements an online, greedy scheduler that processes jobs sequentially by arrival time, making irrevocable decisions for each operation. It attempts to minimize an objective function (compute cost + projected delay penalty, weighted by job priority) by selecting the best available server and start time, while accounting for machine capacities and exponential failure/recovery models.
+- **Performance**: The program's current performance is reported as "incorrect" and "does not pass all validation tests," indicating issues with constraint satisfaction or optimality, despite aiming for a combined score to maximize of 0.0.
+- **Feedback**: The strictly online, greedy strategy, even with job priority adjustments and look-ahead for a single job's future operations, is insufficient to meet all problem constraints or validation requirements. The lack of global foresight and inability to reschedule leads to an invalid solution set.
+**Program Identifier:** Generation 7 - Patch Name none - Correct Program: False
+
+**Program Name: Online Greedy First-Fit Job Scheduler with Priority and Cloud Cost**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. For each operation, it searches for the first available slot on local servers within a defined time horizon, or immediately schedules on more expensive cloud servers, guided by an objective function that combines compute cost, priority-weighted delay penalties, and a cloud cost multiplier.
+- **Performance**: The scheduler achieved a weighted total cost of 17243.00 across multiple scenarios (normal and earthquake), with all generated schedules being valid and adhering to capacity constraints.
+- **Feedback**: The algorithm effectively balances exploration with efficiency by using a `FIRST-FIT` approach for local servers, optimized with a cached capacity lookup and a bounded search window. The explicit integration of job priorities and a cloud cost multiplier in the objective function proves crucial for generating valid and cost-effective schedules, particularly in scenarios with machine failures, by encouraging local usage while ensuring job completion.
+**Program Identifier:** Generation 8 - Patch Name priority_aware_first_fit - Correct Program: True
+
+**Program Name: Urgency-Aware Online Job Scheduler with Failsafe**
+- **Implementation**: This program implements an online, event-driven scheduler where jobs are processed strictly by arrival time. The core `schedule_job_online` function uses an urgency-aware heuristic to calculate a placement score for operations, considering compute cost, delay penalty, and strategic adjustments for cloud usage based on job slack time and priority, within a dynamic lookahead window. It includes a multi-tiered failsafe mechanism to ensure an operation is always placed, prioritizing cloud use or an indefinite search for local slots if initial attempts fail.
+- **Performance**: The reported performance metric "Combined score to maximize: 0.0" is incorrect, implying either evaluation failure or an inability to produce valid costs for the objective.
+- **Feedback**: The program is "incorrect and does not pass all validation tests," indicating fundamental flaws in its scheduling logic or constraint satisfaction. The complex, hand-tuned heuristics within `calculate_placement_score` and the extensive failsafe mechanisms suggest difficulties in consistently finding optimal or even valid placements under varying urgency and resource constraints in the online setting.
+**Program Identifier:** Generation 9 - Patch Name none - Correct Program: False
+
+**Program Name: Online Adaptive Urgency-Based Job Scheduler**
+- **Implementation**: This program features an online, event-driven scheduler that classifies jobs by urgency (Critical, Flexible, Background) based on priority and slack. It dynamically adjusts strategy parameters like search horizon and cloud bias for each urgency category, selecting between local and cloud resources for operations while enforcing strict temporal processing without future job knowledge.
+- **Performance**: The scheduler achieved a weighted score of 17955.00 across multiple scenarios (normal, earthquake), successfully producing valid schedules without any capacity or precedence violations.
+- **Feedback**: The adaptive strategy, which dynamically biases cloud vs. local resource selection based on job urgency and available slack, effectively manages complex constraints including machine failures. The strict online constraint is well-maintained through sequential job processing.
+**Program Identifier:** Generation 10 - Patch Name slack_aware_adaptive_scheduling - Correct Program: True
+
+**Program Name: Online Event-Driven Proactive Scheduling**
+- **Implementation**: This program employs an online, event-driven scheduler that processes jobs strictly by arrival time, without future job knowledge. A `PlacementEvaluator` determines the optimal server and start time for each operation by considering compute cost, delay penalties, and an adaptive procrastination penalty (weighted by job priority), utilizing a dynamic search horizon and cloud options for flexibility.
+- **Performance**: The scheduler achieved a weighted score of 17636.50 across multiple scenarios, including a 'normal' and an 'earthquake' failure scenario, successfully producing valid schedules without any constraint violations.
+- **Feedback**: The program is correct and robust, passing all validation tests even with complex machine failure models. The intelligent balancing of cost, delay, and job urgency through dynamic search horizons and priority-based procrastination allows for effective resource allocation and strategic use of cloud resources under varying conditions.
+**Program Identifier:** Generation 11 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Placement**
+- **Implementation**: This program employs an online, event-driven scheduling approach, processing jobs strictly by arrival time. For each operation, a `PlacementEvaluator` service dynamically searches for the best local server and start time within a slack-aware horizon, while establishing a cloud placement as a cost benchmark. Capacity calculations for local servers dynamically adjust for probabilistic machine failures.
+- **Performance**: The scheduler achieved a weighted score of 18145.50 across multiple scenarios (normal, earthquake), successfully validating all schedules with no capacity violations.
+- **Feedback**: The `PlacementEvaluator`'s use of a dynamic search horizon, which adapts to job slack, is a key implementation choice for balancing cost-efficiency and deadline adherence in an online context. The inclusion of a "procrastination penalty" is a relevant heuristic to encourage proactive scheduling, contributing to robust performance under varying conditions and machine failures.
+**Program Identifier:** Generation 12 - Patch Name best_fit_with_dynamic_horizon - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Horizons**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a `SchedulerState` class to manage capacity and schedules each operation by dynamically evaluating local and cloud options within a priority and slack-adaptive search horizon, applying weighted penalties for compute cost, job delay, and procrastination.
+- **Performance**: The reported combined score is 0.0, and the program is noted as "incorrect and does not pass all validation tests."
+- **Feedback**: A critical `TypeError` exists in `construct_schedule` due to an incorrect call to `schedule_job_online`, passing `capacity_usage` directly instead of interacting with the `SchedulerState` object's internal state. There's also a typo `chosen_chosen_server` in capacity reservation.
+**Program Identifier:** Generation 13 - Patch Name none - Correct Program: False
+
+**Program Name: Online Slack-Aware Best-Fit Scheduler**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time, using a slack-aware, best-fit heuristic for operation placement. It first establishes a cloud placement benchmark, then dynamically adjusts the local server search horizon based on job deadline slack, incorporating a procrastination penalty, and considers machine failures for capacity checks.
+- **Performance**: The scheduler achieved a weighted score of 17386.00 across multiple scenarios, including a machine failure scenario, producing valid schedules for all jobs without any capacity or precedence violations.
+- **Feedback**: The dynamic search horizon combined with a procrastination penalty effectively manages trade-offs between cost and delay under online constraints, demonstrating robustness by successfully scheduling all jobs, even when faced with significant machine failures. The use of cloud as an immediate benchmark and fallback ensures a valid (albeit potentially more costly) placement in congested or failed local environments.
+**Program Identifier:** Generation 14 - Patch Name slack_aware_best_fit_scheduler - Correct Program: True
+
+**Program Name: Online Priority-Weighted Queue Competition Scheduler**
+- **Implementation**: This event-driven online scheduler processes jobs by arrival, using a `QueueCompetitionDispatcher` to assign each operation. The dispatcher compares cloud (immediate) and local (queued) options, selecting based on a weighted score that includes compute cost, delay penalty, a priority-scaled queuing penalty, and a small local machine incentive.
+- **Performance**: The multi-scenario evaluation achieved a weighted score of 17109.00 across 'normal' and 'earthquake' scenarios, successfully scheduling all 30 jobs per scenario with valid outcomes.
+- **Feedback**: The dispatcher's holistic scoring function, particularly its dynamic penalty for waiting scaled by job priority, enables effective online decision-making to balance cost, deadlines, and resource availability, even when facing machine failures.
+**Program Identifier:** Generation 15 - Patch Name queue_competition_dispatch - Correct Program: True
+
+**Program Name: Online Staged Job Scheduler with Failure Resilience**
+- **Implementation**: This program implements an online, event-driven scheduler that employs a staged decision process for placing job operations. It benchmarks cloud options, then searches local servers within a priority-dependent horizon, and decides based on a local preference factor, incorporating a procrastination penalty to favor earlier starts. Machine failures are modeled with exponential decay for capacity reductions, which is integrated into availability checks.
+- **Performance**: The scheduler achieved a weighted score of 18469.00 across multiple scenarios, including 'normal' and 'earthquake' failure conditions, with all generated schedules being valid and free of violations.
+- **Feedback**: The staged decision logic effectively balances cloud and local resource allocation under uncertainty, while priority-based search horizons and a local preference factor provide strategic control. The use of a procrastination penalty is a specific heuristic to encourage proactive task placement, and the robust handling of machine failures ensures valid schedules in dynamic environments.
+**Program Identifier:** Generation 16 - Patch Name staged_decision_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Greedy Scheduler with Priority and Cloud Optimization**
+- **Implementation**: This online, event-driven scheduler processes jobs strictly by arrival time, making greedy decisions for each operation. It incorporates job priority factors into delay penalties, applies a cost multiplier to cloud resources, and uses cached server capacities for efficient search within a dynamically sized time window.
+- **Performance**: The scheduler successfully produced valid schedules for all jobs across multiple scenarios, including a machine failure scenario, achieving a weighted score of 18213.00.
+- **Feedback**: The strategic use of priority-based delay penalties and a cloud cost multiplier effectively guides the greedy selection process, prioritizing high-value jobs and local resources. Pre-caching available capacity significantly optimizes the search for feasible time slots, contributing to robust performance under varying conditions.
+**Program Identifier:** Generation 17 - Patch Name best_fit_local_search - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Dynamic Horizon and Cloud Fallback**
+- **Implementation**: The scheduler processes jobs incrementally by arrival time, making local capacity-aware decisions for each operation using a dynamic search horizon adjusted by job priority and deadline slack. It evaluates local options against an immediate cloud benchmark, prioritizing local if cheaper within the horizon, otherwise opting for cloud or an unbounded local search.
+- **Performance**: The program successfully generated valid schedules across 'normal' and 'earthquake' scenarios, achieving a weighted score of 18197.50, without any constraint violations in the evaluated instances.
+- **Feedback**: The dynamic search horizon combined with cloud cost benchmarking and a procrastination penalty allows the scheduler to adapt effectively to job urgency and resource availability, balancing cost and delay while maintaining feasibility even with machine failures.
+**Program Identifier:** Generation 18 - Patch Name dynamic_horizon_best_fit - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Cloud Fallback**
+- **Implementation**: The scheduler incrementally processes jobs and operations based on arrival time, using a multi-stage heuristic: benchmarking with cloud, searching local servers within a priority-defined horizon, then an exhaustive local failsafe. It optimizes a custom objective incorporating compute cost (with cloud multiplier), delay penalties (weighted by job priority), and a procrastination penalty.
+- **Performance**: The program successfully generated valid schedules for both normal and 'earthquake' failure scenarios, achieving a weighted score of 18037.00 across the evaluated multi-scenario test.
+- **Feedback**: The implementation demonstrates robust online scheduling capabilities, successfully handling machine failures and ensuring schedule validity. The priority-driven search horizons and the multi-stage resource selection strategy effectively balance cost, delay, and resource availability, with adjustable heuristic parameters offering control over scheduling behavior.
+**Program Identifier:** Generation 19 - Patch Name strategic_cloud_benchmark_scheduler - Correct Program: True
+
+**Program Name: Adaptive Online Job Scheduler with Dynamic Resource Allocation**
+- **Implementation**: This program employs an event-driven online scheduler, processing jobs strictly by arrival time, with a `JobScheduler` class making incremental decisions for each operation. Key strategies include a dynamic search horizon for local servers based on job urgency and slack, true best-fit slot selection, adaptive cloud fallback determined by a priority-based cost threshold, and dynamic procrastination penalties.
+- **Performance**: The scheduler achieved a weighted score of 17531.00 across multiple scenarios ("normal" and "earthquake"), with all schedules being valid (`is_valid: True`).
+- **Feedback**: The adaptive strategies, especially the dynamic search horizon and cloud fallback, appear effective in managing resource constraints and costs. The use of cloud servers (e.g., `C1`, `C3`, `C4` in the "earthquake" scenario) demonstrates successful adaptation to machine failures, preventing violations and ensuring job completion even when local capacity is compromised.
+**Program Identifier:** Generation 20 - Patch Name none - Correct Program: True
+
+**Program Name: Hybrid Adaptive Online Job Scheduler**
+- **Implementation**: This online scheduler uses a `HybridAdaptiveDispatcher` to find optimal operation placements by establishing a cloud benchmark, then performing a best-fit local search within a dynamically adjusted horizon, incorporating priority-scaled queuing penalties. A failsafe ensures placement even under extreme congestion.
+- **Performance**: The scheduler achieved a `weighted_score` of 18869.50 across multiple scenarios (e.g., normal, earthquake), successfully generating valid schedules with no violations.
+- **Feedback**: The program adheres strictly to online constraints, processing jobs solely based on arrival time without future knowledge, and demonstrates robustness by passing all validation tests while effectively managing dynamic capacity due to machine failures.
+**Program Identifier:** Generation 21 - Patch Name hybrid_adaptive_dispatcher - Correct Program: True
+
+**Program Name: Online Slack-Aware Best-Fit Job Scheduler**
+- **Implementation**: The program uses an online, event-driven scheduler that processes jobs strictly by arrival time. It employs a slack-aware, best-fit heuristic that dynamically adjusts search horizons for local machines based on job urgency and integrates a "procrastination penalty" to discourage unnecessary waiting, balancing compute costs and delay penalties against cloud usage.
+- **Performance**: The scheduler achieved a `weighted_score` of 18194.00 across multiple scenarios (normal and earthquake) with all schedules reported as `is_valid: True`, indicating no capacity violations.
+- **Feedback**: The implementation successfully generates valid schedules even under machine failure conditions, demonstrating robustness. The use of dynamic search horizons, a cloud cost multiplier, and priority-based procrastination penalties appears effective in guiding online decisions, allowing for judicious use of cloud resources when local capacity is constrained or less optimal.
+**Program Identifier:** Generation 22 - Patch Name none - Correct Program: True
+
+**Program Name: Online Priority-Weighted Queue Competition Scheduler**
+- **Implementation**: The scheduler processes jobs incrementally, using a `QueueCompetitionDispatcher` for each operation. It evaluates cloud vs. local server placements, calculating a unified score that incorporates compute cost, delay penalty, and a priority-weighted queuing cost, with a dynamic, slack-aware search horizon for local machines.
+- **Performance**: The program achieved a weighted score of 18377.50 across multiple scenarios ('normal', 'earthquake'), with all generated schedules being valid and respecting constraints.
+- **Feedback**: The priority-weighted queuing cost and adaptive search horizon effectively balance urgency and resource availability, leading to valid schedules even under machine failures. The unified scoring mechanism allows for robust decision-making in an online, dynamic environment, intelligently leveraging cloud resources when beneficial.
+**Program Identifier:** Generation 23 - Patch Name remove_local_incentive - Correct Program: True
+
+**Program Name: Online Priority-Weighted Heuristic Scheduler**
+- **Implementation**: The program uses an event-driven, online greedy heuristic (`schedule_job_online`) that prioritizes operation placement based on a composite objective function, considering compute cost (with a cloud multiplier), priority-weighted delay penalties, and a new priority-weighted procrastination penalty. It dynamically adjusts the search horizon for local machines based on job slack and pre-caches server capacities for efficient checks.
+- **Performance**: The scheduler achieved a weighted score of 18461.50 across 'normal' and 'earthquake' scenarios, successfully producing valid schedules for all jobs in both scenarios with no capacity violations.
+- **Feedback**: The combination of priority-based weighting for delay and procrastination penalties, coupled with a dynamic search horizon and cloud cost multiplier, appears effective in guiding the online heuristic to valid and competitive solutions even under machine failures. The capacity caching is a good optimization for runtime performance.
+**Program Identifier:** Generation 24 - Patch Name dynamic_procrastination_and_slack_horizon - Correct Program: True
+
+**Program Name: Event-Driven Online Scheduler with Probing for Operation Placement**
+- **Implementation**: This program implements an event-driven online scheduler that processes jobs strictly by arrival time. For each operation, a `PlacementEvaluator` uses a probing mechanism with temporary capacity tracking to predict future costs and completion times across local and cloud servers, selecting the option that minimizes a projected job score.
+- **Performance**: The program did not pass all validation tests, resulting in a combined score of 0.0 (indicating failure or significant errors).
+- **Feedback**: The lookahead probing strategy attempts to estimate future costs but appears insufficient to ensure valid or optimal schedules. The deep copy of capacity usage during probing can be computationally intensive, and the simple fallback logic or limited search horizon for local servers might contribute to the failures.
+**Program Identifier:** Generation 25 - Patch Name probe_based_scheduler - Correct Program: False
+
+**Program Name: Adaptive Online Job Scheduler with Dynamic Capacity**
+- **Implementation**: This program implements an online, event-driven job scheduler that classifies job urgency (critical, flexible, background) and adaptively adjusts scheduling parameters like search horizon and cloud preference. It uses a best-fit strategy to evaluate local and cloud options, considering dynamic server capacity affected by an exponential failure/recovery model.
+- **Performance**: The scheduler achieved a weighted score of 18501.00 across multiple scenarios (e.g., 'normal', 'earthquake'), successfully producing valid schedules for all jobs in both scenarios.
+- **Feedback**: The program is correct and passes all validation tests, demonstrating that its adaptive, urgency-based strategy effectively handles dynamic capacity changes and maintains valid schedules even under machine failure conditions.
+**Program Identifier:** Generation 26 - Patch Name best_fit_local_search_and_failsafe - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Horizons**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, assigning operations incrementally to either local or cloud servers. It uses a heuristic cost function that considers compute cost, delay penalties, and a "procrastination" penalty for delayed starts, alongside dynamic local search horizons and priority-based biases for cloud aversion.
+- **Performance**: The scheduler achieved a weighted score of 17590.50 across multiple scenarios, successfully generating valid schedules for all jobs under both normal and earthquake conditions, as indicated by `is_valid: True`.
+- **Feedback**: The online heuristic approach, particularly the dynamic search horizons and priority-based adjustments for cloud and local machine selection, proved effective in producing valid schedules and managing costs/delays. The explicit handling of machine failures within capacity calculations is robust.
+**Program Identifier:** Generation 27 - Patch Name none - Correct Program: True
+
+**Program Name: Online Staged-Decision Job Scheduler**
+- **Implementation**: The program features an online, event-driven scheduler that processes jobs strictly by arrival time. A `PlacementEvaluator` uses a staged heuristic for each operation: benchmarking the best cloud option, searching local servers within a priority-dependent horizon, and preferring local placements if their score is within 5% of the cloud benchmark.
+- **Performance**: The scheduler achieved a weighted score of 16981.00 across diverse scenarios (normal, earthquake), successfully producing valid schedules for all jobs without capacity violations.
+- **Feedback**: The staged-decision logic, which prioritizes cost-effective local placements while judiciously utilizing cloud resources as a fallback, proved effective. Dynamic search horizons based on job priority and a "procrastination penalty" likely contribute to efficient resource allocation and overall robustness under varying conditions, including machine failures.
+**Program Identifier:** Generation 28 - Patch Name staged_decision_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Adaptive Scheduler with Procrastination Penalty**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. A `PlacementEvaluator` handles individual operation scheduling, utilizing a dynamic search horizon based on job urgency, a best-fit local search, and an adaptive procrastination penalty that scales with job priority and deadline proximity. A strategic cloud failsafe ensures job placement if no suitable local slots are found.
+- **Performance**: The scheduler achieved a weighted score of 18194.50 across multiple scenarios. Both "normal" and "earthquake" scenarios produced valid schedules, indicating robust handling of resource constraints and failures.
+- **Feedback**: The combination of a dynamic search horizon, adaptive procrastination penalty, and cloud failsafe successfully created valid schedules even with machine failures, demonstrating effective resource allocation and deadline management under online constraints. The "is_valid: True" for all scenarios indicates the robust handling of constraints.
+**Program Identifier:** Generation 29 - Patch Name dynamic_horizon_best_fit_procrastination_v3 - Correct Program: True
+
+**Program Name: Priority-Adaptive Online Job Scheduler with Dynamic Horizons**
+- **Implementation**: This online, event-driven scheduler processes jobs by arrival time, making irrevocable decisions. It employs a greedy heuristic for each operation, dynamically adjusting local search horizons and applying priority-based adaptive factors for procrastination penalties and cloud resource aversion.
+- **Performance**: The scheduler achieved a weighted score of 17645.00 across multi-scenario evaluation (including 'normal' and 'earthquake' failures), successfully producing valid schedules for all jobs in every scenario.
+- **Feedback**: The program is validated as correct, passing all tests without violations, indicating its robustness in an online setting with potential machine failures. The adaptive heuristics demonstrate effectiveness in finding feasible and balanced solutions in real-time.
+**Program Identifier:** Generation 30 - Patch Name dynamic_priority_staged_scheduling - Correct Program: True
+
+**Program Name: Online Adaptive Heuristic Job Scheduler with Failure Handling**
+- **Implementation**: Implements an online, event-driven scheduler using a `JobScheduler` class that schedules jobs strictly by arrival time. It incorporates dynamic search horizons, an adaptive procrastination penalty based on job urgency and slack, and an adaptive cloud aggressiveness threshold, along with a robust failsafe for guaranteed placement. Capacity is dynamically reduced by machine failures using an exponential model.
+- **Performance**: Achieved a weighted score of 17619.50 across multiple scenarios. All generated schedules, including those under 'normal' and 'earthquake' failure conditions, were valid.
+- **Feedback**: The program is correct and passes all validation tests, demonstrating effective handling of strict online constraints and complex machine failure scenarios through its adaptive heuristic decision-making and strategic use of cloud resources.
+**Program Identifier:** Generation 31 - Patch Name none - Correct Program: True
+
+**Program Name: Online Slack-Aware Best-Fit Job Scheduler**
+- **Implementation**: The scheduler incrementally places job operations by evaluating a combined score (compute cost, delay penalty, and a priority-scaled procrastination penalty). It employs a dynamic, slack-based search horizon for local machines with cached capacity checks, falling back to cloud resources or an exhaustive local search to guarantee placement.
+- **Performance**: The program achieved a `weighted_score` of 18593.00 across `normal` and `earthquake` scenarios, with all generated schedules reported as valid.
+- **Feedback**: The combination of dynamic slack-based search, priority-weighted procrastination penalties, and cloud cost discouragement proves effective in producing valid and reasonably optimized schedules under online constraints. The robust fallback ensures all operations are placed, even if it requires an exhaustive search or cloud utilization during failures.
+**Program Identifier:** Generation 32 - Patch Name re_adaptive_heuristics_optimized_capacity - Correct Program: True
+
+**Program Name: Online Scheduler with Adaptive Heuristics**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time using a `OnlineScheduler` class. It employs a multi-factor scoring heuristic combining compute cost, a non-linear delay penalty with an urgency exponent, a procrastination penalty, and an adaptive cloud preference based on job slack.
+- **Performance**: The scheduler achieved a `weighted_score` of 18223.00 across multiple scenarios (normal, earthquake), producing valid schedules for all jobs without capacity violations.
+- **Feedback**: The adaptive cloud preference and non-linear delay penalty are key to balancing cost and timeliness in an online setting, enabling robust handling of machine failures and dynamic resource availability. The strict online constraint is well-enforced, demonstrating an incremental and event-driven approach.
+**Program Identifier:** Generation 33 - Patch Name slack_aware_urgency_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs by arrival time, using a `PlacementEvaluator` to assign operations to servers. The `PlacementEvaluator` employs a dynamic search horizon based on job slack, finds the best-fit slot within that window (rather than first-fit), and incorporates an adaptive procrastination penalty tied to job priority and slack, with cloud as a priority fallback.
+- **Performance**: The scheduler achieved a `weighted_score` of 17446.50 across 'normal' and 'earthquake' scenarios, successfully producing valid schedules for all jobs in both cases.
+- **Feedback**: The combination of dynamic search horizons, best-fit placement logic, and an adaptive procrastination penalty effectively balances resource utilization, cost, and deadlines, proving resilient in scenarios with machine failures, and ensures all operations are scheduled.
+**Program Identifier:** Generation 34 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Potential Field Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that assigns job operations using a `PotentialFieldDispatcher`. The dispatcher minimizes a combined potential cost considering compute, exponentially weighted delay, waiting time, and congestion over a dynamic capacity window, with job priority influencing urgency and cloud preference.
+- **Performance**: The scheduler achieved a `weighted_score` of 18652.00 across multiple scenarios (normal and earthquake), producing valid schedules for all jobs without any capacity violations.
+- **Feedback**: The `PotentialFieldDispatcher` effectively balances various cost factors and dynamically adapts to capacity changes from machine failures, leading to valid and relatively efficient schedules. The inclusion of an explicit cloud preference factor and a robust failsafe for server assignment likely contributes to its ability to handle diverse operational conditions.
+**Program Identifier:** Generation 35 - Patch Name potential_field_dispatcher - Correct Program: True
+
+**Program Name: Online Slack-Aware Best-Fit Scheduler**
+- **Implementation**: Implements an online, event-driven scheduler using a slack-aware, best-fit heuristic. It prioritizes local machines with dynamic search horizons based on job slack, falling back to a weighted cloud option, and incorporates priority-scaled penalties for delays and procrastination.
+- **Performance**: Achieved a weighted score of 19475.00 across multiple scenarios, including 'normal' and 'earthquake', with all generated schedules being valid.
+- **Feedback**: The scheduler effectively manages resource allocation under dynamic conditions, including machine failures, and successfully prioritizes jobs based on their importance. The dynamic search horizon and priority-based penalty system are crucial for its robust and efficient scheduling decisions.
+**Program Identifier:** Generation 36 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Best-Fit Heuristic**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time. For each operation, it uses a best-fit heuristic to select a server and start time, considering a comprehensive objective function that includes compute cost, priority-weighted delay, and procrastination penalties, while also utilizing a dynamic search horizon and cloud fallback.
+- **Performance**: The scheduler achieved a weighted score of 18224.00 across multiple scenarios ("normal", "earthquake") and successfully produced valid schedules without any capacity or precedence violations for all jobs.
+- **Feedback**: The online heuristic effectively balances cost, delay, and machine failures by dynamically adjusting its search strategy based on job priority and slack. The explicit cloud fallback and capacity caching contribute to robustness and efficiency, demonstrating a well-engineered approach for dynamic, constrained environments.
+**Program Identifier:** Generation 37 - Patch Name hybrid_best_fit_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Adaptive Job Scheduler**
+- **Implementation**: The scheduler processes jobs strictly by arrival time, using a `JobScheduler` class to make real-time decisions for each operation. It features a dynamic search horizon for local placements, a composite scoring function for operations (considering cost, delay, and a dynamic procrastination penalty with urgency scaling), and an adaptive strategy for choosing between local and cloud resources based on job priority and a local preference bonus.
+- **Performance**: The program achieved a `weighted_score` of `17856.00` across multiple scenarios ('normal', 'earthquake'), successfully producing valid schedules (`is_valid: True`) without any capacity or precedence violations, even under simulated machine failures.
+- **Feedback**: The sophisticated heuristic, combining dynamic search horizons, adaptive cloud aggressiveness, and a weighted procrastination penalty, demonstrates effective resource management in an online, uncertain environment. The consistent validity across diverse failure scenarios highlights the robustness of the decision-making logic and its failsafe mechanisms.
+**Program Identifier:** Generation 38 - Patch Name none - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Horizons**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs in arrival order, using a greedy heuristic per operation. It dynamically adjusts the local machine search horizon based on job priority and deadline slack, evaluating a combined objective that includes compute cost, priority-weighted delay penalties, and a novel procrastination penalty.
+- **Performance**: The scheduler achieved a weighted score of 18100.50 across multiple scenarios, including a machine failure scenario, successfully producing valid schedules for all jobs without capacity violations.
+- **Feedback**: The integration of a procrastination penalty, dynamic search horizons, and a cloud cost multiplier effectively guides the online scheduling heuristic towards timely and cost-efficient local execution. Optimized capacity checks via pre-caching further contribute to the solution's efficiency and its demonstrated robustness in handling machine failures.
+**Program Identifier:** Generation 39 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Adaptive Job Scheduler**
+- **Implementation**: The program implements an online, event-driven scheduler where a `PlacementEvaluator` decides on each job operation. It employs adaptive penalties for procrastination (based on job priority and slack) and load balancing (considering server utilization and job priority), along with a dynamic search horizon for local machines and strategic cloud evaluation.
+- **Performance**: The scheduler achieved a `weighted_score` of 17423.00 across multiple scenarios ("normal", "earthquake"), consistently producing valid schedules without any capacity violations.
+- **Feedback**: The adaptive penalty mechanisms and dynamic search horizon are key to its robust performance in an online context. The strategic integration of cloud resources as a benchmark and failsafe enhances the scheduler's ability to maintain valid schedules and adapt to dynamic conditions, including machine failures.
+**Program Identifier:** Generation 40 - Patch Name load_balancing_penalty - Correct Program: True
+
+**Program Name: Online Adaptive Heuristic Job Scheduler**
+- **Implementation**: This program implements an online, event-driven job scheduler that uses a `JobScheduler` class to determine placement for each operation. It employs dynamic search horizons, "true best-fit" slot selection, and an adaptive objective function balancing compute cost, delay penalties, and a dynamic procrastination penalty that is adjusted by job priority and slack.
+- **Performance**: The scheduler achieved a weighted score of 17303.00 across "normal" and "earthquake" scenarios, generating valid and complete schedules for all jobs in both cases.
+- **Feedback**: The implementation successfully incorporates adaptive heuristics, such as dynamic search horizons and priority-based cloud aggressiveness, contributing to robust scheduling and avoiding violations. The refined, priority-sensitive procrastination penalty is a key design choice that likely improves responsiveness and overall cost efficiency.
+**Program Identifier:** Generation 41 - Patch Name fix_and_refine_priority_heuristics - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Staged Placement Heuristic**
+- **Implementation**: An online, event-driven scheduler processes jobs by arrival time, using a `PlacementEvaluator` to assign operations. The evaluator employs a staged decision heuristic that benchmarks cloud options, then searches local with a slack-aware dynamic horizon, and strategically decides based on weighted costs and a local preference factor.
+- **Performance**: The program achieved a weighted score of 17927.00 across multiple scenarios and successfully generated valid schedules for all jobs.
+- **Feedback**: The `PlacementEvaluator`'s dynamic search horizon, strategic cloud vs. local decision-making, and a 'procrastination penalty' are effective for online scheduling under uncertainty, leading to valid schedules. Probabilistic capacity calculations for machine failures are crucial for realistic decision-making.
+**Program Identifier:** Generation 42 - Patch Name slack_aware_best_fit_local_search - Correct Program: True
+
+**Program Name: Online Event-Driven Adaptive Job Scheduler**
+- **Implementation**: The scheduler processes jobs strictly in arrival order without future knowledge, using a `PlacementEvaluator` to find the best placement for each operation. This evaluator employs a multi-factor heuristic considering compute cost, priority-scaled delay, procrastination, and deadline proximity within a dynamic search horizon, and adaptively prioritizes local machines over cloud resources based on available slack.
+- **Performance**: The program successfully schedules all jobs across multiple scenarios (normal, earthquake) with a weighted score of 18028.50, passing all validation tests. Job completion times can extend beyond the initial time horizon, suggesting a focus on minimizing weighted costs rather than strict deadline adherence if it's more optimal.
+- **Feedback**: The adaptive placement logic, including dynamic search horizons and flexible local preference, effectively navigates resource constraints and machine failures (e.g., utilizing cloud resources during "earthquake" scenario) to produce valid schedules, demonstrating robustness in an online, uncertain environment.
+**Program Identifier:** Generation 43 - Patch Name adaptive_best_fit_evaluator - Correct Program: True
+
+**Program Name: Online Urgency-Prioritized Resource Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time without future knowledge. It features a `JobUrgencyProfile` to dynamically assess job criticality and a `PlacementStrategy` that evaluates local and cloud options based on a composite score factoring compute, delay, procrastination, deadline proximity, and capacity hotspot penalties, all adjusted by the job's urgency profile.
+- **Performance**: The scheduler successfully produces valid schedules for both "normal" and "earthquake" scenarios, achieving a weighted score of 17368.50 across multi-scenario evaluation. Cloud resources are utilized strategically, particularly under failure conditions, to maintain validity.
+- **Feedback**: The detailed urgency profiling and adaptive search horizon based on job priority and slack allow for nuanced decision-making, balancing cost and deadline adherence. The failsafe mechanisms (unbounded local search, then mandatory cloud) ensure all operations are scheduled, even when initial optimal slots are hard to find, contributing to the "valid" outcome in challenging failure scenarios.
+**Program Identifier:** Generation 44 - Patch Name adaptive_priority_bidder - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Heuristic Objective**
+- **Implementation**: This program implements an online, event-driven job scheduler. It processes jobs strictly by arrival time, using a comprehensive heuristic objective function (`operation_objective_comprehensive`) that considers compute cost, job delay, and procrastination penalties with priority factors, including a cloud fallback.
+- **Performance**: The program reports a combined score of 0.0 to maximize, indicating it did not achieve a meaningful score, and explicitly states it "is incorrect and does not pass all validation tests."
+- **Feedback**: While the objective function attempts a holistic approach by weighting various costs and priorities, its inability to pass validation tests suggests fundamental flaws in resource allocation, constraint handling, or the heuristic's effectiveness, potentially due to suboptimal tuning of penalty factors, limited search horizon, or issues with capacity management under failures.
+**Program Identifier:** Generation 45 - Patch Name best_fit_with_procrastination_penalty - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduling with Adaptive Placement**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, using a `PlacementEvaluator` to assign operations to servers. It calculates a composite score factoring in compute cost, delay, adaptive procrastination (based on priority and slack), and load-balancing, comparing local options within a dynamic horizon against a cloud benchmark.
+- **Performance**: The program achieved a `weighted_score` of 17174.50 across multiple scenarios.
+- **Feedback**: The scheduler successfully generates valid schedules for all scenarios, including one with machine failures, demonstrating robust capacity management and adherence to constraints. The adaptive placement logic effectively balances cost, delay, and resource utilization, leveraging cloud resources when beneficial based on job priority and current slack.
+**Program Identifier:** Generation 46 - Patch Name hybrid_adaptive_scheduler - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Scoring**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly by arrival time, utilizing a `JobScheduler` class to determine placements. It heuristically selects the best server and start time for each operation by evaluating a composite score, incorporating compute cost, delay, dynamic procrastination penalty, load balancing penalty, and a local preference bonus. Decisions between local and cloud resources are influenced by job priority-based aggressiveness thresholds and real-time capacity, including dynamic machine failure impact.
+- **Performance**: The scheduler achieved a weighted score of 16731.50 across "normal" and "earthquake" scenarios, producing valid schedules for all jobs without capacity or precedence violations.
+- **Feedback**: The sophisticated scoring function, integrating dynamic procrastination, load balancing, and local preference, effectively finds valid schedules. The priority-based cloud aggressiveness and dynamic search horizon enable adaptive placement decisions based on job urgency and available slack, contributing to robust performance under varying conditions, including machine failures.
+**Program Identifier:** Generation 47 - Patch Name hybrid_load_balancing_scheduler - Correct Program: True
+
+**Program Name: Online Priority-Weighted Capacity-Aware Scheduler**
+- **Implementation**: The scheduler uses a greedy, event-driven approach, scheduling operations based on a custom objective function that penalizes compute cost, prioritized job delays, and operation waiting time (procrastination), while also applying a cloud cost multiplier and a local machine preference bonus. It optimizes capacity checks by caching available capacities and employs a "first-fit" heuristic for local machine slot selection within a defined search horizon.
+- **Performance**: The program achieved a `weighted_score` of `18089.00` across multiple scenarios, including one with machine failures ("earthquake"). All jobs were successfully scheduled, and the resulting schedules were valid.
+- **Feedback**: The custom objective function effectively balances cost and delay based on job priority and incentivizes local resource utilization over cloud. The optimized capacity checking and "first-fit" heuristic improve the efficiency of finding suitable time slots, contributing to the program's ability to produce valid schedules even in scenarios with dynamic capacity changes due to machine failures.
+**Program Identifier:** Generation 48 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Heuristics**
+- **Implementation**: The scheduler processes jobs incrementally by arrival time, using a `JobScheduler` class to determine placement for each operation. It employs a composite scoring function considering compute cost, delay penalty, dynamic procrastination, and load-balancing, with adaptive search horizons and cloud aggression thresholds influenced by job priority and current slack.
+- **Performance**: The program achieved a weighted score of 16537.50 across multiple scenarios (normal, earthquake), successfully producing valid schedules for all jobs.
+- **Feedback**: The heuristic-driven online approach effectively adapts to varying conditions and machine failures, demonstrating robustness in resource allocation and deadline adherence without future job knowledge. The dynamic adjustments based on job priority and system state are crucial for its performance.
+**Program Identifier:** Generation 49 - Patch Name refined_score_and_load_penalty - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Urgency-Based Placement**
+- **Implementation**: The program implements an online, event-driven scheduler, processing jobs strictly by arrival time. It uses a `JobUrgencyProfile` to dynamically assess job criticality, which adjusts `cloud_tolerance` and `search_horizon`. A `PlacementStrategy` then evaluates server and start time options using a composite score incorporating compute cost, delay penalties (scaled by urgency), procrastination, deadline proximity, and capacity hotspot penalties, while machine failures are modeled by exponential decay.
+- **Performance**: The scheduler achieved a weighted score of 19043.50 across 'normal' and 'earthquake' scenarios, producing valid schedules for all evaluated instances.
+- **Feedback**: The dynamic urgency profiling and comprehensive scoring mechanism, including various penalties and urgency-based scaling, are effective in generating valid and reasonable schedules under strict online constraints and in the presence of machine failures. The adaptive search horizon and cloud tolerance demonstrate a flexible approach to resource allocation in a dynamic environment.
+**Program Identifier:** Generation 50 - Patch Name none - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Priorities**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a `JobScheduler` class to determine placements for each operation based on a composite score considering compute cost, delay penalty, dynamic procrastination, and load-balancing penalties, with cloud usage aggressiveness tuned by job priority. Machine failures are modeled with exponential recovery/failure rates, dynamically adjusting server capacity.
+- **Performance**: The scheduler achieved a `weighted_score` of 17107.50 across multiple scenarios ('normal' and 'earthquake') and successfully scheduled all 30 jobs in each, with all schedules reported as valid.
+- **Feedback**: The heuristic approach effectively schedules jobs online, adapting to dynamic capacity changes due to machine failures and balancing multiple objectives without violating constraints. The priority-driven heuristics for cloud preference and search horizon appear to be key to its robust performance.
+**Program Identifier:** Generation 51 - Patch Name comprehensive_priority_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly in their arrival order without future knowledge. It uses a `JobScheduler` class to make incremental decisions for each operation of a job, employing a composite scoring function that considers compute cost, delay penalty, dynamic procrastination, and load-balancing, all influenced by job priority and server availability (including failures).
+- **Performance**: The scheduler achieved a weighted score of 17341.50 across multiple scenarios and produced valid schedules for all jobs, even under machine failure conditions.
+- **Feedback**: The implementation successfully adheres to strict online constraints and effectively navigates dynamic capacity changes due to machine failures. Its use of a comprehensive, priority-weighted objective function and a dynamic search horizon allows for balanced decision-making between local and cloud resources, leading to valid and reasonably optimized schedules.
+**Program Identifier:** Generation 52 - Patch Name refine_heuristic_parameters - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Adaptive Placement**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, using a `PlacementEvaluator` to assign each operation to a server and start time. The evaluator utilizes a multi-objective scoring function that considers compute cost, priority-weighted delay penalties, an adaptive procrastination penalty based on job slack, and strongly prefers local servers with a dynamic search horizon.
+- **Performance**: The scheduler achieved a weighted score of 18779.00 across various scenarios (`normal`, `earthquake`), consistently generating valid schedules without capacity violations.
+- **Feedback**: The sophisticated `PlacementEvaluator` with its adaptive penalties and preference for local machines, combined with a dynamic search horizon, enables intelligent resource allocation under online constraints. Capacity caching and the cloud failsafe mechanism further ensure robustness and efficiency in operation placement.
+**Program Identifier:** Generation 53 - Patch Name none - Correct Program: True
+
+**Program Name: Event-Driven Online Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by their arrival time, without future job knowledge. A `PlacementEvaluator` heuristically selects the best server and start time for each operation, utilizing a weighted scoring function that considers compute cost, delay penalty, procrastination, deadline proximity, load balancing, and job priority-specific tunings.
+- **Performance**: The scheduler achieved a `weighted_score` of 17338.50 across multiple scenarios and is explicitly noted as correct, passing all validation tests by producing valid schedules in both normal and failure scenarios.
+- **Feedback**: The sophisticated `PlacementEvaluator`, which dynamically adjusts its local search horizon and incorporates comprehensive priority-based penalties and scaling factors, is crucial for adaptive decision-making in an online environment. The failsafe mechanisms ensure a valid placement is always found, contributing to the program's robustness.
+**Program Identifier:** Generation 54 - Patch Name none - Correct Program: True
+
+**Program Name: Online Priority-Slack Job Scheduler**
+- **Implementation**: The program implements an incremental online scheduler that processes jobs strictly in arrival order. It uses a `JobUrgencyProfile` to dynamically prioritize operations based on job priority and slack to deadline, influencing a `PlacementStrategy` that evaluates local and cloud options by considering compute cost, delay penalties, procrastination, deadline proximity, and capacity hotspot penalties.
+- **Performance**: The scheduler achieved a `weighted_score` of 17369.50 across "normal" and "earthquake" scenarios, with all schedules reported as valid (`is_valid: True`), indicating successful constraint satisfaction.
+- **Feedback**: The sophisticated use of dynamic urgency profiling and adjusted penalties for different job types and resource conditions (e.g., cloud tolerance, search horizon, capacity hotspots) is effective. This adaptive approach enables robust performance and constraint adherence even in the presence of machine failures, demonstrating the value of detailed objective functions in online scheduling.
+**Program Identifier:** Generation 55 - Patch Name none - Correct Program: True
+
+**Program Name: Online Priority-Heuristic Job Scheduler with Dynamic Resource Allocation**
+- **Implementation**: This program employs an online, event-driven scheduler that processes jobs strictly by arrival time. Each job's operations are scheduled sequentially using a `JobScheduler` class, which dynamically calculates a composite score for potential placements based on compute cost, delay penalties, a dynamic "procrastination penalty" (adjusted by job priority and slack), and a load-balancing penalty, then makes a decision considering a priority-dependent cloud aggressiveness threshold.
+- **Performance**: The scheduler achieved a `weighted_score` of 17835.50 across multiple scenarios, including "normal" and "earthquake" (failure-simulated), successfully producing valid schedules for all jobs in both cases.
+- **Feedback**: The implementation's use of priority-weighted heuristics, dynamic search horizons, load balancing, and a tuned cloud preference mechanism appears effective in managing resource constraints and meeting deadlines, even under machine failure conditions, leading to valid and competitive schedules. The "crossover features" suggest iterative refinement of the heuristic parameters.
+**Program Identifier:** Generation 56 - Patch Name tuned_priority_heuristics - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler**
+- **Implementation**: This program implements an event-driven online scheduler that processes jobs strictly by arrival time, with no future job knowledge. It uses a `JobScheduler` class for each job, employing a composite scoring function to evaluate server and start time choices based on compute cost, delay penalties, dynamic procrastination, and load-balancing heuristics, while also considering priority-based cloud aggressiveness and dynamic search horizons.
+- **Performance**: The program is designed to maximize a combined score based on compute cost and delay, but the current implementation does not pass all validation tests.
+- **Feedback**: The failure to pass all validation tests indicates that the heuristic strategy for operation placement, despite considering multiple factors like cost, delay, and load, may lead to invalid schedules or suboptimal solutions that violate constraints.
+**Program Identifier:** Generation 57 - Patch Name enable_cloud_benchmark - Correct Program: False
+
+**Program Name: Adaptive Online Event-Driven Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time, with no future job knowledge. The `AdaptiveScheduler` uses a heuristic-based scoring function considering compute cost, delay penalty, procrastination penalty, and load penalty (weighted by job priority), dynamically adjusting its search horizon and cloud usage aggressiveness based on job slack. It integrates machine failure effects (exponential decay/recovery) into real-time capacity calculations.
+- **Performance**: The scheduler achieved a `weighted_score` of 18540.50 across multiple scenarios, including 'normal' and 'earthquake' failure conditions. Crucially, it generated valid schedules for all scenarios, indicating no capacity violations.
+- **Feedback**: The adaptive heuristics, including dynamic search horizons and a cloud aggressiveness threshold based on job slack, appear effective in managing diverse job requirements and system constraints. The priority-weighted penalties for procrastination and load allow the scheduler to balance job urgency with resource utilization efficiently, even in the presence of dynamic machine failures.
+**Program Identifier:** Generation 58 - Patch Name adaptive_load_balancing_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Scheduler**
+- **Implementation**: The program implements an online, event-driven scheduler using a staged-decision heuristic. It employs best-fit local search within dynamic, priority-based search horizons, strategic cloud preference, and a load-balancing penalty to find placements for individual operations.
+- **Performance**: The scheduler achieved a weighted score of 17358.00 across multiple scenarios, including one with simulated machine failures, successfully scheduling all 30 jobs in each scenario without any capacity violations.
+- **Feedback**: The sophisticated heuristic, combining dynamic search horizons, strategic cloud usage, and load-balancing, effectively manages resource allocation and cost objectives in an online environment. It demonstrates robustness by finding valid and performant schedules even with machine failures and varying job priorities.
+**Program Identifier:** Generation 59 - Patch Name best_fit_load_aware_scheduler - Correct Program: True
+
+**Program Name: Online Queue Competition Scheduler with Dynamic Horizon**
+- **Implementation**: This online scheduler uses a `QueueCompetitionDispatcher` to select the best server and start time for each job operation. It evaluates cloud options for immediate placement against the best-fit slot on local servers within a dynamic search horizon, considering compute costs, delay penalties, and priority-weighted queuing costs. Machine failures with exponential rates are incorporated into available capacity calculations.
+- **Performance**: The scheduler achieved a `weighted_score` of `18121.50` across multiple scenarios, including one with an "earthquake" failure, with all generated schedules being valid.
+- **Feedback**: The combination of dynamic search horizons based on job slack, priority-based queuing penalties, and a local incentive allows for adaptive decision-making under online constraints. The "best-fit-in-window" strategy coupled with an indefinite search failsafe demonstrates robustness in finding valid placements, even during machine failures.
+**Program Identifier:** Generation 60 - Patch Name best_fit_competition - Correct Program: True
+
+**Program Name: Online Heuristic Scheduler with Adaptive Cloud & Load Balancing**
+- **Implementation**: An event-driven, online scheduler processes jobs by arrival, utilizing a `JobScheduler` to find optimal operation placements. It incorporates dynamic procrastination penalties, a load-balancing penalty (weighted by job priority), and an adaptively adjusted cloud preference based on current system load and job priority.
+- **Performance**: The scheduler achieved a `weighted_score` of `17102.50` across multiple scenarios (e.g., 'normal', 'earthquake'), successfully producing valid schedules for all jobs without violations.
+- **Feedback**: The heuristic combination effectively addresses complex online constraints, including machine failures (modeled with exponential decay/recovery) and varying job priorities, demonstrating robust and valid scheduling across diverse scenarios.
+**Program Identifier:** Generation 61 - Patch Name adaptive_cloud_aggressiveness - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Adaptive Placement**
+- **Implementation**: The program implements a strict online, event-driven job scheduler that processes jobs chronologically without future knowledge. It features a `JobUrgencyProfile` to dynamically assess job criticality and a `PlacementStrategy` that evaluates server and start time candidates using a composite score, balancing compute cost, delay penalties, and resource utilization within a dynamic search horizon.
+- **Performance**: The scheduler achieved a weighted score of 18776.50 across multiple scenarios (normal and earthquake), successfully producing valid schedules for all jobs.
+- **Feedback**: The adaptive urgency profiling and multi-faceted objective function (including procrastination, deadline proximity, and hotspot penalties) enable effective trade-offs in an online setting. Its robust design, including a failsafe for placement, ensures completion even under constrained or failure conditions, demonstrating practical applicability.
+**Program Identifier:** Generation 62 - Patch Name principled_cost_tradeoff_heuristic - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Cloud Aggressiveness**
+- **Implementation**: This is an event-driven online scheduler that processes jobs strictly by arrival time. A `JobScheduler` class employs a multi-factor heuristic score to place individual operations, considering compute cost, delay penalties, dynamic procrastination, local server load balancing, and a cloud aggressiveness threshold that adjusts based on system-wide load. Capacity calculations for local servers account for machine failures with an exponential recovery model.
+- **Performance**: The program yields a combined score of 0.0 and is incorrect, failing to pass all validation tests.
+- **Feedback**: Despite implementing a sophisticated set of dynamic heuristics for prioritizing operations, managing server load, and strategically using cloud resources, the scheduler's current logic is flawed, leading to invalid schedules or unmet constraints. The performance suggests that the heuristic calculations or decision-making process for operation placement needs significant re-evaluation or tuning.
+**Program Identifier:** Generation 63 - Patch Name dynamic_cloud_aggro_load - Correct Program: False
+
+**Program Name: Online Event-Driven Urgency-Based Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It dynamically calculates a job's urgency profile to influence operation placement decisions, including search horizon, cloud aggressiveness, and procrastination penalties, while respecting capacity and machine failure dynamics using exponential models.
+- **Performance**: The scheduler achieved a weighted score of 17217.50 across multiple scenarios ('normal' and 'earthquake'), successfully producing valid schedules without violations for all evaluated instances.
+- **Feedback**: The dynamic urgency profiling is a key implementation choice that enables the scheduler to adapt its strategy (e.g., search depth, cloud preference) based on real-time job state and deadlines. This adaptive approach contributes to robust performance and the generation of valid schedules, even under machine failure conditions.
+**Program Identifier:** Generation 64 - Patch Name urgency_profile_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Dynamic Job Operation Scheduler**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, using a `PlacementEvaluator` to determine optimal placement for each operation. It employs a dynamic search horizon based on job slack and calculates placement scores considering compute cost (with a cloud multiplier), priority-weighted delay penalties, and an adaptive procrastination penalty.
+- **Performance**: The scheduler achieved a weighted score of 18244.50 across multi-scenario evaluation (including "normal" and "earthquake" failure scenarios), successfully generating valid schedules for all jobs.
+- **Feedback**: The dynamic search horizon combined with adaptive delay and procrastination penalties enables the system to intelligently balance immediate processing with cost optimization, particularly for jobs with ample slack. The failsafe mechanisms ensure that all operations are eventually scheduled, even in highly constrained or failed environments.
+**Program Identifier:** Generation 65 - Patch Name dynamic_slack_heuristic_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduling with Dynamic Strategies**
+- **Implementation**: This program implements an online, event-driven job scheduler using a strategy pattern, processing jobs strictly by arrival time. It dispatches high-priority jobs to an `UrgentStrategy` (more aggressive cloud use, short search horizon) and others to a `BalancedStrategy` (prefers local, longer search horizon), optimizing a weighted score considering compute cost, delay penalties, and server load.
+- **Performance**: The reported combined score is 0.0 (target/placeholder), but the program is explicitly stated to be incorrect and fails validation tests.
+- **Feedback**: The primary feedback is that the program does not pass all validation tests, suggesting fundamental issues with the scheduling logic despite the detailed objective function and strategy-based approach. The exponential capacity reduction calculations in `get_available_capacity` (used by both scheduler and evaluator) involve `int()` casting, which might lead to minor inconsistencies or inaccuracies.
+**Program Identifier:** Generation 66 - Patch Name none - Correct Program: False
+
+**Program Name: Online Adaptive Job Scheduler with Dynamic Urgency**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs in arrival order. It dynamically calculates a `JobUrgencyProfile` to influence cloud aggressiveness, local search horizon, and various placement penalties, and uses a `PlacementStrategy` to evaluate operation placements based on cost, delay, predictive capacity, and urgency factors.
+- **Performance**: The reported combined score to maximize is 0.0, indicating a minimization objective where an ideal solution would achieve a score of zero.
+- **Feedback**: The program is "incorrect and does not pass all validation tests," indicating fundamental issues in its scheduling logic despite the sophisticated, adaptive mechanisms for urgency and placement.
+**Program Identifier:** Generation 67 - Patch Name none - Correct Program: False
+
+**Program Name: A* Online Job Scheduler with Congestion Penalty**
+- **Implementation**: The program employs an A* search within `AStarJobPlanner` to schedule individual jobs online, using a heuristic based on remaining duration/cost and a congestion penalty for busy servers. It includes a greedy failsafe for when A* cannot find a path, and processes jobs strictly by arrival time.
+- **Performance**: The program is currently "incorrect" and "does not pass all validation tests," indicating significant issues in its scheduling output, despite a target combined score of 0.0.
+- **Feedback**: The A* implementation's failure to pass validation suggests problems with its heuristic, state space exploration, or pathfinding logic, potentially leading to capacity violations or suboptimal schedules that do not meet test criteria. Frequent reliance on the greedy failsafe due to A* limitations could also contribute to poor performance.
+**Program Identifier:** Generation 68 - Patch Name astar_job_planner - Correct Program: False
+
+**Program Name: Online Multi-factor Heuristic Job Scheduler**
+- **Implementation**: This online, event-driven scheduler processes jobs strictly by arrival time, scheduling operations sequentially using a `SmartDispatcher`. The dispatcher employs a multi-factor scoring heuristic (compute cost, priority-scaled delay, procrastination, load balancing) to select the best-fit server and start time, comparing local options within a search horizon against a cloud benchmark.
+- **Performance**: The program achieved a `weighted_score` of 17556.00 across multiple scenarios, successfully generating valid schedules for both 'normal' and 'earthquake' failure scenarios.
+- **Feedback**: The `SmartDispatcher`'s comprehensive heuristic, which includes a cloud benchmark, procrastination penalty, and load balancing, effectively manages resource allocation and job priorities in a strict online environment. This approach allows for robust scheduling even under machine failures, producing valid schedules without violations.
+**Program Identifier:** Generation 69 - Patch Name smart_dispatcher_best_fit - Correct Program: True
+
+**Program Name: Online Urgency-Driven Adaptive Job Scheduler**
+- **Implementation**: This program employs an online, event-driven scheduling approach, processing jobs strictly by arrival time. It features dynamic `JobUrgencyProfile` based on job priority, slack, and real-time system load, which then influences `PlacementDecisionMaker`'s parameters like cloud aggressiveness, local search horizon, and procrastination penalties. Capacity management includes exponential failure and recovery rates.
+- **Performance**: The scheduler achieved a `weighted_score` of 17073.00 across multiple scenarios, indicating robust performance under varying conditions, including machine failures.
+- **Feedback**: The program is correct and passes all validation tests, demonstrating the effectiveness of its urgency-driven adaptive strategy. The dynamic adjustment of scheduling parameters based on job and system state, coupled with penalties for load hotspots and procrastination, contributes to efficient resource utilization and successful job completion even in challenging failure scenarios.
+**Program Identifier:** Generation 70 - Patch Name dynamic_urgency_cloud_load_balance_rebuilt - Correct Program: True
+
+**Program Name: Online Urgency-Driven Incremental Job Scheduler**
+- **Implementation**: This online, event-driven scheduler processes jobs by arrival using a `JobUrgencyProfile` to dynamically set search horizons and cloud preference. A `PlacementDecisionMaker` then scores operation placements based on compute cost, delay, procrastination, deadline proximity, and load balancing penalties.
+- **Performance**: The program achieved a combined score of 0.0 (presumably indicating a minimization objective) but failed validation tests.
+- **Feedback**: The program is incorrect and does not pass validation tests, suggesting that the current heuristic tuning for urgency profiles, the multi-factor scoring model, or the capacity allocation logic are flawed and do not consistently produce valid schedules.
+**Program Identifier:** Generation 71 - Patch Name none - Correct Program: False
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Adaptations**
+- **Implementation**: The program implements an online, event-driven job scheduler that processes jobs by arrival time without future job knowledge. Scheduling decisions for each job's operations use a `JobScheduler` class to evaluate a composite score considering compute cost, delay penalties, a dynamic procrastination penalty (influenced by job urgency and future operations), and a load-balancing penalty, while dynamically adjusting cloud preference based on system load and handling machine failures with exponential recovery.
+- **Performance**: The scheduler achieved a weighted score of 16812.50 across multiple scenarios, including 'normal' and 'earthquake' conditions. The generated schedules were consistently valid across all evaluated scenarios.
+- **Feedback**: This implementation demonstrates robust online decision-making, successfully maintaining valid schedules and managing resources under varying conditions, including machine failures. The dynamic adjustments to procrastination penalties, load-balancing considerations, and adaptive cloud preference are crucial for balancing cost, timeliness, and resource utilization in a constantly evolving environment.
+**Program Identifier:** Generation 72 - Patch Name add_num_future_ops_to_score_sig - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Scheduler**
+- **Implementation**: The scheduler uses a `JobScheduler` class to process incoming jobs one by one, scheduling operations based on a multi-factor heuristic score. This score combines compute cost, delay penalties, dynamic procrastination, load balancing, and contention penalties, with parameters adjusted based on job priority and current system state.
+- **Performance**: The program achieved a weighted score of 17914.00 across multiple scenarios (including 'normal' and 'earthquake' failure conditions), successfully scheduling all jobs and producing valid schedules in all cases.
+- **Feedback**: The sophisticated heuristic scoring function, which incorporates dynamic procrastination, load balancing, and contention penalties, along with an adaptive search horizon and cloud aggressiveness based on job priority, enables effective online decision-making. Achieving validity in diverse scenarios, including machine failures, demonstrates robust and adaptive resource management.
+**Program Identifier:** Generation 73 - Patch Name contention_and_delay_weighted_load_penalty - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler with Adaptive Resource Allocation**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs upon arrival. A `JobScheduler` class determines operation placements using a composite objective function, balancing compute cost, delay, dynamic procrastination, load balancing, and capacity preservation; cloud preference is dynamically adjusted by job priority and current system load.
+- **Performance**: The scheduler achieved a weighted score of 19554.50 across multi-scenario evaluation (normal and earthquake), successfully generating valid schedules for all jobs.
+- **Feedback**: The sophisticated scoring mechanism, incorporating dynamic penalties for load balancing and capacity preservation, effectively navigates online constraints and resource fluctuations. The adaptive cloud preference based on system load appears to be a key factor in maintaining validity and achieving a strong score, even under failure scenarios.
+**Program Identifier:** Generation 74 - Patch Name capacity_preservation_penalty - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduler with Adaptive Operation Placement**
+- **Implementation**: The program implements a strict online, event-driven scheduler that processes jobs by arrival time. A `PlacementEvaluator` class determines the optimal server and start time for each operation using a heuristic-based scoring function that balances compute cost, delay penalty, adaptive procrastination, and load balancing, dynamically comparing local placements against a cloud benchmark within a priority-scaled horizon.
+- **Performance**: The scheduler achieved a weighted score (cost) of 17047.50 across 'normal' and 'earthquake' scenarios, producing valid schedules without violations. It effectively adapted to machine failures by leveraging cloud resources and adjusting start times.
+- **Feedback**: The `PlacementEvaluator`'s sophisticated heuristics, including dynamic search horizons and priority-based cloud preference, demonstrate a robust strategy for online scheduling under uncertainty. The clean separation of the online execution loop from the evolvable scheduling logic supports iterative improvement of the placement strategy.
+**Program Identifier:** Generation 75 - Patch Name reintroduce_successful_heuristics - Correct Program: True
+
+**Program Name: Online Urgency-Driven Resource Scheduler with Dynamic Load Balancing**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. A `JobUrgencyProfile` dynamically calculates urgency based on priority, deadline slack, and system load, influencing parameters like cloud aggressiveness, local search horizon, and procrastination penalties. The `PlacementDecisionMaker` then evaluates potential operation placements using a multi-factor score including compute cost, delay, procrastination, and a utilization-based hotspot penalty.
+- **Performance**: The scheduler achieved a weighted score of 18297.00 across multiple scenarios ("normal", "earthquake"), successfully scheduling all jobs in both instances with no violations, indicating robust handling of capacity constraints and failures.
+- **Feedback**: The urgency-driven approach, dynamically adjusting scheduling parameters based on real-time job and system conditions, proved effective for online scheduling. This flexibility allowed it to maintain validity and deliver a competitive score even under unpredictable machine failures and varying loads.
+**Program Identifier:** Generation 76 - Patch Name best_fit_local_search - Correct Program: True
+
+**Program Name: Online Job Scheduler with Queue Competition Dispatcher**
+- **Implementation**: It uses an event-driven, online approach, processing jobs by arrival time without future knowledge. Operation placement relies on a `QueueCompetitionDispatcher` that compares local server best-fit slots (with dynamic, slack-bounded search windows) against cloud options using a comprehensive scoring function.
+- **Performance**: The program achieved a `weighted_score` of 17235.50 across 'normal' and 'earthquake' scenarios, successfully generating valid schedules for all jobs in both cases.
+- **Feedback**: The `QueueCompetitionDispatcher` effectively balances local resource utilization and cloud offloading, demonstrating adaptability to machine failures by dynamically leveraging cloud resources (e.g., C1 in the 'earthquake' scenario). The multi-factor scoring function, including priority-scaled delays and load balancing, appears crucial for robust decision-making under online constraints.
+**Program Identifier:** Generation 77 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Adaptive Job Scheduler**
+- **Implementation**: The scheduler processes jobs strictly by arrival time, dynamically calculating job urgency based on priority, deadline slack, and system load. It uses a `PlacementDecisionMaker` to select the best server and start time for each operation, considering compute cost, delay penalties (including multi-operation impact), a dynamically scaled procrastination penalty, and a local load hotspot penalty. Cloud aggressiveness and local search horizon are adjusted based on job urgency.
+- **Performance**: The scheduler achieved a `weighted_score` of 17228.50 across 'normal' and 'earthquake' scenarios, successfully producing valid schedules for all jobs.
+- **Feedback**: The implementation effectively handles dynamic machine failures and online constraints. The adaptive urgency profiles and intelligent scoring mechanism, particularly the multi-operation impact and load penalties, appear to enable robust and efficient scheduling decisions under varying conditions.
+**Program Identifier:** Generation 78 - Patch Name pass_num_remaining_ops - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Job Scheduler with Dynamic Capacity**
+- **Implementation**: This online, event-driven scheduler processes jobs strictly by arrival time, using a `JobScheduler` to make sequential operation-level decisions based on a composite heuristic score. The score combines compute cost, delay penalty, dynamic procrastination (influenced by slack and job priority), load balancing, and a hotspot avoidance penalty, utilizing a priority-based cloud aggressiveness threshold.
+- **Performance**: The scheduler achieved a weighted score of 17925.00 across multi-scenario evaluations (normal and earthquake), successfully generating valid schedules for all jobs in both scenarios.
+- **Feedback**: The complex, multi-faceted heuristic scoring system, especially the dynamic procrastination and load/hotspot penalties, proved effective in creating valid and reasonable schedules under dynamic capacity constraints and machine failures. Its priority-based adaptive decision-making for cloud usage and resource allocation demonstrates robustness without future job knowledge.
+**Program Identifier:** Generation 79 - Patch Name hotspot_avoidance_penalty - Correct Program: True
+
+**Program Name: Online Greedy Queue Competition Scheduler**
+- **Implementation**: This program employs an online, event-driven scheduling approach where jobs are processed strictly by arrival time. Each operation is scheduled by a `QueueCompetitionDispatcher` that evaluates placement options on local vs. cloud servers using a holistic scoring function, dynamically adjusting local search horizons and iteratively expanding them.
+- **Performance**: The scheduler achieved a weighted score of 18003.00 across multiple scenarios, successfully scheduling all jobs without any validity violations.
+- **Feedback**: The `QueueCompetitionDispatcher`'s ability to incorporate dynamic priority scaling, procrastination penalties, and iterative local search horizon expansion is crucial for effective online scheduling, enabling it to adapt to machine failures and balance costs efficiently.
+**Program Identifier:** Generation 80 - Patch Name tuned_procrastination_penalty - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Heuristics**
+- **Implementation**: The scheduler processes jobs incrementally upon arrival, making decisions for each operation based on a composite score. This score dynamically combines compute and delay costs with penalties for procrastination, server load, and capacity tightness, while also adjusting cloud preference based on real-time system load and job urgency.
+- **Performance**: The program achieved a `weighted_score` of 17462.50 across multiple scenarios, successfully producing valid schedules for both 'normal' and 'earthquake' conditions.
+- **Feedback**: The heuristic effectively balances competing objectives like cost, delay, and resource contention in an online setting, with dynamic parameter adjustments and non-linear penalties for resource tightness demonstrating a sophisticated greedy strategy that adapts well to varying system states and job priorities.
+**Program Identifier:** Generation 81 - Patch Name capacity_tightness_penalty - Correct Program: True
+
+**Program Name: Online Hybrid Heuristic Job Scheduler**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time. It uses a `JobScheduler` class for each job, employing a hybrid heuristic that evaluates operation placements based on a composite score combining compute cost, delay penalty, dynamic procrastination penalty, and load-balancing penalty, with configurable parameters for different job priorities and cloud aggressiveness. Machine failures are handled by dynamically calculating available capacity using exponential decay models for failure and recovery.
+- **Performance**: The scheduler achieved a `weighted_score` of 17087.50 across 'normal' and 'earthquake' scenarios, indicating robust and valid scheduling even under simulated failure conditions.
+- **Feedback**: The sophisticated scoring function, especially the dynamic procrastination and load-balancing penalties, combined with priority-based cloud aggression, appears effective in managing costs and deadlines in an online setting. Its ability to maintain valid schedules in both normal and failure scenarios highlights its robustness.
+**Program Identifier:** Generation 82 - Patch Name hybrid_scheduler_pro - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduler with Competitive Dispatcher**
+- **Implementation**: This program implements an online, event-driven scheduler where operations are dispatched via a `QueueCompetitionDispatcher`. This dispatcher evaluates both cloud and local servers using a unified scoring function that considers compute cost, delay penalties (weighted by job priority and wait time), and a quadratic load balancing penalty for local servers within a dynamically sized search horizon.
+- **Performance**: The scheduler successfully processed all jobs across multiple scenarios, achieving a weighted score (cost) of 18712.50 and producing valid schedules for both 'normal' and 'earthquake' failure conditions.
+- **Feedback**: The implementation demonstrates effective resource allocation by using a competitive approach that balances local machine utilization and cloud elasticity. The dynamic search horizon, priority-based queuing penalties, and load balancing contribute to robust scheduling decisions, especially in the presence of machine failures and varying job urgencies.
+**Program Identifier:** Generation 83 - Patch Name dispatcher_with_load_balancing_and_dynamic_horizon - Correct Program: True
+
+**Program Name: Online Urgency-Driven Job Scheduler with Adaptive Operation Placement**
+- **Implementation**: This program is an online, event-driven scheduler that processes jobs strictly by arrival time. It uses `JobUrgencyProfile` to dynamically calculate urgency based on priority, slack, and system load, influencing `PlacementDecisionMaker`'s choices for each operation. The placement logic incorporates compute/delay costs, procrastination penalties (with a multi-operation impact), and load penalties based on predicted resource utilization and future job slack, along with a configurable cloud aggressiveness factor.
+- **Performance**: The scheduler achieved a weighted score of 17052.00 across 'normal' and 'earthquake' scenarios, successfully scheduling all jobs without any capacity violations in both cases, demonstrating robustness in the face of machine failures.
+- **Feedback**: The urgency-driven approach, particularly the dynamic scaling of cloud aggressiveness, local search horizon, and the multi-operation impact on procrastination penalties, appears effective. This adaptive strategy allows the scheduler to balance immediate costs with long-term job completion and resource health, leading to valid and competitive schedules even under challenging failure conditions.
+**Program Identifier:** Generation 84 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Beam Search Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a beam search heuristic (`BeamSearchJobScheduler`) to schedule individual jobs, considering compute costs, wait penalties, and a heuristic load penalty, while adjusting beam width and search horizon based on job priority.
+- **Performance**: The program fails validation tests, indicating it is incorrect or highly sub-optimal in its current state.
+- **Feedback**: The beam search's `_find_candidate_placements` method employs a "first-fit" optimization for local servers that immediately `break`s after finding the earliest possible slot, severely limiting the search depth and breadth for each operation and undermining the beam search's effectiveness in exploring better placement options, likely contributing to the validation failures.
+**Program Identifier:** Generation 85 - Patch Name beam_search_lookahead - Correct Program: False
+
+**Program Name: Empty Program Implementation**
+- **Implementation**: The program is empty and contains no code or logic. It does not attempt to solve any problem or perform any operation.
+- **Performance**: Achieved a combined score of 0.0 and failed to pass any validation tests.
+- **Feedback**: The complete absence of code predictably led to the program being incorrect and unable to pass validation. It provides no functional output.
+**Program Identifier:** Generation 86 - Patch Name none - Correct Program: False
+
+**Program Name: Online Job Scheduler with Dynamic Heuristics and Load Balancing**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs in strict arrival order, making irrevocable scheduling decisions for each operation using a composite score. Key heuristics include a dynamic procrastination penalty based on slack and job priority, a load-balancing penalty, and a search horizon that adapts to job urgency.
+- **Performance**: The scheduler achieved a weighted score of 17624.50 across multiple scenarios (normal and earthquake), successfully scheduling all 30 jobs in each scenario with valid schedules and no violations.
+- **Feedback**: The implementation effectively balances compute costs and delay penalties under strict online constraints, demonstrating robustness in the face of machine failures by utilizing dynamic capacity calculations and strategic cloud integration. The dynamic search horizon and priority-based load balancing appear effective in managing diverse job requirements and machine availability.
+**Program Identifier:** Generation 87 - Patch Name none - Correct Program: True
+
+**Program Name: Online Urgency-Driven Job Scheduler**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly in arrival order. It uses a `JobUrgencyProfile` to dynamically calculate urgency based on job priority, slack, and system load, which then influences a `PlacementDecisionMaker` to select the best server and start time for each operation, considering compute cost, delay penalty, a multi-operation impact procrastination penalty, and hotspot penalties on local machines, while dynamically adjusting cloud aggressiveness and local search horizons.
+- **Performance**: The scheduler achieved a weighted score of 18631.00 across multiple scenarios ('normal', 'earthquake') with all jobs successfully scheduled and no capacity violations reported in any scenario.
+- **Feedback**: The dynamic urgency and cloud aggressiveness, coupled with a forward-looking procrastination penalty that considers future operations, appear effective in managing varied workloads and responding to machine failures while maintaining schedule validity. The strategy successfully balanced local machine utilization and cloud usage to meet deadlines and minimize costs under online constraints.
+**Program Identifier:** Generation 88 - Patch Name bestfit_local_search_fix - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Adaptive Heuristics**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time. Each job's operations are scheduled sequentially using a heuristic scoring function that considers compute cost, delay penalties, dynamic "procrastination" and "load-balancing" penalties, and a priority-based cloud aggressiveness threshold.
+- **Performance**: The scheduler achieved a combined weighted score of 17086.00 across multiple scenarios (normal and earthquake), successfully producing valid schedules for all jobs in both scenarios.
+- **Feedback**: The heuristic approach effectively manages deadlines and resource contention in an online setting, including handling machine failures, without violating capacity constraints. The adaptable scoring function, dynamic search horizon, and priority-aware parameters contribute to robust decision-making under uncertainty and varying job urgencies.
+**Program Identifier:** Generation 89 - Patch Name adaptive_urgency_scheduler - Correct Program: True
+
+**Program Name: Urgency-Driven Online Job Scheduler with Contention Awareness**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly in arrival order without future knowledge. The `OperationScheduler` component uses a heuristic approach to place individual operations, considering a `unified_urgency` score (priority, slack), compute costs, delay penalties, a `procrastination_penalty` for waiting, and a `contention_penalty` for creating future resource hotspots, while dynamically accounting for machine failures with exponential recovery.
+- **Performance**: The scheduler achieved a `weighted_score` of 16993.00 across `normal` and `earthquake` scenarios, with all generated schedules being valid.
+- **Feedback**: The approach successfully navigates dynamic capacity changes from machine failures and balances multiple objectives. The inclusion of procrastination and contention penalties, alongside urgency, appears to guide the scheduler effectively in finding valid and reasonably optimized schedules, sometimes leveraging cloud resources strategically as seen in the failure scenario.
+**Program Identifier:** Generation 90 - Patch Name adaptive_contention_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Scheduler with Adaptive Placement**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. A `PlacementEvaluator` service uses a complex heuristic score, considering compute cost, delay penalty, and adaptive penalties for procrastination and load balancing, to select the best server and start time for each operation, dynamically comparing local vs. cloud options within a priority-aware horizon.
+- **Performance**: The combined score is 0.0, and the program is explicitly stated as "incorrect" and "does not pass all validation tests."
+- **Feedback**: The sophisticated heuristic logic, particularly the `PlacementEvaluator`'s score calculation and decision-making between local and cloud resources, appears to lead to invalid schedules or highly suboptimal placements. This indicates potential flaws in balancing the numerous penalty terms or in ensuring feasibility.
+**Program Identifier:** Generation 91 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Heuristic Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time, without future job knowledge. It uses a `JobScheduler` class to make operation-level decisions based on a multi-objective score combining compute cost, delay penalty, dynamic procrastination penalty, load-balancing penalty, and a local preference bonus. The search for local placements employs an iterative window expansion strategy.
+- **Performance**: The scheduler achieved a `weighted_score: 17648.00` across 'normal' and 'earthquake' scenarios, successfully producing valid schedules (`is_valid: True`) for all jobs even under machine failure conditions.
+- **Feedback**: The implementation successfully navigates the strict online constraints by incrementally scheduling jobs and operations. The multi-objective scoring, combined with dynamic search windows and the cloud/local decision logic, appears robust and effective in managing capacity constraints and unexpected failures.
+**Program Identifier:** Generation 92 - Patch Name iterative_local_search_expansion - Correct Program: True
+
+**Program Name: Online Urgency-Driven Heuristic Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs sequentially by arrival time. The `OperationScheduler` class determines the placement for each operation by evaluating urgency (priority + slack), compute cost, delay penalties, and future resource contention, making competitive decisions between local and cloud resources.
+- **Performance**: The scheduler achieved a weighted score of 18306.50 across multiple scenarios. All generated schedules for both 'normal' and 'earthquake' scenarios were valid, indicating successful constraint adherence.
+- **Feedback**: The unified urgency metric and contention-aware scoring proved effective in balancing immediate operational costs with future resource availability and job deadlines. The adaptive cloud vs. local decision logic, influenced by urgency and dynamic search horizons, significantly contributes to robust scheduling even under machine failures.
+**Program Identifier:** Generation 93 - Patch Name hybrid_urgency_scheduler - Correct Program: True
+
+**Program Name: Online Hybrid Heuristic Job Scheduler with Hotspot Avoidance**
+- **Implementation**: This program features an online, event-driven scheduler using a `JobScheduler` class with a hybrid heuristic. It evaluates operation placements based on compute cost, delay penalties, dynamic procrastination, non-linear load balancing (quadratic utilization), and a new **hotspot penalty** to prevent critical capacity depletion, dynamically adjusting search horizons and cloud aggressiveness based on job priority and slack.
+- **Performance**: The scheduler achieved a weighted score of 20079.50, successfully producing valid schedules for all jobs in both 'normal' and 'earthquake' failure scenarios without any violations.
+- **Feedback**: The combination of dynamic procrastination, non-linear load balancing, and the newly added hotspot penalty effectively manages resource allocation and operational objectives, yielding robust and valid schedules even under varying machine failure conditions. The priority-based configuration of heuristic parameters demonstrates an adaptive approach to different job types.
+**Program Identifier:** Generation 94 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Job Scheduler with Capacity Preservation**
+- **Implementation**: This online scheduler processes jobs by arrival time, using a `JobScheduler` class to decide operation placements based on a composite score. The score factors in compute cost, delay penalty, dynamic procrastination, non-linear load balancing, and critically, a new capacity preservation penalty that discourages full utilization of local servers.
+- **Performance**: The scheduler achieved a `weighted_score` of 16768.50 across multiple scenarios, including a failure scenario, with all schedules reported as `is_valid: True` (no capacity violations).
+- **Feedback**: The sophisticated scoring function, particularly the addition of the capacity preservation penalty, appears effective in maintaining system robustness and preventing overload, evidenced by valid schedules even under machine failures. Dynamic search horizons and priority-based cloud aggressiveness further enhance adaptability by balancing cost, delay, and resource availability for different job priorities.
+**Program Identifier:** Generation 95 - Patch Name capacity_aware_best_fit - Correct Program: True
+
+**Program Name: Online Urgency-Driven Job Scheduler**
+- **Implementation**: This program implements an online, event-driven job scheduler that dynamically calculates job urgency based on priority, slack, and system load, influencing cloud aggressiveness, search horizon, and procrastination penalties. A `PlacementDecisionMaker` then selects the best server and start time for each operation using a comprehensive scoring function considering compute cost, delay, proactive multi-operation slack preservation, load balancing, and capacity preservation penalties, prioritizing local resources but utilizing cloud strategically.
+- **Performance**: The scheduler achieved a weighted score of 23128.00 across multiple scenarios ("normal" and "earthquake"), with all generated schedules reported as valid, indicating successful constraint adherence.
+- **Feedback**: The dynamic urgency profiling and the detailed scoring function, which incorporates multiple penalty components like multi-operation impact and capacity preservation, are crucial for the scheduler's robustness. This enables it to effectively manage job flow and resource contention, adapt to varying system loads and machine failures, and intelligently balance local and cloud resource utilization.
+**Program Identifier:** Generation 96 - Patch Name capacity_preservation_penalty - Correct Program: True
+
+**Program Name: Online Urgency-Contention Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. Its core `OperationScheduler` heuristic prioritizes operations based on a "unified urgency" (considering job priority, slack, and remaining workload) and penalizes placements that create future resource hotspots or unnecessary procrastination, deciding between local and cloud resources through an iterative search.
+- **Performance**: The scheduler achieved a weighted score of 17966.00 across multiple scenarios ('normal' and 'earthquake'), successfully producing valid schedules without any capacity or precedence violations.
+- **Feedback**: The integration of a `unified_urgency` metric, proactive `contention_penalty` for future resource hotspots, and `procrastination_penalty` effectively guides the online decision-making process by balancing immediate costs with future resource availability and job deadlines. The successful validation across multiple failure scenarios demonstrates the robustness and adaptability of these heuristics.
+**Program Identifier:** Generation 97 - Patch Name slack_aware_best_fit - Correct Program: True
+
+**Program Name: Online Event-Driven Urgency-Based Job Scheduler**
+- **Implementation**: This online, event-driven scheduler processes jobs strictly by arrival time, dynamically calculating job urgency based on priority, slack, and system load. It uses this urgency to adapt parameters like cloud aggressiveness, local search horizon, and multi-operation procrastination penalties, finding the best server and start time for each operation.
+- **Performance**: The scheduler achieved a weighted score of 17431.00 across multiple scenarios (normal, earthquake), successfully generating valid schedules for all jobs.
+- **Feedback**: The dynamic urgency and adaptive cloud offload strategy contribute to robust scheduling in both normal and failure scenarios, as validated by passing all tests. The sophisticated scoring model, incorporating multi-operation impact and localized load penalties, effectively manages complex resource allocation under online constraints.
+**Program Identifier:** Generation 98 - Patch Name non_linear_procrastination_penalty - Correct Program: True
+
+**Program Name: Urgency-Driven Online Job Scheduler**
+- **Implementation**: This program implements an event-driven, online scheduler that processes jobs strictly by their arrival time, without future job knowledge. It utilizes a `JobUrgencyProfile` to dynamically calculate job-specific urgency, which in turn configures parameters for a `PlacementDecisionMaker` responsible for assigning operations to servers and times. The `PlacementDecisionMaker` considers compute cost, delay penalty, procrastination, load balancing, and capacity preservation, using an iterative search with an adaptively expanding horizon.
+- **Performance**: The scheduler achieved a weighted score of 16831.00 across multiple scenarios ('normal' and 'earthquake'), successfully generating valid schedules for all jobs under these varying conditions.
+- **Feedback**: The evaluation confirms the program's correctness and robustness, as it produced valid schedules even in a failure scenario ('earthquake'). The adaptive urgency profile and multi-objective scoring for operation placement appear effective in balancing various scheduling concerns in an online setting.
+**Program Identifier:** Generation 99 - Patch Name none - Correct Program: True
+
+**Program Name: Online Urgency-Driven Contention-Aware Heuristic Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs by arrival time. An `OperationScheduler` determines placement for each operation using a composite score that considers compute cost, delay penalty, a procrastination penalty (with cascade for future operations), and a dynamic load penalty for local servers, deciding between local and cloud resources based on a priority-driven cloud aggressiveness factor.
+- **Performance**: The scheduler achieved a weighted score of 18579.00 across multiple scenarios ("normal" and "earthquake"), successfully generating valid schedules for all jobs without any violations.
+- **Feedback**: The heuristic successfully produces valid schedules under dynamic capacity constraints modeled with exponential failure/recovery, demonstrating robustness. The detailed scoring system, balancing urgency, cost, delay, and machine load, enables nuanced and effective online resource allocation, further enhanced by the tunable `CLOUD_AGGRESSIVENESS` parameter.
+**Program Identifier:** Generation 100 - Patch Name hybrid_urgency_scheduler - Correct Program: True
+
+**Program Name: Online Incremental Job Scheduler with Adaptive Placement**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, utilizing a `PlacementEvaluator` to find the optimal server and start time for each operation. Its decision logic uses a composite score considering compute cost, delay, adaptive procrastination (priority and slack-aware), non-linear load balancing, and a new proactive hotspot/capacity preservation penalty to compare local options against a cloud benchmark.
+- **Performance**: The program achieved a `weighted_score` of 17834.50 across 'normal' and 'earthquake' scenarios, successfully generating valid schedules without violations in both cases.
+- **Feedback**: The sophisticated scoring function, particularly the inclusion of adaptive procrastination, non-linear load balancing, and proactive hotspot penalties, enables the online scheduler to produce valid and well-balanced schedules even under dynamic constraints like machine failures. The clear separation of the evolvable `PlacementEvaluator` from the strict online execution loop is a robust design choice.
+**Program Identifier:** Generation 101 - Patch Name none - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler with Dynamic Parameters**
+- **Implementation**: This online, event-driven scheduler processes jobs strictly by arrival time, using a `JobScheduler` class to schedule operations one by one. It evaluates placements using a multi-objective score (compute cost, delay, procrastination, load) with heuristic parameters (search horizon, cloud aggressiveness, load penalty) dynamically adjusted based on job priority and current job slack.
+- **Performance**: Achieved a weighted score of 18713.00 across multiple scenarios (normal, earthquake), successfully producing valid schedules for all jobs in each scenario.
+- **Feedback**: The scheduler effectively manages dynamic capacity with machine failures and successfully navigates trade-offs using its parameterized heuristic function. Its adaptability to job priorities and system state (slack, utilization) allows it to produce valid and reasonable schedules under varied conditions.
+**Program Identifier:** Generation 102 - Patch Name comprehensive_heuristic_tuning - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Heuristic Placement Policy**
+- **Implementation**: The program features an online, event-driven scheduler that processes jobs strictly by arrival time, without future job knowledge. It utilizes a `SchedulingPolicy` heuristic to decide operation placements, considering job urgency, compute costs, delay penalties, slack preservation, and server load, while modeling machine failures with exponential capacity reduction/recovery.
+- **Performance**: The program reports a combined score of 0.0, indicating it did not successfully pass validation tests or generate a meaningful valid score.
+- **Feedback**: The current heuristic policy is insufficient, as the program is incorrect and fails validation tests, suggesting issues with finding feasible or robust schedules, especially under machine failure scenarios.
+**Program Identifier:** Generation 103 - Patch Name policy_engine_scheduler - Correct Program: False
+
+**Program Name: Online Urgency-Driven Job Scheduler**
+- **Implementation**: An event-driven online scheduler dynamically calculates job urgency based on priority, deadline slack, and system load. It uses a `PlacementDecisionMaker` to assign operations to servers and times, evaluating compute cost, delay, and various penalties for procrastination, hotspots, and capacity preservation, while also considering cloud usage based on urgency.
+- **Performance**: The reported combined score is 0.0, which indicates a severe issue with the scheduling outcome.
+- **Feedback**: The program is incorrect and does not pass all validation tests, suggesting logical flaws in the scheduling decisions that likely lead to constraint violations or highly sub-optimal results despite the sophisticated scoring mechanisms.
+**Program Identifier:** Generation 104 - Patch Name none - Correct Program: False
+
+**Program Name: Online Multi-Objective Urgency-Driven Job Scheduler**
+- **Implementation**: The program implements an online, event-driven job scheduler processing jobs strictly by arrival time. Each operation's placement is determined by a `PlacementDecisionMaker` using a multi-faceted scoring model, dynamically influenced by a `JobUrgencyProfile` that considers job priority, slack, and system load.
+- **Performance**: The scheduler achieved a weighted score of 16598.00 across "normal" and "earthquake" scenarios, successfully producing valid schedules without violations in both cases.
+- **Feedback**: The implementation effectively enforces online constraints and balances competing objectives, utilizing a dynamic urgency profile to adapt decisions. Its robust handling of machine failures and strategic use of cloud resources, evident in the "earthquake" scenario, demonstrates its adaptability and effectiveness.
+**Program Identifier:** Generation 105 - Patch Name unified_urgency_resilience_scheduler - Correct Program: True
+
+**Program Name: Online Composite Heuristic Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that uses a composite heuristic policy to assign job operations. It dynamically assesses job urgency and evaluates placements based on compute/delay costs, procrastination, slack preservation, and machine hotspot penalties while respecting machine failures.
+- **Performance**: The scheduler achieved a `weighted_score` of `18158.50` across multiple scenarios (`normal`, `earthquake`), successfully generating valid schedules for all cases.
+- **Feedback**: The heuristic's dynamic urgency profiling and comprehensive penalty system (procrastination, slack preservation, hotspot) effectively balances competing objectives, enabling robust and valid online scheduling even in the presence of stochastic machine failures.
+**Program Identifier:** Generation 106 - Patch Name policy_driven_scheduler - Correct Program: True
+
+**Program Name: Online Urgency-Driven Multi-Objective Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It dynamically adapts scheduling parameters using a `JobUrgencyProfile` and places individual operations via a `PlacementDecisionMaker` with a sophisticated scoring function. Key to its approach are penalties for proactive multi-operation slack preservation and local capacity preservation, designed to prevent short-sighted resource allocation.
+- **Performance**: The scheduler achieved a weighted score of 17700.50 across multiple scenarios ("normal" and "earthquake"), successfully producing valid schedules without violations for all jobs.
+- **Feedback**: The dynamic `JobUrgencyProfile` and explicit penalties for slack and capacity preservation demonstrate a robust strategy for online, multi-objective scheduling. These implementation choices aim to improve long-term resource utilization and job completion by avoiding local optima, crucial for effective online decision-making in complex environments.
+**Program Identifier:** Generation 107 - Patch Name slack_and_capacity_preservation - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Heuristics**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time, making decisions without future job knowledge. It uses a `JobScheduler` class with a composite scoring function that considers compute cost, delay penalties, dynamic procrastination, and load-balancing, incorporating a priority-driven cloud aggressiveness threshold.
+- **Performance**: The scheduler achieved a `weighted_score` of 17314.50 across diverse scenarios, including a 'normal' and 'earthquake' failure scenario. All generated schedules were valid and successfully utilized both local and cloud servers.
+- **Feedback**: The dynamic heuristics, especially the procrastination penalty, load-balancing, and adaptive cloud preference based on job priority, allow the scheduler to make robust decisions under evolving conditions and machine failures. The ability to leverage cloud resources appears critical for maintaining valid schedules during capacity disruptions.
+**Program Identifier:** Generation 108 - Patch Name resilient_capacity_heuristic - Correct Program: True
+
+**Program Name: Online Urgency-Driven Job Scheduler with Capacity Preservation**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a `JobUrgencyProfile` (based on job priority, deadline, and system load) to guide `PlacementDecisionMaker` which evaluates operation placements considering compute cost, delay, procrastination, multi-operation slack impact, and sophisticated, non-linear penalties for capacity preservation and load balancing.
+- **Performance**: The scheduler achieved a `weighted_score` of 22710.00 across 'normal' and 'earthquake' scenarios, consistently producing valid schedules without violations even under machine failure conditions.
+- **Feedback**: The dynamic urgency combined with multi-operation slack awareness and refined capacity preservation/load balancing penalties (including non-linear and exponential factors) is highly effective for robust online scheduling in dynamic environments. The proactive capacity management and load spreading significantly contribute to maintaining schedule validity and efficiency.
+**Program Identifier:** Generation 109 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Urgency-Based Job Scheduler**
+- **Implementation**: This online, event-driven scheduler processes jobs strictly by arrival time, scheduling each operation incrementally. It employs a dynamic `JobUrgencyProfile` that adjusts scheduling parameters based on job priority, slack, and system load, guiding a `PlacementDecisionMaker` which evaluates server options considering compute cost, delay, procrastination, hotspot, and capacity preservation penalties, factoring in dynamic server capacity with failures.
+- **Performance**: The scheduler achieved a weighted score of 17266.50 across 'normal' and 'earthquake' scenarios, successfully producing valid schedules for all 30 jobs in both, indicating effective constraint handling.
+- **Feedback**: The approach of dynamically adjusting urgency and utilizing a multi-faceted scoring model for placement decisions appears robust, enabling the program to maintain valid schedules and manage resources effectively under both baseline and machine failure conditions. The slight increase in job completion times in the failure scenario is a reasonable trade-off for maintaining validity.
+**Program Identifier:** Generation 110 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Multi-Objective Scheduler**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a `JobUrgencyProfile` to dynamically calculate job urgency, which influences `PlacementDecisionMaker`'s parameters like cloud aggressiveness, search horizon, and various penalty multipliers. Operations are placed using a multi-objective scoring model considering compute cost, delay, procrastination, and non-linear hotspot/capacity preservation penalties, with a preference for local machines unless urgency dictates cloud.
+- **Performance**: The scheduler achieved a `weighted_score` of 17455.00 across multiple scenarios ("normal", "earthquake"), with both scenarios resulting in valid schedules.
+- **Feedback**: The dynamic urgency profile and multi-faceted scoring model appear effective in navigating the online constraints and resource allocation under varying conditions, including machine failures, as indicated by the valid schedules and reasonable score across scenarios. The explicit trade-offs and adaptive parameters contribute to robust decision-making.
+**Program Identifier:** Generation 111 - Patch Name advanced_urgency_heuristic - Correct Program: True
+
+**Program Name: Online Urgency-Driven Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It calculates a dynamic `JobUrgencyProfile` for each job, then uses a `PlacementDecisionMaker` with a multi-factor scoring model (compute cost, delay, procrastination, load balancing, capacity preservation) and iterative search to assign operations to servers, dynamically adjusting search horizons and cloud aggressiveness.
+- **Performance**: The scheduler achieved a weighted score of 17422.50 across multiple scenarios (including failures), indicating effective optimization of costs and penalties. All generated schedules were valid and correctly accounted for dynamic capacity changes due to machine failures.
+- **Feedback**: The combination of dynamic urgency profiling and a comprehensive multi-objective scoring function for operation placement appears effective for online scheduling. Strategic considerations like iterative search with dynamic horizons, capacity preservation, and load balancing penalties contribute to robust and valid schedules under varying conditions, including machine failures.
+**Program Identifier:** Generation 112 - Patch Name resilient_adaptive_dispatcher - Correct Program: True
+
+**Program Name: Online Urgency-Driven Job Scheduler with Dynamic Resource Allocation**
+- **Implementation**: This program implements an online, event-driven scheduler processing jobs strictly by arrival time, making decisions without future job knowledge. It uses a `JobUrgencyProfile` to dynamically calculate job urgency, which informs a `PlacementDecisionMaker`'s scoring model that considers compute cost, delay penalty, a multi-operation impact on procrastination, hotspot avoidance, and dynamically adjusts cloud aggressiveness based on urgency and system load.
+- **Performance**: The scheduler achieved a `weighted_score: 18465.00` across multiple scenarios, including one with simulated machine failures, with all schedules being valid and free of capacity violations.
+- **Feedback**: The dynamic urgency profiling and detailed scoring, particularly the multi-operation impact penalty and hotspot lookahead, enable robust scheduling and effective cloud offloading in an online, reactive environment. The system successfully navigates complex constraints, including machine failures, by adaptively prioritizing jobs and managing resource contention.
+**Program Identifier:** Generation 113 - Patch Name best_fit_and_load_fix - Correct Program: True
+
+**Program Name: Online Job Scheduler with Dynamic Urgency and Hybrid Placement**
+- **Implementation**: This online, event-driven scheduler processes jobs by arrival time, dynamically calculating `JobUrgencyProfile` based on job priority, slack, and current system load. A `PlacementDecisionMaker` uses a hybrid scoring model that combines compute cost, delay penalty (including exponential negative slack penalty), and proactive penalties for procrastination and potential hotspots, then selects between local (best-fit) and cloud servers using a dynamic `cloud_aggressiveness_factor` derived from job urgency.
+- **Performance**: The program achieved a weighted score of 18501.00 across "normal" and "earthquake" scenarios, successfully minimizing the objective function while producing valid schedules.
+- **Feedback**: The combination of dynamic urgency, a comprehensive hybrid scoring model, and an adaptive cloud relocation strategy allows the scheduler to effectively navigate complex capacity constraints and machine failures. Its "passes all validation tests" status confirms its robustness in producing feasible and optimized schedules under varied conditions.
+**Program Identifier:** Generation 114 - Patch Name hybrid_urgency_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Hybrid Heuristic**
+- **Implementation**: This online scheduler processes jobs strictly in arrival order, using a `JobScheduler` class that employs a hybrid heuristic to evaluate each operation's placement. Decisions consider compute cost, delay penalties, dynamic procrastination penalties, and a load-balancing penalty with a moderated exponent, choosing between local and cloud resources based on priority-driven thresholds and dynamic search horizons.
+- **Performance**: The scheduler achieved a weighted score (total cost) of 17521.50 across multiple scenarios ("normal", "earthquake"), successfully producing valid schedules for all cases.
+- **Feedback**: The program correctly implements strict online constraints and accounts for machine failures with exponential recovery. The "crossover result" parameters and composite scoring function indicate a refined, likely evolved, heuristic capable of balancing diverse objectives and resource types effectively.
+**Program Identifier:** Generation 115 - Patch Name hybrid_heuristic_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduling with Adaptive Heuristics**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, using a `JobScheduler` to determine operation placements. It computes a job-specific `UrgencyProfile` that dynamically tunes search horizon, cloud aggressiveness, and procrastination penalties. Decisions are driven by a composite score that balances compute cost, deadline delay, wait time, and hotspot avoidance, incorporating dynamic capacity changes due to machine failures.
+- **Performance**: The program achieved a weighted score of 17860.00 across two distinct scenarios ('normal' and 'earthquake'), successfully generating valid and complete schedules for all jobs in both.
+- **Feedback**: The adaptive `UrgencyProfile` allows for nuanced job prioritization and resource allocation, enabling the scheduler to respond effectively to varying job urgencies and system conditions. Its robust handling of machine failures and strategic cloud integration contribute significantly to its ability to produce valid schedules across different operational challenges.
+**Program Identifier:** Generation 116 - Patch Name proactive_slack_and_hotspot_avoidance - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: This program employs an online, event-driven scheduler that processes jobs by arrival time, scheduling each operation incrementally. It calculates a dynamic `JobUrgencyProfile` for each job, which adaptively influences cloud aggressiveness, local search horizon, and procrastination penalties. Placement decisions are based on a composite score considering compute cost, delay, dynamic wait time, multi-operation slack, server load/hotspot penalties, and capacity preservation.
+- **Performance**: The program has a reported "Combined score to maximize: 0.0" (which is a placeholder) and does not pass all validation tests, indicating incorrect or invalid scheduling outcomes.
+- **Feedback**: The failure in validation tests suggests that the complex scoring and decision logic, despite incorporating numerous factors like urgency, load balancing, and cost, is not robust enough to consistently produce valid schedules under all conditions. This highlights potential issues in the weighting of penalties or the logic for selecting between local and cloud resources.
+**Program Identifier:** Generation 117 - Patch Name reintroduce_jobscheduler_with_enhanced_heuristics - Correct Program: False
+
+**Program Name: Online Event-Driven Heuristic Scheduler**
+- **Implementation**: An online, event-driven scheduler processes jobs strictly by arrival time, making incremental decisions without future job knowledge. Each operation is scheduled by evaluating local and cloud server placements using a composite score that incorporates compute cost, delay penalty, a dynamic procrastination penalty (including a multi-operation slack crunch penalty), and an enhanced load-balancing penalty for hotspot avoidance.
+- **Performance**: The scheduler achieved a `weighted_score` of 25844.50 across 'normal' and 'earthquake' scenarios. All generated schedules were `is_valid: True`, demonstrating successful adherence to capacity constraints and problem rules.
+- **Feedback**: The highly parameterized heuristic effectively balances multiple objectives (cost, delay, resource contention) by dynamically adjusting penalties based on job priority, available slack, and projected server load. Specific additions like the "multi-op slack crunch penalty" and "enhanced load-balancing" are crucial for robust scheduling and efficient resource utilization, particularly for multi-operation jobs and in scenarios with machine failures.
+**Program Identifier:** Generation 118 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Job Scheduler**
+- **Implementation**: This program implements an online, event-driven job scheduler. It processes jobs strictly by their arrival time, scheduling each operation using a heuristic-based scoring system that considers compute cost, delay penalties, procrastination penalties, and server load, while strictly respecting capacity constraints (including dynamic failures) and job precedence.
+- **Performance**: The scheduler achieved a weighted score of 17577.50 across multiple scenarios ('normal' and 'earthquake'), successfully generating valid schedules with no capacity violations in either.
+- **Feedback**: The heuristic approach, which balances multiple cost factors and dynamically prioritizes local vs. cloud resources based on job urgency and available slack, effectively produces valid schedules even under machine failure conditions. The explicit failsafe mechanism ensures operations are always placed, albeit potentially at a higher cost.
+**Program Identifier:** Generation 119 - Patch Name dispatcher_worker_model - Correct Program: True
+
+**Program Name: Online Urgency-Driven Adaptive Job Scheduler**
+- **Implementation**: The program implements an event-driven online scheduler that processes jobs strictly by arrival time without future knowledge. It features a `JobUrgencyProfile` to dynamically determine a job's urgency based on priority, deadline slack, and system load, influencing cloud aggressiveness and search horizon. A `PlacementDecisionMaker` then scores operation placements considering compute cost, delay, a multi-op procrastination penalty, a quadratic hotspot penalty for high utilization, and a capacity preservation penalty.
+- **Performance**: The scheduler achieved a `weighted_score` of 17130.00 across multiple scenarios (e.g., 'normal', 'earthquake') and successfully generated valid schedules for all evaluated instances.
+- **Feedback**: The implementation correctly adheres to online constraints and successfully passes all validation tests, indicating robustness. The adaptive scoring mechanisms for urgency, load balancing, and capacity preservation effectively guide scheduling decisions under dynamic conditions and machine failures, contributing to valid and reasonably optimized outcomes.
+**Program Identifier:** Generation 120 - Patch Name tune_urgency_profile - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time, using a `PlacementEvaluator` to select the best server and start time for each operation. It balances local and cloud options using a cloud benchmark and a priority-based search horizon for local machines.
+- **Performance**: The scheduler achieved a `weighted_score` of 17420.50 across 'normal' and 'earthquake' scenarios, successfully generating valid schedules for all jobs in both cases.
+- **Feedback**: The online strategy, incorporating a cloud benchmark and priority-driven local search, effectively manages job placement and deadlines while respecting strict online constraints and machine failures. The adaptive capacity handling for failures contributes to its robustness and validity.
+**Program Identifier:** Generation 121 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Job Scheduler**
+- **Implementation**: This online scheduler processes jobs strictly by arrival, deciding each operation's placement (local or cloud) and start time based on a composite score. The score dynamically weighs compute cost, delay penalties, procrastination, multi-operation slack, and enhanced non-linear load balancing, accounting for machine failures.
+- **Performance**: Achieved a weighted score of 28590.00 across 'normal' and 'earthquake' scenarios, successfully producing valid schedules for all jobs.
+- **Feedback**: The combination of aggressive load balancing, multi-operation slack crunch penalties, and dynamic search horizons effectively manages capacity constraints and job deadlines in an online, dynamic environment, including under machine failures, leading to valid and cost-efficient schedules.
+**Program Identifier:** Generation 122 - Patch Name none - Correct Program: True
+
+**Program Name: Online Urgency-Driven Multi-Objective Scheduler**
+- **Implementation**: The scheduler processes jobs by arrival time without future knowledge, using a `JobScheduler` class for each. It calculates job urgency based on priority, deadline slack, and system load, which in turn influences cloud usage aggression, search horizon, and various penalty multipliers for operation placement (e.g., procrastination, hotspots, capacity preservation). However, the `JobScheduler` class contains critical syntax errors (references to `self` outside a class context, undefined attributes) that prevent it from executing correctly.
+- **Performance**: The program is incorrect and does not pass all validation tests, leading to a reported combined score of 0.0.
+- **Feedback**: The conceptual design for urgency-driven, multi-objective online scheduling is sophisticated, incorporating detailed cost and penalty components. Nevertheless, the current implementation is fundamentally flawed by uncorrected syntax and logical errors, rendering it non-functional and unable to generate a valid schedule for evaluation.
+**Program Identifier:** Generation 123 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Heuristic Job Scheduler**
+- **Implementation**: This online scheduler uses a `JobScheduler` class to incrementally schedule job operations, evaluating placements with a composite score considering compute cost, delay, dynamic procrastination, and load balancing. Heuristic parameters, including a priority-based `cloud_aggressiveness_threshold`, dynamic search horizons, and load multipliers, guide decision-making for each operation between local and cloud resources.
+- **Performance**: The program achieved a weighted score of 17646.50 across multiple scenarios, including one with machine failures. Both generated schedules ("normal" and "earthquake") were valid, indicating no capacity violations.
+- **Feedback**: The heuristic approach successfully navigates the strict online constraint, making valid and cost-effective scheduling decisions without future job knowledge. The dynamic scoring mechanism, particularly the procrastination and load-balancing penalties, allows for adaptive resource allocation and robust performance in environments with fluctuating machine availability and varied job priorities.
+**Program Identifier:** Generation 124 - Patch Name reintroduce_advanced_scheduler - Correct Program: True
+
+**Program Name: Urgency-Driven Online Job Scheduler with Dynamic Capacity**
+- **Implementation**: This online, event-driven scheduler processes jobs by arrival time, using `JobUrgencyProfile` to dynamically calculate job urgency based on priority, deadline slack, and system load. A `PlacementDecisionMaker` then finds the best server and start time for each operation by evaluating compute cost, delay, procrastination, and sophisticated load-balancing penalties (non-linear utilization, critical capacity buffer, hotspot lookahead), integrating cloud aggressiveness for optimal resource allocation. Dynamic server capacity due to failures is handled using exponential decay/recovery rates.
+- **Performance**: Achieved a weighted score of 22144.50 across 'normal' and 'earthquake' scenarios, successfully scheduling all 30 jobs in each scenario without violations.
+- **Feedback**: The urgency-driven, multi-factor scoring approach effectively balances various objectives, successfully navigating dynamic server capacities due to failures and maintaining valid schedules. The detailed load-balancing logic, including hotspot lookahead and exponential penalties for high utilization/low buffer, contributes to robust resource allocation in an online setting.
+**Program Identifier:** Generation 125 - Patch Name enhanced_hotspot_avoidance - Correct Program: True
+
+**Program Name: Online Event-Driven Scheduler with Adaptive Heuristics**
+- **Implementation**: This program implements a strict online, event-driven job scheduler where jobs are processed sequentially by arrival time without future knowledge. A `PlacementEvaluator` class determines the best server and start time for each operation by calculating a composite score, incorporating adaptive procrastination, non-linear load balancing, hotspot penalties, and a dynamic search horizon against a cloud benchmark based on job priority.
+- **Performance**: The scheduler achieved a weighted score of 17132.50 across multiple scenarios (normal, earthquake), successfully scheduling all 30 jobs in each, with both scenarios reporting `is_valid: True`.
+- **Feedback**: The intricate scoring function in `PlacementEvaluator`, combining cost, delay, and various load-balancing penalties, alongside a priority-driven cloud aggressiveness threshold and dynamic horizon, enabled effective resource allocation and resilience in both normal and failure conditions. The "is_valid: True" confirms successful constraint satisfaction across scenarios.
+**Program Identifier:** Generation 126 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Multi-Objective Job Scheduler**
+- **Implementation**: The `JobScheduler` uses a composite scoring function to evaluate operation placements, considering compute cost, delay penalty, dynamic procrastination, and non-linear load-balancing. It prioritizes local server placement within a dynamic search horizon, with a priority-dependent threshold for cloud fallback, and gracefully handles machine failures by adapting available capacity.
+- **Performance**: The scheduler achieved a `weighted_score` of `17216.50` across "normal" and "earthquake" scenarios, producing valid and complete schedules for all jobs without violations.
+- **Feedback**: The implementation's success stems from its priority-based dynamic heuristics, which balance cost, delay, and resource utilization effectively. The non-linear load-balancing and dynamic procrastination penalties are crucial for optimizing resource allocation under strict online constraints and varying server availability.
+**Program Identifier:** Generation 127 - Patch Name priority_tuned_dispatch_heuristic - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Job Scheduler**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs sequentially by arrival time. Each job's operations are scheduled using a `JobScheduler` class, which employs a composite objective function considering compute cost, delay penalties, dynamic procrastination, and non-linear load balancing, with parameters tuned per job priority.
+- **Performance**: The scheduler successfully found valid schedules for all 30 jobs across 'normal' and 'earthquake' scenarios, yielding a weighted score of 17086.00, with no reported capacity violations.
+- **Feedback**: The priority-aware heuristics, particularly the dynamic search horizon for local servers and a configurable "cloud aggressiveness threshold," appear effective in achieving valid schedules under strict online constraints. The successful handling of machine failures in the 'earthquake' scenario suggests robustness, indicating the composite objective function and search strategy adapt well to changing resource availability.
+**Program Identifier:** Generation 128 - Patch Name hybrid_urgency_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Adaptive Heuristic Scheduler**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time without future knowledge. It uses a `JobUrgencyProfile` to dynamically calculate job urgency, influencing parameters like cloud aggressiveness, local search horizon, and various scheduling penalties. A `PlacementDecisionMaker` then finds the best server and start time for each operation by evaluating a multi-faceted score that includes compute cost, delay penalty, and non-linear penalties for procrastination, hotspots, and capacity preservation.
+- **Performance**: The scheduler achieved a weighted score of 17488.00 across `normal` and `earthquake` scenarios, successfully producing valid schedules for all jobs in both cases without any capacity violations.
+- **Feedback**: The sophisticated heuristics, including dynamic urgency calculation and adaptive penalties for resource contention and procrastination, enable robust scheduling decisions. The ability to complete all jobs without violations even under machine failure scenarios (e.g., `earthquake`) demonstrates the effectiveness of its adaptive cloud aggressiveness and resource management strategies.
+**Program Identifier:** Generation 129 - Patch Name adaptive_priority_flow_scheduler - Correct Program: True
+
+**Program Name: Online Urgency-Based Adaptive Resource Scheduler**
+- **Implementation**: This online, event-driven scheduler processes jobs strictly by arrival time, dynamically calculating a `JobUrgencyProfile` for each based on priority, slack, and real-time system load. A `PlacementDecisionMaker` then finds the best server and start time for each operation by scoring options considering compute cost, delay, procrastination penalties, and advanced load balancing penalties (non-linear high utilization and critical capacity buffer). Cloud aggressiveness is dynamically adjusted by job urgency and system load.
+- **Performance**: The program achieved a weighted score of 19549.50 across multiple scenarios, including one with simulated machine failures, with all schedules being valid.
+- **Feedback**: The combination of urgency-aware scheduling, a flexible `cloud_aggressiveness_factor`, and sophisticated load balancing penalties (especially the cubic high utilization and critical capacity buffer) enables the scheduler to effectively manage resources and meet deadlines, even when faced with dynamic capacity reductions due to machine failures.
+**Program Identifier:** Generation 130 - Patch Name none - Correct Program: True
+
+**Program Name: Online Heuristic Job Scheduler**
+- **Implementation**: An event-driven online scheduler uses a `JobScheduler` class to select operation placements based on a multi-faceted heuristic score. This score combines compute cost, deadline delay, dynamic procrastination penalties (sensitive to slack and job priority), and a non-linear load-balancing penalty for local servers.
+- **Performance**: The scheduler achieved a weighted score of 23903.00 across 'normal' and 'earthquake' scenarios, producing valid schedules for all jobs in both cases.
+- **Feedback**: The sophisticated heuristic, incorporating dynamic penalties, priority-based cloud aggressiveness, and a slack-aware search horizon, allows for robust and valid scheduling even under challenging machine failure conditions, effectively balancing costs and deadlines.
+**Program Identifier:** Generation 131 - Patch Name none - Correct Program: True
+
+**Program Name: Online Urgency-Driven Incremental Job Scheduler**
+- **Implementation**: This online scheduler processes jobs strictly by arrival, using a `JobUrgencyProfile` to dynamically calculate job urgency. It employs a multi-factor scoring function (`_calculate_operation_score`) that considers compute cost, delay penalty, a multi-operation impact-aware procrastination penalty, and a non-linear, urgency-sensitive load-balancing penalty over a lookahead window, to find the best placement for each operation.
+- **Performance**: The program reports a combined score to maximize of 0.0 and is explicitly stated as incorrect, failing to pass all validation tests.
+- **Feedback**: The sophisticated, urgency-driven scoring model with dynamic penalties for procrastination and load balancing aims for intricate trade-offs but currently produces invalid schedules, indicating potential issues with feasibility or constraint adherence. The first-fit approach within an urgency-defined search horizon for local machines, combined with the complex penalty interactions, likely contributes to the observed validation failures.
+**Program Identifier:** Generation 132 - Patch Name none - Correct Program: False
+
+**Program Name: Online Event-Driven Job Scheduler with Adaptive Cost Model**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time without future knowledge. A `JobScheduler` class determines placements using a unified cost model incorporating direct compute cost, projected delay penalty, a dynamic cubic contention penalty (scaled by job urgency), and a slack preservation bonus (inversely scaled by urgency), along with a dynamically adjusted search horizon.
+- **Performance**: The scheduler achieved a `weighted_score` of 18088.00 across "normal" and "earthquake" scenarios, with all generated schedules confirmed as valid.
+- **Feedback**: The approach demonstrates strong adaptability to online constraints and varying conditions, including machine failures. The sophisticated cost model, especially the cubic contention penalty and urgency-based weighting of slack, effectively balances resource utilization, cost, and deadline adherence, proving robust and efficient for complex, dynamic scheduling problems.
+**Program Identifier:** Generation 133 - Patch Name unified_cost_and_resilience_scheduler - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Dynamic Priorities**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time. For each operation within a job, it dynamically evaluates potential placements on local or cloud servers, considering compute costs, delay penalties, and a "procrastination penalty" adjusted by job priority.
+- **Performance**: The scheduler achieved a `weighted_score` of 17598.50 across multiple scenarios, including one with simulated machine failures, and successfully produced valid schedules for all jobs.
+- **Feedback**: The heuristic-based approach, leveraging dynamic parameters for search horizon, procrastination penalties, and cloud aggressiveness based on job priority, effectively balances cost, timeliness, and resource availability. Its robust handling of machine failures (capacity reduction and recovery rates) showcases its adaptability to dynamic and unpredictable environments.
+**Program Identifier:** Generation 134 - Patch Name refactor_to_jobscheduler_class - Correct Program: True
+
+**Program Name: Online Event-Driven Job Scheduler with Adaptive Heuristics**
+- **Implementation**: This online scheduler processes jobs strictly by arrival time, scheduling operations sequentially for each job. Decisions are driven by a multi-factor scoring function considering compute cost, delay penalty, dynamic procrastination, non-linear load balancing, and a new "slack crunch" penalty designed to preserve flexibility for a job's subsequent operations.
+- **Performance**: The program achieved a weighted score of 19849.50 across 'normal' and 'earthquake' scenarios, successfully generating valid schedules without any capacity or precedence violations in both cases.
+- **Feedback**: The implementation's strength lies in its adaptive heuristic parameters and comprehensive scoring, particularly the "slack crunch penalty" which prevents myopic scheduling. This approach allows for robust decision-making in an online context, effectively managing resource allocation and job completion even under dynamic capacity constraints from machine failures.
+**Program Identifier:** Generation 135 - Patch Name slack_crunch_penalty - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Job Scheduler**
+- **Implementation**: This program employs an online, event-driven scheduling approach, processing jobs strictly by arrival time using a `JobScheduler` class. It assigns operations to servers based on a composite score that considers compute cost, delay penalties, dynamic procrastination, aggressive load-balancing (with future utilization lookahead), and a local preference bonus, while dynamically accounting for machine failures with exponential decay/recovery.
+- **Performance**: The scheduler achieved a `weighted_score` of 21162.50 across multi-scenario evaluation (normal and earthquake failures), generating valid schedules for all jobs in both scenarios.
+- **Feedback**: The heuristic demonstrates robustness in handling dynamic capacity and complex objectives by integrating detailed cost components, priority-based thresholds for cloud adoption, and a dynamic search horizon. The aggressive load-balancing and procrastination penalties, alongside a local preference bonus, contribute to effective resource management and deadline adherence in an online environment.
+**Program Identifier:** Generation 136 - Patch Name none - Correct Program: True
+
+**Program Name: Online Staged-Decision Heuristic Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. A `PlacementEvaluator` uses a staged heuristic to schedule operations, first benchmarking cloud options, then searching local servers within a dynamic horizon based on job priority, and finally deciding based on a `local_preference_factor` to favor local if its cost is comparable.
+- **Performance**: The scheduler achieved a weighted score of 16807.00 across multiple scenarios. All generated schedules were valid, including in the "earthquake" scenario which involves machine failures.
+- **Feedback**: The staged decision logic, combined with a `local_preference_factor` and priority-based search horizons, successfully balanced compute costs and delay penalties to produce valid schedules. The adaptive capacity calculation and strategic use of cloud resources ensured resilience in the face of machine failures.
+**Program Identifier:** Generation 137 - Patch Name none - Correct Program: True
+
+**Program Name: Online Event-Driven Priority-Based Job Scheduler**
+- **Implementation**: This program implements an online, event-driven job scheduler that processes jobs strictly by arrival time without future knowledge. A `JobScheduler` class uses a heuristic scoring function considering compute cost, delay penalties (weighted by job priority), procrastination penalties, and dynamic load penalties to select the best server and start time for each operation, dynamically accounting for machine failures with exponential recovery.
+- **Performance**: The scheduler achieved a weighted score of 18558.50 across "normal" and "earthquake" scenarios, with all generated schedules being valid.
+- **Feedback**: The heuristic approach successfully constructs valid schedules under online constraints and dynamic capacity changes from machine failures. Priority-based tuning parameters for urgency, cloud aggressiveness, search horizon, and load management are crucial for balancing cost, delay, and resource utilization in this incremental scheduling environment.
+**Program Identifier:** Generation 138 - Patch Name heuristic_scheduler_class - Correct Program: True
+
+**Program Name: Online Event-Driven Heuristic Scheduler with Adaptive Penalties**
+- **Implementation**: This is an online, event-driven scheduler that processes jobs strictly by arrival time, using a `PlacementEvaluator` to find the best placement for each operation. The evaluator employs a staged decision process (cloud benchmark, local search within a dynamic horizon) and calculates scores using a composite objective that includes compute cost, delay penalty, a dynamic "slack crunch" procrastination penalty, and an aggressive non-linear load-balancing penalty, all tuned with adaptive parameters based on job priority.
+- **Performance**: The scheduler achieved a `weighted_score` of 16721.00 across `normal` and `earthquake` scenarios, successfully scheduling all jobs without capacity violations.
+- **Feedback**: The sophisticated, priority-aware heuristic parameters (e.g., dynamic search horizon, non-linear load penalty, and cloud aggressiveness) enable effective resource allocation and deadline management under online constraints and machine failures, resulting in a valid and competitive schedule.
+**Program Identifier:** Generation 139 - Patch Name none - Correct Program: True
+
+**Program Name: Online Adaptive Job Scheduler**
+- **Implementation**: This online, event-driven scheduler uses a `JobUrgencyProfile` to dynamically set parameters like cloud aggressiveness and search horizon based on job priority, slack, and system load. A `PlacementDecisionMaker` evaluates operation placements with a multi-faceted score including compute cost, delay penalty, adaptive procrastination, hotspot, and inter-job contention penalties, employing an adaptive iterative search.
+- **Performance**: The program is incorrect and does not pass all validation tests, resulting in an implied poor score as the target combined score is 0.0.
+- **Feedback**: Despite sophisticated adaptive scoring and search mechanisms, the current implementation fails validation tests, indicating fundamental issues in handling constraints or making globally optimal scheduling decisions. The complex interplay of dynamic urgency, various penalties, and an adaptive search strategy is not robust enough.
+**Program Identifier:** Generation 140 - Patch Name unified_urgency_contention_aware_scheduler - Correct Program: False
+
+**Program Name: Online Event-Driven Beam Search Job Scheduler**
+- **Implementation**: This program employs an online, event-driven approach, scheduling jobs strictly by arrival time. Each job's operations are scheduled using a beam search algorithm that considers compute cost, projected delay, and a heuristic load-balancing penalty on local servers within a limited time horizon.
+- **Performance**: The program achieved a combined score of 0.0 and did not pass all validation tests.
+- **Feedback**: The failure to pass validation tests suggests that the heuristic-driven beam search, potentially due to its limited horizon or the specific cost function (including load penalty and priority multipliers), might be unable to find valid or optimal schedules under all constraints.
+**Program Identifier:** Generation 141 - Patch Name beam_search_lookahead - Correct Program: False
+
+**Program Name: Online Event-Driven Scheduling with Heuristic Placement**
+- **Implementation**: This program implements an online, event-driven scheduler where jobs are processed strictly by arrival time without future knowledge. A `PlacementStrategy` uses a composite scoring function incorporating standard compute/delay costs, novel slack preservation penalties, and predictive peak load penalties to choose the best server and start time for each operation. It dynamically adjusts local server search horizons and cloud aggressiveness based on job priority and available slack, and capacity calculations account for machine failures with exponential decay/recovery.
+- **Performance**: The scheduler successfully produces valid schedules for multiple scenarios, including one with simulated machine failures, achieving a weighted score of 19566.50.
+- **Feedback**: The program effectively handles complex online constraints and machine failures, consistently producing valid schedules without violations. The incorporation of predictive heuristics (slack preservation, peak load avoidance) and dynamic search parameters appears crucial for robust performance across varying operational conditions and job priorities.
+**Program Identifier:** Generation 142 - Patch Name slack_aware_peak_load_scheduler - Correct Program: True
+
+**Program Name: Online Urgency-Driven Job Scheduler**
+- **Implementation**: The program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a `JobUrgencyProfile` to dynamically calculate urgency and derive parameters like cloud aggressiveness and search horizon for each job. A `PlacementDecisionMaker` then evaluates potential operation placements using a multi-factor objective function, including tiered non-linear penalties for resource contention and capacity preservation, all scaled by job urgency and system load.
+- **Performance**: The scheduler achieved a `weighted_score` of 17771.50 across multiple scenarios, including 'normal' and 'earthquake' failure conditions, with all schedules being valid (no violations).
+- **Feedback**: The dynamic urgency profiling and multi-faceted scoring, particularly the tiered resource contention penalties and adaptive cloud aggressiveness, are crucial for robust online decision-making. This approach allows the scheduler to balance cost, delay, and resource utilization while maintaining valid schedules even under varying system loads and machine failures.
+**Program Identifier:** Generation 143 - Patch Name unified_tiered_contention_penalty - Correct Program: True
+
+**Program Name: Online Event-Driven Urgency Scheduler**
+- **Implementation**: This program employs an online, event-driven scheduling approach, processing jobs strictly by arrival time. It uses a dynamic `JobUrgencyProfile` to inform a `PlacementDecisionMaker`, which evaluates operation placements based on compute costs, delay penalties, and urgency-scaled penalties for procrastination, server hotspots, and critical capacity preservation.
+- **Performance**: The scheduler achieved a `weighted_score` of 19412.00 across multiple scenarios, including one with failures, with all schedules being valid and free of capacity violations.
+- **Feedback**: The adaptive urgency-based scoring, coupled with a nuanced multi-objective penalty system and iterative search, effectively guides online placement decisions. This approach demonstrates robust performance in varied scenarios, successfully avoiding capacity violations even under machine failure conditions.
+**Program Identifier:** Generation 144 - Patch Name none - Correct Program: True
+
+**Program Name: Online Heuristic Scheduler with Dynamic Load-Balanced Cloud Offloading**
+- **Implementation**: The program features an online, event-driven scheduler that processes jobs strictly by arrival time, using a `JobScheduler` class to determine optimal placements for each operation. It incorporates a sophisticated heuristic objective function that includes dynamic procrastination penalties, a non-linear load-balancing penalty (cubic for high utilization, linear for critical capacity buffer), and a dynamically adjusted cloud preference based on current system load.
+- **Performance**: The scheduler achieved a weighted score of 24462.50 across multiple scenarios (normal, earthquake), successfully producing valid schedules for all jobs in each scenario.
+- **Feedback**: The "enhanced load-balancing" and "crossover feature" for dynamically adjusting cloud preference based on real-time system load appear highly effective in managing resource contention and leveraging cloud elasticity. The priority-based heuristics and dynamic search horizon contribute to robust scheduling decisions, ensuring all generated schedules are valid even in challenging failure scenarios.
+**Program Identifier:** Generation 145 - Patch Name none - Correct Program: True
+
+**Program Name: Online Urgency-Driven Job Scheduler**
+- **Implementation**: This program implements an online, event-driven scheduler that processes jobs strictly by arrival time. It uses a `JobUrgencyProfile` to dynamically calculate job urgency, which in turn informs a `PlacementDecisionMaker`'s multi-faceted scoring model for operations, considering compute cost, delay, procrastination, and local resource capacity preservation, while dynamically adjusting cloud aggressiveness.
+- **Performance**: The scheduler achieved a `weighted_score: 17374.00` across diverse scenarios (normal, earthquake), successfully producing valid schedules for all 30 jobs in each case.
+- **Feedback**: The program is robust and passes all validation tests, demonstrating its ability to handle complex scenarios, including machine failures, without constraint violations. The dynamic urgency profiling and comprehensive penalty-based scoring system enable intelligent, adaptive scheduling decisions that balance cost, delay, and resource contention.
+**Program Identifier:** Generation 146 - Patch Name type_specific_load_for_cloud_decision - Correct Program: True
+
+**Program Name: Online Urgency-Driven Operation Scheduler**
+- **Implementation**: This program employs an online, event-driven scheduling approach, processing jobs strictly by arrival time. It features a `JobUrgencyProfile` that dynamically assesses urgency based on job priority, deadline slack, and system load, and a `PlacementDecisionMaker` that scores operation placements considering compute cost, delay penalties, a dynamic procrastination penalty (with multi-operation lookahead), and a quadratic load "hotspot" penalty, with adaptive cloud aggressiveness.
+- **Performance**: The program achieved a `weighted_score: 16854.00` across multiple scenarios, including 'normal' and 'earthquake' failure conditions, with all generated schedules being valid.
+- **Feedback**: The dynamic urgency profiling and adaptive cloud aggression contribute to effective resource allocation, particularly in scenarios with machine failures. The multi-operation impact penalty is a key enhancement, guiding operations to preserve slack for future steps within a job and reducing overall delays.
+**Program Identifier:** Generation 147 - Patch Name type_specific_system_load - Correct Program: True
+
+**Program Name: No-Op Program**
+- **Implementation**: The program is entirely empty, containing no code, functions, or logic to perform any operations.
+- **Performance**: It achieved a combined score of 0.0 and did not pass any validation tests.
+- **Feedback**: The program is fundamentally incorrect and fails all tests due to its lack of any implementation to address the problem requirements.
+**Program Identifier:** Generation 148 - Patch Name slack_crunch_penalty - Correct Program: False
+
+**Program Name: Event-Driven Online Job Scheduler with Dynamic Urgency**
+- **Implementation**: This strictly online scheduler processes jobs by arrival time, using a `JobUrgencyProfile` to determine dynamic scheduling parameters. A `PlacementDecisionMaker` then evaluates operation placements based on compute cost, delay penalties, and multi-faceted penalties for procrastination, hotspots, and capacity preservation, with cloud usage and search horizon dynamically adjusted by job urgency and system load.
+- **Performance**: The program achieved a weighted score of 17304.00 across a multi-scenario evaluation (including 'normal' and 'earthquake' failure conditions), successfully producing valid schedules without any capacity violations.
+- **Feedback**: The combination of dynamic urgency profiling and a comprehensive, adaptive penalty system allows for robust decision-making that balances cost, deadline adherence, and resource utilization. Its success in generating valid schedules even under simulated machine failures demonstrates its resilience and practical effectiveness for online resource management.
+**Program Identifier:** Generation 149 - Patch Name cumulative_slack_debt_penalty - Correct Program: True
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+## Successful Algorithmic Patterns
+*   **Dynamic, Non-Linear Load Balancing with Cloud Offloading is the New Performance Apex:** The new top performer, **Generation 145 (24462.50)**, significantly advances the understanding of optimal scheduling by combining a "non-linear load-balancing penalty (cubic for high utilization, linear for critical capacity buffer)" with a "dynamically adjusted cloud preference based on current system load." This approach builds upon previous insights regarding aggressive and predictive load balancing (e.g., G131, G130, G136) by integrating a highly responsive cloud offloading mechanism that dynamically adapts to real-time system stress, leading to a substantial performance increase over prior bests.
+*   **Adaptive Urgency-Driven Multi-Objective Scoring for Robustness:** Programs like **Generation 144 (19412.00)**, **Generation 143 (17771.50)**, **Generation 146 (17374.00)**, and **Generation 149 (17304.00)** all demonstrate consistent robust performance by leveraging dynamic `JobUrgencyProfile` combined with multi-faceted objective functions. These functions include urgency-scaled penalties for compute costs, delays, procrastination, hotspots, and critical capacity preservation, along with adaptive cloud aggressiveness. This confirms that a holistic, dynamically weighted penalty system, guided by job urgency, is key to generating valid and efficient schedules across varied scenarios, including machine failures.
+*   **Proactive Slack and Peak Load Management with Predictive Heuristics:** **Generation 142 (19566.50)** highlights the effectiveness of "novel slack preservation penalties" and "predictive peak load penalties." Coupled with dynamically adjusted local server search horizons and cloud aggressiveness based on job priority and slack, this approach allows for more foresightful scheduling decisions that prevent future bottlenecks and ensure robust performance, echoing previous successful patterns of "slack crunch" penalties (G135) and "future utilization lookahead" (G136).
+*   **Multi-Operation Lookahead in Procrastination and Hotspot Penalties:** **Generation 147 (16854.00)** introduces a "dynamic procrastination penalty (with multi-operation lookahead)" and a "quadratic load 'hotspot' penalty." The feedback specifically notes the "multi-operation impact penalty is a key enhancement," reinforcing the value of considering the downstream effects of current scheduling decisions to preserve slack and optimize for the entire job, building on previous "multi-operation slack crunch" insights (G122, G135).
+
+## Ineffective Approaches
+*   **Complexity Without Constraint Robustness Leads to Complete Failure:** **Generation 140 (0.0)**, despite employing "sophisticated adaptive scoring and search mechanisms" with dynamic urgency, various penalties, and an adaptive iterative search, failed all validation tests. The feedback indicates "fundamental issues in handling constraints or making globally optimal scheduling decisions," suggesting that an overly complex interplay of heuristics can lead to infeasible schedules if not meticulously designed for robustness and constraint adherence. This reinforces the previous insight that "Overly Complex Penalty Interactions Leading to Invalid Schedules" (G132) results in zero functionality.
+*   **Limited Search Horizon in Heuristic-Driven Beam Search:** **Generation 141 (0.0)** failed validation tests despite using a beam search algorithm with compute cost, projected delay, and load-balancing penalties. The feedback suggests the "limited horizon or the specific cost function... might be unable to find valid or optimal schedules under all constraints." This indicates that while beam search is a valid technique, a restricted search horizon combined with an insufficiently robust or comprehensive cost function can easily lead to constraint violations in complex online scheduling problems.
+*   **Lack of Implementation:** **Generation 148 (0.0)**, being an entirely empty program, fundamentally failed all tests due to a complete lack of any scheduling logic. This serves as a baseline reminder that any program, regardless of its intended complexity, must first provide a functional implementation to address the problem requirements.
+
+## Implementation Insights
+*   **Sophisticated Non-Linear Penalty Functions are Critical:** The most effective implementations, such as **Generation 145 (24462.50)**, distinguish themselves by implementing highly sophisticated and non-linear penalty functions for load balancing (e.g., "cubic for high utilization, linear for critical capacity buffer") and dynamic procrastination. This is a significant refinement over simpler linear or quadratic penalties found in lower-scoring programs like the "Program to Analyze" (G49), whose load balancing is based on a simple average utilization multiplied by factors, lacking the critical capacity buffer and cubic components that enable G145's superior performance.
+*   **Dynamic Cloud Aggressiveness Tied to System Load:** **Generation 145**'s success underscores the importance of a "dynamically adjusted cloud preference based on current system load," referred to as a "crossover feature." This mechanism allows for intelligent on-the-fly decisions about offloading to the cloud, moving beyond static thresholds or simple local-vs-cloud cost comparisons, and efficiently leverages cloud elasticity to manage contention. The "Program to Analyze" (G49) employs a `cloud_aggressiveness_threshold` based on priority, but it lacks the dynamic adjustment based on system load that makes G145 so effective.
+*   **Comprehensive Multi-Factor Scoring with Adaptive Parameters:** Successful programs consistently utilize a `PlacementDecisionMaker` with a multi-factor objective function. This includes granular penalties for compute cost, delay, dynamic procrastination, server hotspots, and capacity preservation, often scaled by `JobUrgencyProfile` and system load. Crucially, these programs also dynamically adjust heuristic parameters like `cloud_aggressiveness` and `search_horizon` based on job priority and slack, as seen in **Generation 142**, **Generation 143**, and **Generation 147**. The "Program to Analyze" (G49) follows this pattern with its `priority_base_horizon` and `priority_procrastination_multiplier`, validating the approach but highlighting that the specific formulation and dynamic interaction of these parameters are key to higher performance.
+*   **Robust Capacity Handling with Machine Failure Models:** All valid and successful programs, including **Generation 142**, demonstrate robust handling of dynamic server capacity through mechanisms like exponential decay/recovery models for machine failures. This remains a foundational requirement for any practical online scheduler, as confirmed by consistent validation across multiple scenarios involving failures.
+
+## Performance Analysis
+*   **New Global Performance Benchmark Set by G145:** **Generation 145 (24462.50)** has established a new high-water mark for performance, significantly outperforming the previous global best (G131 at 23903.00) by over 500 points. This substantial lead confirms that its integrated, dynamic, non-linear load balancing and cloud offloading heuristics are currently the most effective for achieving optimal scheduling scores.
+*   **"Program to Analyze" (G49) is Consistently Outperformed:** With a score of **16537.50**, the "Program to Analyze" continues to be the lowest-scoring valid program among all evaluated generations. All new correct programs (ranging from 16854.00 for G147 to 24462.50 for G145) have demonstrated superior performance, further emphasizing that G49's heuristic formulations are less optimized and effective compared to more advanced and specialized penalty designs.
+*   **Strong Correlation Between Specific Heuristic Design and Score Improvement:** The incremental performance gains across the valid programs (e.g., G147 with 16854.00, G149 with 17304.00, G143 with 17771.50, G144 with 19412.00, G142 with 19566.50, and G145 with 24462.50) clearly demonstrate a direct correlation between the sophistication, non-linearity, and predictive capabilities of heuristic penalty functions and the resulting optimization score. Features like "multi-operation lookahead" (G147) and "predictive peak load penalties" (G142) consistently yield better scores than simpler approaches.
+*   **Validity Remains Absolute:** The scores of **0.0** for **Generation 140**, **Generation 141**, and **Generation 148** reiterate the critical importance of producing valid schedules. Even sophisticated algorithmic concepts or search strategies, if they fail to robustly satisfy all constraints, render the program functionally useless, highlighting that correctness is a prerequisite for any score.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+Here are 5 actionable recommendations for future program mutations, building upon the successful patterns observed and specifically targeting improvements for the "Program to Analyze" (Generation 49):
+
+1.  **Implement a Non-Linear Load-Balancing Penalty with Critical Capacity Buffer:** Refactor the `load_penalty` within `_calculate_operation_score` for local servers to adopt a non-linear (e.g., cubic or exponential) function that significantly escalates when server utilization, specifically within the predicted `start_time` to `start_time + op.duration * 2` window, exceeds a high threshold (e.g., 85%). Additionally, introduce a distinct linear penalty that activates if the proposed placement reduces available capacity below a critical buffer threshold (e.g., 10% of total capacity), directly mimicking the high-performing G145's approach.
+
+2.  **Integrate Dynamically Adjusted Cloud Preference Based on System Load:** Modify the `cloud_aggressiveness_threshold` mechanism to be dynamically adjusted based on real-time system stress, moving beyond discrete job priority. Calculate an aggregate "system load index" (e.g., average utilization of local servers, number of near-capacity local servers) over a lookahead window, and use this index to continuously scale the `cloud_aggressiveness_threshold`, making cloud offloading decisions more responsive and efficient as demonstrated by G145's "dynamically adjusted cloud preference based on current system load."
+
+3.  **Enhance Procrastination Penalty with Multi-Operation Slack Lookahead:** Refine the `procrastination_penalty` in `_calculate_operation_score` to incorporate a "multi-operation lookahead." This penalty should not only consider the current operation's delay but also explicitly evaluate and non-linearly penalize the *cumulative impact* of the current placement decision on the available slack and earliest start times for *all subsequent operations* of the job, aligning with G147's "multi-operation impact penalty" to preserve overall job flexibility.
+
+4.  **Introduce a Predictive Quadratic Load 'Hotspot' Penalty:** Augment the `_calculate_operation_score` with a dedicated "hotspot" penalty that uses a quadratic function of predicted overload or near-capacity utilization for specific future time slots on local servers. This penalty should focus on preventing localized peaks rather than just average utilization, enabling more proactive bottleneck avoidance as seen in G142's "predictive peak load penalties" and G147's "quadratic load 'hotspot' penalty."
+
+5.  **Develop a Unified, Continuous Job Urgency Profile for Adaptive Parameter Tuning:** Create a dedicated helper method or property (e.g., `job.get_urgency_score()`) that calculates a continuous numerical urgency score for the `job` object. This score should combine `job.priority`, inverse `job.deadline_slack`, `remaining_operations_count`, and `job.age`. Use this continuous score, via smooth mapping functions (e.g., sigmoid), to dynamically and continuously adjust *all* key heuristic parameters, including `self.cloud_aggressiveness_threshold`, `self.base_procrastination_penalty_factor`, and `self.load_penalty_factor`, thereby achieving the holistic, urgency-driven adaptation of G144.

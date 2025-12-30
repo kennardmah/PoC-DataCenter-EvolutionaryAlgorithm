@@ -1,0 +1,117 @@
+<NAME>
+best_fit_competition
+</NAME>
+<DESCRIPTION>
+This change enhances the `QueueCompetitionDispatcher` by replacing its "first-fit" local scheduling with a more sophisticated "best-fit-in-window" strategy.
+
+Previously, each local machine competed by offering its *first available* time slot. This could miss opportunities for much cheaper slots that might be available shortly after.
+
+The new implementation introduces a dynamic search horizon based on the job's slack (urgency). For each local machine, it now searches this entire window to find the *single best* (lowest cost) placement. This best local option then competes against the immediate cloud option and the best options from other local machines.
+
+This hybrid approach combines two powerful ideas:
+1.  **Direct Competition:** Explicitly modeling the trade-off between waiting for a cheap local machine versus paying for an immediate cloud machine.
+2.  **Best-Fit Search:** Allowing local machines to find cost-optimal placements within a time window, rather than being limited to the earliest possible start time.
+
+This change also removes the now-unused `_find_first_available` method and incorporates a robust failsafe to handle cases of extreme local congestion where no slot is found within the search window. The result is a more intelligent dispatcher that better balances cost, delay, and resource utilization.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def _find_first_available(self, server_id):
+        """Finds the first available time slot for the op on a server."""
+        start_t = self.earliest_start
+        # Search forward indefinitely. This guarantees a slot is found.
+        while True:
+            if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                return start_t
+            start_t += 1
+
+    def find_best_placement(self):
+        """Evaluates all choices (cloud now vs. wait for local) and picks the best."""
+        placement_options = []
+
+        cloud_options = [(s_id, s) for s_id, s in self.compatible_servers if s.is_cloud]
+        local_options = [(s_id, s) for s_id, s in self.compatible_servers if not s.is_cloud]
+
+        # 1. Evaluate the "go to cloud immediately" option
+        if cloud_options:
+            cheapest_cloud_id = min(cloud_options, key=lambda x: self.inst.server_cost[x[0]][self.earliest_start % TIME_HORIZON])[0]
+            cloud_score = self._calculate_score(cheapest_cloud_id, self.earliest_start)
+            placement_options.append((cloud_score, cheapest_cloud_id, self.earliest_start))
+
+        # 2. Evaluate the "wait in queue" option for each local server
+        for server_id, server in local_options:
+            available_start = self._find_first_available(server_id)
+            local_score = self._calculate_score(server_id, available_start)
+            placement_options.append((local_score, server_id, available_start))
+
+        # 3. Handle the case where no compatible servers exist at all
+        if not placement_options:
+            raise RuntimeError(f"Could not schedule op for job {self.job.id}: No compatible servers found.")
+
+        # 4. Compete and select the best option
+        best_score, best_server, best_start = min(placement_options, key=lambda x: x[0])
+
+        return best_server, best_start
+=======
+    def find_best_placement(self):
+        """
+        Evaluates choices (cloud now vs. best local slot in a dynamic window) and picks the best.
+        This uses a "best-fit-in-window" strategy for local machines instead of "first-fit".
+        """
+        best_placement = (float('inf'), None, None)  # (score, server_id, start_time)
+
+        cloud_options = [(s_id, s) for s_id, s in self.compatible_servers if s.is_cloud]
+        local_options = [(s_id, s) for s_id, s in self.compatible_servers if not s.is_cloud]
+
+        # 1. Establish a cloud benchmark if available. This is our initial "best" option.
+        if cloud_options:
+            cheapest_cloud_id = min(cloud_options, key=lambda x: self.inst.server_cost[x[0]][self.earliest_start % TIME_HORIZON])[0]
+            cloud_score = self._calculate_score(cheapest_cloud_id, self.earliest_start)
+            best_placement = (cloud_score, cheapest_cloud_id, self.earliest_start)
+
+        # 2. Define a dynamic search horizon based on job slack.
+        slack = self.job.deadline - (self.earliest_start + self.op.duration + self.remaining_duration)
+        if slack < self.op.duration * 2:  # Critical if slack is less than twice op duration
+            search_horizon = 24  # Look ahead 1 day
+        elif slack < 48:
+            search_horizon = 72  # Look ahead 3 days
+        else:
+            search_horizon = 120 # Look ahead 5 days for cost optimization
+
+        # 3. Best-Fit Search: Find the best slot on each local machine within the horizon and compete.
+        for server_id, server in local_options:
+            best_score_for_server = float('inf')
+            best_start_for_server = None
+
+            for start_t in range(self.earliest_start, self.earliest_start + search_horizon):
+                if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                    score = self._calculate_score(server_id, start_t)
+                    if score < best_score_for_server:
+                        best_score_for_server = score
+                        best_start_for_server = start_t
+
+            # If a slot was found on this server, see if it's better than the overall best
+            if best_start_for_server is not None and best_score_for_server < best_placement[0]:
+                best_placement = (best_score_for_server, server_id, best_start_for_server)
+
+        # 4. Failsafe: If no placement was found (local machines full in horizon and no cloud).
+        if best_placement[1] is None:
+            if not self.compatible_servers:
+                raise RuntimeError(f"Could not schedule op for job {self.job.id}: No compatible servers found.")
+
+            # This case means no cloud and local machines are congested beyond the search horizon.
+            # We must perform an indefinite search on the cheapest local machine to guarantee a placement.
+            cheapest_local_id = min(local_options, key=lambda x: sum(self.inst.server_cost[x[0]].values()))[0]
+
+            start_t = self.earliest_start
+            while True:
+                if has_capacity(self.inst, self.capacity_usage, cheapest_local_id, start_t, self.op.duration, self.op.capacity_required):
+                    score = self._calculate_score(cheapest_local_id, start_t)
+                    best_placement = (score, cheapest_local_id, start_t)
+                    break
+                start_t += 1
+
+        _, best_server, best_start = best_placement
+        return best_server, best_start
+>>>>>>> REPLACE
+</DIFF>

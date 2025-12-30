@@ -1,0 +1,9 @@
+adaptive_urgency_and_proactive_scoring
+<NAME>
+adaptive_urgency_and_proactive_scoring
+</NAME>
+
+<DESCRIPTION>
+This edit refactors the scheduling logic to incorporate a more adaptive and proactive decision-making process, heavily inspired by the architecture of the best-performing prior submissions. The single `JobScheduler` class is replaced with a more modular structure consisting of `JobUrgencyProfile` and `PlacementDecisionMaker`. This change directly implements several key heuristic improvements:
+
+1.  **Unified Continuous Urgency Profile:** A new `JobUrgencyProfile` class calculates a single, continuous `urgency_score` for each

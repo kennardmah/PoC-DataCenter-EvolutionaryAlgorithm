@@ -1,0 +1,48 @@
+<NAME>
+nonlinear_hotspot_avoidance
+</NAME>
+
+<DESCRIPTION>
+This edit implements a more sophisticated load balancing heuristic for local servers, addressing the core challenge of balancing cost, contention, and resilience. The changes are twofold:
+
+1.  **Non-Linear Load Penalty:** The load penalty, previously linear with average server utilization, is now quadratic (`avg_utilization ** 2`). A linear penalty treats the difference between 10% and 20% utilization the same as between 80% and 90%. A quadratic penalty disproportionately penalizes higher utilization levels. This change makes the scheduler much more sensitive to congestion, aggressively steering jobs away from moderately busy servers towards less-utilized ones, promoting better load distribution and preventing servers from becoming saturated.
+
+2.  **Hotspot Penalty:** A new, significant penalty is introduced when scheduling an operation would leave a server with very low remaining capacity (1 or 0 free slots). This "hotspot" penalty helps preserve a buffer of capacity on local machines. This is crucial for resilience, especially for accommodating unexpected high-priority emergency jobs without being forced to use expensive cloud resources. The penalty is scaled by the operation's duration and is calibrated to be a multiple of the equivalent cloud cost, making it a strong deterrent against exhausting local capacity.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Load penalty for local servers
+        load_penalty = 0
+        if not server.is_cloud:
+            avg_utilization = server.get_avg_utilization(
+                start_time, start_time + op.duration, self.local_server_utilization_cache
+            )
+            load_penalty = self.load_penalty_factor * avg_utilization * op.duration
+=======
+        # Load penalty for local servers, with non-linear scaling and hotspot avoidance
+        load_penalty = 0
+        if not server.is_cloud:
+            # 1. Non-linear penalty to more aggressively avoid high utilization
+            avg_utilization = server.get_avg_utilization(
+                start_time, start_time + op.duration, self.local_server_utilization_cache
+            )
+            # Squaring utilization penalizes high load much more than low load,
+            # creating a stronger incentive to spread jobs across servers.
+            load_penalty = self.load_penalty_factor * (avg_utilization ** 2) * op.duration
+
+            # 2. Hotspot penalty to preserve capacity for urgent/future jobs
+            # This penalizes placements that leave the server with critically low capacity.
+            min_capacity_during_op = server.get_min_capacity_in_interval(
+                start_time, start_time + op.duration
+            )
+            # A threshold of 2 means we penalize if placing this op leaves 1 or 0 slots.
+            # This is critical for resilience, especially in the earthquake scenario.
+            if min_capacity_during_op <= 2:
+                # Penalty is proportional to cloud cost to make it a strong deterrent.
+                # A factor of 3 makes it significantly less attractive than cloud.
+                hotspot_penalty_factor = 3.0
+                cloud_equivalent_cost = (op.duration / 3600) * self.cloud_machine_cost
+                load_penalty += hotspot_penalty_factor * cloud_equivalent_cost
+>>>>>>> REPLACE
+</DIFF>

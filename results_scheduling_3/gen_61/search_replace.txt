@@ -1,0 +1,76 @@
+<NAME>
+adaptive_cloud_aggressiveness
+</NAME>
+
+<DESCRIPTION>
+This edit introduces a more robust and dynamic trade-off between local and cloud machine placement. The core idea is to make the scheduler aware of overall system congestion and adjust its strategy accordingly.
+
+It consists of three parts:
+1.  **Reverting Cloud Preference Logic:** The static `cloud_aggressiveness_threshold` is reverted to a previously high-performing configuration (`{'critical': 1.2, ...}`). This baseline prefers local machines for high-priority jobs to optimize for cost under normal conditions, as waiting for a cheaper local slot can be more beneficial than incurring high immediate cloud costs.
+2.  **System Load Sensing:** A new helper method, `_get_system_load`, is introduced. This function calculates the average utilization of all relevant local machines over a future time window, providing a real-time metric of system-wide congestion for a specific machine type.
+3.  **Dynamic Adjustment:** The static cloud preference factor is now dynamically adjusted by the system load. When local machines are congested (e.g., during the earthquake scenario), a `load_adjustment_factor` is calculated, which significantly lowers the preference for local machines. This makes the scheduler automatically pivot towards using the cloud to avoid delays when the system is under stress, while reverting to cost-saving local placements when capacity is available.
+
+This change combines a proven baseline strategy with a new adaptive mechanism, aiming to achieve strong performance in both normal and high-contention scenarios.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Inverted: high-priority jobs are more willing to use cloud
+        self.cloud_aggressiveness_threshold = {'critical': 0.8, 'urgent': 0.9, 'high': 1.0, 'medium': 1.1, 'low': 1.2}
+=======
+        # high-priority jobs prefer local to save cost, low-prio pushed to cloud
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+=======
+    def _get_system_load(self, server_type: str, window_start: int, window_duration: int) -> float:
+        """Calculates the average utilization of local servers of a given type over a time window."""
+        total_utilization = 0.0
+        num_server_timesteps = 0
+
+        relevant_servers = [
+            s_id for s_id, s in self.inst.servers.items()
+            if s.server_type == server_type and not s.is_cloud
+        ]
+        if not relevant_servers:
+            return 0.0
+
+        window_end = window_start + window_duration
+        for server_id in relevant_servers:
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_server_timesteps += 1
+
+        if num_server_timesteps == 0:
+            return 0.0
+        return total_utilization / num_server_timesteps
+
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+            chosen_server, chosen_start = None, -1
+            cloud_pref_factor = self.cloud_aggressiveness_threshold.get(self.job.priority, 1.0)
+
+            if local_res and local_score < (cloud_score * cloud_pref_factor):
+=======
+            chosen_server, chosen_start = None, -1
+            cloud_pref_factor = self.cloud_aggressiveness_threshold.get(self.job.priority, 1.0)
+
+            # Dynamically adjust cloud preference based on current system load
+            # Look ahead for a reasonable window (e.g., 12 hours) to gauge congestion
+            system_load = self._get_system_load(op.server_type, self.current_op_start_time, self.inst.time_horizon // 2)
+            # If system load is high, reduce the factor to make cloud more attractive
+            # The 1/(1+x) function provides a smooth reduction
+            load_adjustment_factor = 1.0 / (1.0 + system_load)
+            cloud_pref_factor *= load_adjustment_factor
+
+            if local_res and local_score < (cloud_score * cloud_pref_factor):
+>>>>>>> REPLACE
+</DIFF>

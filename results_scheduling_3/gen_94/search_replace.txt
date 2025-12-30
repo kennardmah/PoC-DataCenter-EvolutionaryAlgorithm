@@ -1,0 +1,139 @@
+<quadratic_load_hotspot>
+Introduce quadratic load balancing and hotspot penalties for local servers.
+</NAME>
+
+<DESCRIPTION>
+This edit implements Recommendation 1 by enhancing the `_calculate_operation_score` method within the `JobScheduler`.
+
+1.  **Quadratic Load Balancing:** The existing load-balancing penalty, which was linear with `avg_utilization`, is modified to be quadratic (`avg_utilization ** 2`). This means that as a server approaches full utilization, the penalty for placing an operation on it increases much more steeply, strongly disincentivizing scheduling on highly contended local resources. This aligns with successful patterns observed in previous generations.
+
+2.  **Predictive Hotspot Penalty:** A new penalty component, `hotspot_penalty`, is introduced for local servers. This penalty is applied if placing the current operation would cause the server's *remaining available capacity* (after accounting for scheduled operations and potential failures) to fall below a predefined `hotspot_threshold` (e.g., 20% of its original base capacity) at any point during the operation's execution. This proactively discourages actions that would lead to critical capacity shortages, improving resilience and resource distribution, especially under emergency scenarios. New parameters `self.hotspot_threshold` and `self.hotspot_penalty_factor` are added to the `JobScheduler` to control this behavior.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        self.priority_load_multiplier = {"emergency": 4.0, 'critical': 3.0, 'urgent': 2.5, 'high': 1.5, 'medium': 1.0, 'low': 0.5}
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+        """Calculates a composite score, incorporating load-balancing and procrastination penalties."""
+        server = self.inst.servers[server_id]
+
+        # 1. Compute Cost
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                           for t in range(start_time, start_time + op.duration))
+
+        # 2. Delay Penalty
+        projected_completion_time = start_time + op.duration + remaining_duration_after_op
+        delay = max(0, projected_completion_time - self.job.deadline)
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+
+        # 3. Dynamic Procrastination Penalty
+        current_slack_for_op = self.job.deadline - (self.current_op_start_time + op.duration + remaining_duration_after_op)
+        urgency_multiplier = self.priority_procrastination_multiplier.get(self.job.priority, 1.0)
+
+        slack_ratio = 1.0
+        if current_slack_for_op < 0:
+            slack_ratio = 1.0 + (math.exp(abs(current_slack_for_op) / (self.inst.time_horizon / 4.0)) - 1.0)
+        elif current_slack_for_op < self.inst.time_horizon / 4:
+            ratio_to_threshold = (self.inst.time_horizon / 4.0 - current_slack_for_op) / (self.inst.time_horizon / 4.0)
+            slack_ratio = 1.0 + (ratio_to_threshold**2) * 2.0
+
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_multiplier * slack_ratio
+
+        # 4. Load-Balancing Penalty
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+            window_end = start_time + op.duration * 2
+            total_utilization, num_timesteps = 0.0, 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = avg_utilization * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+        return total_score
+=======
+        self.priority_load_multiplier = {"emergency": 4.0, 'critical': 3.0, 'urgent': 2.5, 'high': 1.5, 'medium': 1.0, 'low': 0.5}
+
+        # --- NEW PARAMETERS FOR HOTSPOT PENALTY ---
+        self.hotspot_threshold = 0.20  # Percentage of server's base capacity considered a critical hotspot (20% or less remaining)
+        self.hotspot_penalty_factor = 25.0 # Penalty magnitude for hitting a hotspot
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+        """Calculates a composite score, incorporating load-balancing and procrastination penalties."""
+        server = self.inst.servers[server_id]
+
+        # 1. Compute Cost
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                           for t in range(start_time, start_time + op.duration))
+
+        # 2. Delay Penalty
+        projected_completion_time = start_time + op.duration + remaining_duration_after_op
+        delay = max(0, projected_completion_time - self.job.deadline)
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+
+        # 3. Dynamic Procrastination Penalty
+        current_slack_for_op = self.job.deadline - (self.current_op_start_time + op.duration + remaining_duration_after_op)
+        urgency_multiplier = self.priority_procrastination_multiplier.get(self.job.priority, 1.0)
+
+        slack_ratio = 1.0
+        if current_slack_for_op < 0:
+            slack_ratio = 1.0 + (math.exp(abs(current_slack_for_op) / (self.inst.time_horizon / 4.0)) - 1.0)
+        elif current_slack_for_op < self.inst.time_horizon / 4:
+            ratio_to_threshold = (self.inst.time_horizon / 4.0 - current_slack_for_op) / (self.inst.time_horizon / 4.0)
+            slack_ratio = 1.0 + (ratio_to_threshold**2) * 2.0
+
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_multiplier * slack_ratio
+
+        # 4. Non-Linear Load-Balancing Penalty (Quadratic)
+        load_penalty = 0.0
+        hotspot_penalty = 0.0 # Initialize hotspot penalty
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+            window_end = start_time + op.duration * 2
+            total_utilization_squared, num_timesteps = 0.0, 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    current_utilization = used / available
+                    # Apply quadratic penalty
+                    total_utilization_squared += current_utilization ** 2
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization_squared = total_utilization_squared / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = avg_utilization_squared * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+            # 5. Hotspot Penalty
+            server_base_capacity = self.inst.servers[server_id].capacity
+            for t in range(start_time, start_time + op.duration):
+                current_used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                effective_available_capacity = get_available_capacity(self.inst, server_id, t)
+
+                # Remaining capacity *after* this operation is placed
+                remaining_after_this_op = effective_available_capacity - (current_used + op.capacity_required)
+
+                # Apply hotspot penalty if remaining capacity drops below threshold relative to base capacity
+                if server_base_capacity > 0 and remaining_after_this_op / server_base_capacity < self.hotspot_threshold:
+                    hotspot_penalty = self.hotspot_penalty_factor * self.job.delay_weight # Apply once per operation
+                    break
+
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty + hotspot_penalty) # Add hotspot penalty
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

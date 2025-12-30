@@ -1,0 +1,14 @@
+<NAME>
+dynamic_cloud_multi_op_procrastination
+</NAME>
+
+<DESCRIPTION>
+This edit refines the scheduling heuristic within the `OperationScheduler` by implementing two key recommendations:
+
+1.  **Refined Procrastination Penalty with Multi-Operation Slack Analysis (Recommendation 2):**
+    *   The `_calculate_placement_score` method is enhanced to include a `multi_op_impact_penalty`. This penalty considers the total slack available for all *subsequent* operations of the current job.
+    *   If placing the current operation significantly reduces this overall remaining job slack (pushing the job closer to its critical path or deadline), a non-linear (exponential) penalty is applied. This penalty is scaled by job urgency and is more aggressive for jobs with shorter remaining durations or more remaining operations, ensuring that early delays don't cascade into unmanageable future problems.
+
+2.  **Unified, Continuous Urgency Profile and System-Load-Adaptive Cloud Aggressiveness (Recommendation 3):**
+    *   The `OperationScheduler` now calculates and stores a `system_average_utilization` at its initialization for the current operation's server type. This is an aggregate view of local resource contention over a lookahead window.
+    *   A new `_get_cloud_preference_factor` method is introduced. This factor dynamically adjusts how much cheaper a local placement needs to be compared to a cloud placement to be preferred. It takes into account both the job's `unified_urgency` (more urgent jobs

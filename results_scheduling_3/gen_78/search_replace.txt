@@ -1,0 +1,115 @@
+<NAME>
+pass_num_remaining_ops
+</NAME>
+
+<DESCRIPTION>
+This change modifies the `schedule_job_online` function to pass the count of remaining operations to the `PlacementDecisionMaker` constructor. This count is crucial for accurately assessing the "multi-operation impact" penalty, as jobs with many short remaining operations might have different slack sensitivities compared to jobs with a few long ones, even if their total remaining duration is similar. This enables a more nuanced and forward-looking procrastination penalty.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        decision_maker = PlacementDecisionMaker(
+            inst, job, op, capacity_usage, current_op_release_time, remaining_duration, urgency_profile
+        )
+=======
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+        num_remaining_operations = len(job.operations) - (idx + 1)
+
+        decision_maker = PlacementDecisionMaker(
+            inst, job, op, capacity_usage, current_op_release_time, remaining_duration, num_remaining_operations, urgency_profile
+        )
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+update_placement_decision_maker_init
+</NAME>
+
+<DESCRIPTION>
+This change updates the `PlacementDecisionMaker`'s `__init__` method to accept the new `num_remaining_operations` parameter. This makes the number of remaining operations available within the class, which will be used to enhance the multi-operation impact penalty calculation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class PlacementDecisionMaker:
+    """Finds the best placement for a single operation using an urgency-driven scoring model."""
+
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration, urgency_profile: JobUrgencyProfile):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.urgency = urgency_profile
+        self.base_procrastination_penalty = 0.05
+        self.hotspot_penalty_factor = 0.1
+        self.hotspot_lookahead_window = 6
+=======
+class PlacementDecisionMaker:
+    """Finds the best placement for a single operation using an urgency-driven scoring model."""
+
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration, num_remaining_operations: int, urgency_profile: JobUrgencyProfile):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.num_remaining_operations = num_remaining_operations # New parameter
+        self.urgency = urgency_profile
+        self.base_procrastination_penalty = 0.05
+        self.hotspot_penalty_factor = 0.1
+        self.hotspot_lookahead_window = 6
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+enhance_multi_operation_penalty
+</NAME>
+
+<DESCRIPTION>
+This modification significantly refines the `multi-operation impact penalty` within `_calculate_operation_score`. Instead of a simple linear penalty, it introduces a non-linear (exponential) increase as the job's remaining slack approaches and falls below its total remaining duration, considering the number of remaining operations. This makes the scheduler more sensitive to cascading delays and encourages earlier completion for complex jobs with tight deadlines, particularly those with many subsequent operations. The penalty's aggressiveness is scaled by job urgency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Add penalty for multi-operation impact: if delaying this op severely compresses slack for subsequent ops
+        if self.remaining_duration > 0:
+            projected_next_op_start = start_time + self.op.duration
+            remaining_job_slack = self.job.deadline - (projected_next_op_start + self.remaining_duration)
+
+            # Penalize if remaining slack is tight relative to remaining operations duration
+            if remaining_job_slack < self.remaining_duration * 0.5: # e.g., less than 50% of remaining op duration
+                # The tighter the slack, the higher the additional penalty, scaled by job urgency
+                procrastination_penalty += (self.remaining_duration * 0.5 - remaining_job_slack) * 0.5 * self.urgency.urgency_score
+=======
+        # Incorporate Multi-Operation Impact into Procrastination Penalty (Recommendation 5)
+        if self.num_remaining_operations > 0:
+            # Slack for the entire *remaining* job after current operation completes
+            job_final_slack = self.job.deadline - (start_time + self.op.duration + self.remaining_duration)
+
+            # Define a critical slack threshold based on remaining duration and number of ops
+            # This threshold means we prefer to have at least this much slack available for future operations
+            # More remaining ops or longer ops means a slightly higher buffer is desired
+            critical_slack_buffer = self.remaining_duration + (self.num_remaining_operations * 0.5)
+
+            multi_op_impact_penalty = 0.0
+            if job_final_slack < critical_slack_buffer:
+                # If slack is less than the critical buffer, apply an exponential penalty
+                # The closer the slack is to zero (or negative), the steeper the penalty
+                slack_shortfall = max(0, critical_slack_buffer - job_final_slack)
+
+                # The exponent base determines how steeply the penalty grows.
+                # Higher urgency and smaller remaining duration (making future ops more vulnerable)
+                # should lead to a steeper penalty.
+                # Clamp to avoid extremely large or small bases from edge cases.
+                exponent_base = 0.1 + (0.02 * self.urgency.urgency_score) # Base sensitivity by urgency
+                if self.remaining_duration > 0:
+                    exponent_base += (0.03 * self.num_remaining_operations) / self.remaining_duration # More ops/shorter duration -> steeper
+
+                multi_op_impact_penalty = (math.exp(slack_shortfall * exponent_base) - 1.0) * self.job.delay_weight * 0.5
+
+            procrastination_penalty += multi_op_impact_penalty
+>>>>>>> REPLACE
+</DIFF>

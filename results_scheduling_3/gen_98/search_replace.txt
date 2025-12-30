@@ -1,0 +1,100 @@
+<NAME>
+non_linear_procrastination_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit refines the multi-operation impact component of the `procrastination_penalty`.
+Previously, the penalty for compressing slack for subsequent operations was linear.
+This modification introduces a non-linear (exponential) penalty that scales more aggressively when the remaining job slack is critically low or negative.
+
+**Rationale:**
+*   **Improved Urgency Response:** Jobs with severely constrained remaining slack for future operations are truly in a critical state. An exponential penalty better reflects this increasing urgency, discouraging scheduling decisions that push subsequent operations into an impossible or very costly delay path.
+*   **Balancing Trade-offs:** By making the "procrastination" more expensive when it impacts the critical path of future operations, the scheduler is incentivized to find earlier slots, potentially even on slightly more expensive local machines or by using cloud resources, thus balancing cost, delay, and capacity contention more effectively for complex multi-operation jobs.
+*   **Alignment with Recommendation 2:** Directly addresses the recommendation to "refine procrastination penalty with multi-operation slack analysis" by using a "steeper exponential decay" when overall remaining job slack is reduced.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Add penalty for multi-operation impact: if delaying this op severely compresses slack for subsequent ops
+        if self.remaining_duration > 0:
+            projected_next_op_start = start_time + self.op.duration
+            remaining_job_slack = self.job.deadline - (projected_next_op_start + self.remaining_duration)
+
+            # Penalize if remaining slack is tight relative to remaining operations duration
+            if remaining_job_slack < self.remaining_duration * 0.5: # e.g., less than 50% of remaining op duration
+                # The tighter the slack, the higher the additional penalty, scaled by job urgency
+                procrastination_penalty += (self.remaining_duration * 0.5 - remaining_job_slack) * 0.5 * self.urgency.urgency_score
+=======
+        # Incorporate Multi-Operation Impact into Procrastination Penalty (Refined)
+        if self.remaining_duration > 0:
+            projected_next_op_end = start_time + self.op.duration
+            # Calculate the completion time if remaining operations start immediately after current op
+            projected_remaining_job_completion = projected_next_op_end + self.remaining_duration
+
+            # Calculate total slack available for remaining operations
+            total_remaining_slack = self.job.deadline - projected_remaining_job_completion
+
+            # If slack is negative, or very tight (e.g., less than the current operation's duration), apply a steeper penalty
+            if total_remaining_slack < self.op.duration:
+                slack_deficit = self.op.duration - total_remaining_slack # How much slack is "missing"
+
+                # Exponential penalty: The larger the deficit, the much larger the penalty
+                # The urgency score also steepens the penalty, with a clamped base to avoid extreme values.
+                exponent_base = 0.1 + (0.02 * self.urgency.urgency_score) # Base sensitivity by urgency
+                exponent_base = min(0.5, max(0.05, exponent_base)) # Clamp exponent base
+
+                multi_op_impact_penalty = (math.exp(slack_deficit * exponent_base) - 1.0) * self.job.delay_weight * 0.75
+
+                procrastination_penalty += multi_op_impact_penalty
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+iterative_local_search_refactor
+</NAME>
+
+<DESCRIPTION>
+This edit refactors the local placement search within `PlacementDecisionMaker` to implement an iterative expansion strategy for the search horizon, as per **Recommendation 4**.
+Previously, the local search used a single, broad horizon and a "first-fit" approach per server (though a previous generation removed the `break` so it was a best-fit within the broad horizon). This refactor introduces:
+
+1.  **Iterative Horizon Expansion:** The search starts with a smaller, more immediate `initial_local_search_window`. If no suitable local placement is found, the window is gradually expanded by `local_search_window_increment` until a `max_local_search_horizon` (determined by job urgency) is reached, or a practical upper limit (job deadline + buffer).
+2.  **Best-Fit within Window:** Within each iterative search window, the algorithm now explicitly finds the *best-scoring* local placement across all compatible servers, ensuring that even if a slot is found early, the search continues within that window to optimize for cost and load.
+3.  **Prioritization of Closer Slots:** The iterative approach inherently prioritizes finding slots closer to `earliest_start` by searching smaller windows first. This helps reduce procrastination while still being able to search further if absolutely necessary.
+
+This change aims to find more optimal local placements by exploring a more controlled range of options, balancing the need for quick decisions with the benefit of a slightly wider search for better-scoring slots, especially for less urgent jobs or when initial slots are highly contended.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        compatible_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type]
+
+        for server in compatible_servers:
+            if server.is_cloud:
+                score = self._calculate_operation_score(server.id, self.earliest_start)
+                if score < cloud_benchmark.score:
+                    cloud_benchmark = PlacementCandidate(score, server.id, self.earliest_start)
+            else: # Is local
+                search_limit = self.earliest_start + self.urgency.search_horizon
+                for start_t in range(self.earliest_start, search_limit):
+                    if has_capacity(self.inst, self.capacity_usage, server.id, start_t, self.op.duration, self.op.capacity_required):
+                        score = self._calculate_operation_score(server.id, start_t)
+                        if score < best_local.score:
+                            best_local = PlacementCandidate(score, server.id, start_t)
+                        break # First-fit for this server
+
+        has_local = best_local.server_id is not None
+        has_cloud = cloud_benchmark.server_id is not None
+
+        if has_local and has_cloud:
+            if best_local.score <= cloud_benchmark.score * self.urgency.cloud_aggressiveness_factor:
+                return best_local.server_id, best_local.start_time
+            else:
+                return cloud_benchmark.server_id, cloud_benchmark.start_time
+        elif has_local:
+            return best_local.server_id, best_local.start_time
+        elif has_cloud:
+            return cloud_benchmark.server_id, cloud_benchmark.start_time
+
+        # Failsafe: Unbounded search on cheapest local machine
+        local_servers = [s for s in compatible_servers if not s.is_cloud]
+        if local_servers:
+            cheapest_local_id = min(

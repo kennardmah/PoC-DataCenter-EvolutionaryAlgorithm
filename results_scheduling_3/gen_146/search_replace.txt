@@ -1,0 +1,106 @@
+<NAME>
+type_specific_load_for_cloud_decision
+</NAME>
+
+<DESCRIPTION>
+The current scheduler calculates a single, system-wide load metric when a job arrives. This global load is then used to determine the `cloud_aggressiveness_factor` for all of that job's operations. This approach is suboptimal because the contention for different machine types (e.g., M1 vs. M2) can vary significantly. A high load on M1 machines might incorrectly cause an operation needing a free M2 machine to be pushed to the cloud.
+
+This edit improves the decision-making process by introducing a more granular, dynamic load calculation. Instead of using one global metric, I will now:
+1.  Calculate a **type-specific system load** inside the loop for each individual operation. This load metric considers only the utilization of local machines that are compatible with the current operation.
+2.  Use the `current_op_release_time` as the start of the lookahead window for the load calculation, making it more relevant to the operation's scheduling time.
+3.  Recalculate the `cloud_aggressiveness_factor` for each operation using this more accurate, type-specific load.
+
+This change allows the scheduler to make more intelligent trade-offs between local and cloud resources. It will only increase its preference for the cloud when the *specific machine type required* for an operation is actually under high load, leading to better local resource utilization and reduced cloud costs without sacrificing performance for urgent jobs.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance, job: Job, schedule: Schedule, capacity_usage: Dict[str, Dict[int, int]], current_time: int):
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+    total_job_duration = sum(op.duration for op in job.operations)
+
+    # Calculate system-wide local load
+    total_cap, total_used = 0, 0
+    load_window = inst.time_horizon // 2
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            for t in range(current_time, current_time + load_window):
+                total_cap += get_available_capacity(inst, server_id, t)
+                total_used += capacity_usage.get(server_id, {}).get(t, 0)
+    system_load = total_used / total_cap if total_cap > 0 else 0.0
+
+    urgency_profile = JobUrgencyProfile(inst, job, current_time, total_job_duration, system_load)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+        num_remaining_ops = len(job.operations) - (idx + 1)
+
+        decision_maker = PlacementDecisionMaker(
+            inst, job, op, capacity_usage, current_op_release_time,
+            remaining_duration, num_remaining_ops, urgency_profile
+        )
+
+        chosen_server, chosen_start = decision_maker.find_best_placement()
+
+        # Update shared state
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_release_time = chosen_start + op.duration
+=======
+def schedule_job_online(inst: Instance, job: Job, schedule: Schedule, capacity_usage: Dict[str, Dict[int, int]], current_time: int):
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+    total_job_duration = sum(op.duration for op in job.operations)
+
+    # Calculate an initial system-wide local load to establish a baseline urgency profile.
+    total_cap, total_used = 0, 0
+    load_window = inst.time_horizon // 2
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            for t in range(current_time, current_time + load_window):
+                total_cap += get_available_capacity(inst, server_id, t)
+                total_used += capacity_usage.get(server_id, {}).get(t, 0)
+    system_load = total_used / total_cap if total_cap > 0 else 0.0
+
+    urgency_profile = JobUrgencyProfile(inst, job, current_time, total_job_duration, system_load)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+        num_remaining_ops = len(job.operations) - (idx + 1)
+
+        # Refine cloud aggressiveness based on type-specific load for the current operation
+        type_total_cap, type_total_used = 0, 0
+        type_load_window = inst.time_horizon // 2
+        for server_id, server in inst.servers.items():
+            if server.server_type == op.server_type and not server.is_cloud:
+                for t in range(current_op_release_time, current_op_release_time + type_load_window):
+                    type_total_cap += get_available_capacity(inst, server_id, t)
+                    type_total_used += capacity_usage.get(server_id, {}).get(t, 0)
+
+        type_specific_load = type_total_used / type_total_cap if type_total_cap > 0 else 0.0
+
+        # Recalculate cloud aggressiveness using the more specific load metric and update the profile for this op
+        base_cloud_factor = 1.15
+        urgency_influence = (urgency_profile.urgency_score - 2.0) * 0.06
+        load_influence = (type_specific_load - 0.4) * 0.2
+        urgency_profile.cloud_aggressiveness_factor = base_cloud_factor - urgency_influence - load_influence
+        urgency_profile.cloud_aggressiveness_factor = max(0.85, min(1.3, urgency_profile.cloud_aggressiveness_factor))
+
+        decision_maker = PlacementDecisionMaker(
+            inst, job, op, capacity_usage, current_op_release_time,
+            remaining_duration, num_remaining_ops, urgency_profile
+        )
+
+        chosen_server, chosen_start = decision_maker.find_best_placement()
+
+        # Update shared state
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_release_time = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

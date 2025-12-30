@@ -1,0 +1,143 @@
+<NAME>
+dynamic_cloud_aggro_load
+</NAME>
+
+<DESCRIPTION>
+This enhancement implements a dynamic adjustment for cloud aggressiveness based on the overall system load of local machines.
+
+Key changes:
+1.  **Expanded Priority Definitions**: Added 'emergency' priority to `priority_base_horizon`, `priority_procrastination_multiplier`, and `cloud_aggressiveness_threshold` with highly aggressive values to reflect its critical nature. The interpretation of `priority_load_multiplier` for emergencies was adjusted to penalize less, allowing critical jobs to "push through" congestion.
+2.  **System-Wide Load Calculation (`_get_system_wide_local_load`)**: A new private method is introduced to calculate the average utilization of all local (non-cloud) servers over a future lookahead window (set to `inst.time_horizon // 2`). This provides a real-time assessment of local capacity pressure, anticipating future bottlenecks.
+3.  **Adaptive Cloud Preference**: The `cloud_pref_factor` (which dictates how much cheaper local needs to be compared to cloud) is now dynamically adjusted. When the `system_load_factor` is high, `cloud_pref_factor` is reduced, making cloud options relatively more attractive. This encourages offloading to the cloud during periods of local congestion or emergencies, improving system resilience and reducing local bottlenecks, especially for higher priority jobs. The adjustment logic `(1.0 - system_load_factor * 0.5)` biases towards cloud more strongly as local load increases.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters from Base Implementation ---
+        self.priority_base_horizon = {'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+        self.priority_procrastination_multiplier = {'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        self.priority_load_multiplier = {"emergency": 3.0, "urgent": 2.5, "critical": 2.0, "high": 1.5, "medium": 1.0, "low": 0.5}
+        # Local preference bonus was removed in favor of the more dynamic cloud_aggressiveness_threshold heuristic.
+
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+        """Calculates a composite score, incorporating load-balancing and local preference."""
+=======
+        # --- Heuristic Parameters from Base Implementation ---
+        self.priority_base_horizon = {'emergency': 3, 'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+        self.priority_procrastination_multiplier = {'emergency': 10.0, 'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        self.cloud_aggressiveness_threshold = {'emergency': 1.5, 'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        # Emergency jobs should get lowest load penalty to push through. Lower value -> less penalty.
+        self.priority_load_multiplier = {"emergency": 0.1, "critical": 0.2, "urgent": 0.5, "high": 1.0, "medium": 1.5, "low": 2.0}
+        # Local preference bonus was removed in favor of the more dynamic cloud_aggressiveness_threshold heuristic.
+
+    def _get_system_wide_local_load(self, lookahead_window: int) -> float:
+        """
+        Calculates the average utilization across all local servers within a lookahead window.
+        Provides a system-wide view of local capacity pressure.
+        """
+        total_local_utilization = 0.0
+        total_capacity_hours = 0.0
+
+        for server_id, server in self.inst.servers.items():
+            if not server.is_cloud:
+                for t in range(self.current_op_start_time, self.current_op_start_time + lookahead_window):
+                    used_capacity = self.capacity_usage.get(server_id, {}).get(t, 0)
+                    available_capacity = get_available_capacity(self.inst, server_id, t)
+
+                    if available_capacity > 0:
+                        total_local_utilization += used_capacity / available_capacity
+                    total_capacity_hours += 1 # Count each time slot for averaging
+
+        if total_capacity_hours > 0:
+            return total_local_utilization / total_capacity_hours
+        return 0.0 # No local capacity or no data
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+        """Calculates a composite score for a potential placement, incorporating load-balancing and procrastination."""
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+            cloud_pref_factor = self.cloud_aggressiveness_threshold.get(self.job.priority, 1.0)
+
+            if local_res and local_score < (cloud_score * cloud_pref_factor):
+                chosen_server, chosen_start = local_res[1], local_res[2]
+            elif cloud_res:
+                chosen_server, chosen_start = cloud_res[1], cloud_res[2]
+            else: # Failsafe logic
+                compatible_servers = [s for s in self.inst.servers.values() if s.server_type == op.server_type]
+                if any(s.is_cloud for s in compatible_servers):
+                    cheapest_cloud = min((s for s in compatible_servers if s.is_cloud),
+                                         key=lambda s: self.inst.server_cost[s.id][self.current_op_start_time % self.inst.time_horizon])
+                    chosen_server, chosen_start = cheapest_cloud.id, self.current_op_start_time
+                else:
+                    cheapest_local = min((s for s in compatible_servers if not s.is_cloud),
+                                         key=lambda s: sum(self.inst.server_cost[s.id].values()))
+                    start_t = self.current_op_start_time
+                    while True:
+                        if has_capacity(self.inst, self.capacity_usage, cheapest_local.id, start_t, op.duration, op.capacity_required):
+                            chosen_server, chosen_start = cheapest_local.id, start_t
+                            break
+                        start_t += 1
+=======
+            chosen_server, chosen_start = None, -1
+
+            # Get base cloud preference factor from parameters
+            base_cloud_pref_factor = self.cloud_aggressiveness_threshold.get(self.job.priority, 1.0)
+
+            # Dynamically adjust cloud preference based on system-wide local load
+            # Higher system load -> more aggressively consider cloud
+            system_load_factor = self._get_system_wide_local_load(self.inst.time_horizon // 2) # Lookahead for 12 hours
+
+            # Reduce cloud_pref_factor as system load increases, making cloud relatively more attractive
+            # The 0.5 multiplier controls the sensitivity to system load
+            adjusted_cloud_pref_factor = base_cloud_pref_factor * (1.0 - system_load_factor * 0.5)
+            adjusted_cloud_pref_factor = max(0.5, adjusted_cloud_pref_factor) # Don't make it too aggressive
+
+            if local_res and local_best_score < (cloud_benchmark_score * adjusted_cloud_pref_factor):
+                # Choose local if it's "sufficiently" better or allowed to be slightly worse based on adjusted factor
+                chosen_server, chosen_start = local_res[1], local_res[2]
+            elif cloud_res:
+                # Fallback to cloud if local wasn't competitive or wasn't found
+                chosen_server, chosen_start = cloud_res[1], cloud_res[2]
+            else: # Failsafe logic: This block only executes if NO placement (local or cloud) was found in initial search.
+                compatible_servers = [s for s in self.inst.servers.values() if s.server_type == op.server_type]
+
+                # Prioritize cloud if available, otherwise do an unbounded local search to guarantee a schedule.
+                compatible_cloud_servers = [s for s in compatible_servers if s.is_cloud]
+                if compatible_cloud_servers:
+                    # Choose cheapest available cloud for immediate start
+                    cheapest_cloud = min(compatible_cloud_servers,
+                                         key=lambda s: self.inst.server_cost[s.id][self.current_op_start_time % self.inst.time_horizon])
+                    chosen_server, chosen_start = cheapest_cloud.id, self.current_op_start_time
+                else:
+                    # If no cloud or it's still somehow not found, perform unbounded local search
+                    # This ensures job is scheduled even if very delayed, avoiding violations.
+                    compatible_local = sorted([s for s in compatible_servers if not s.is_cloud],
+                                              key=lambda s: self.inst.server_cost[s.id][0]) # Sort by average cost
+                    if not compatible_local:
+                        raise Exception(f"No compatible servers (local or cloud) for operation {idx} of job {self.job.id} at time {self.current_op_start_time}")
+
+                    s_id_failsafe = compatible_local[0].id
+                    start_t_failsafe = self.current_op_start_time
+                    while True: # Search indefinitely to guarantee a spot
+                        if has_capacity(self.inst, self.capacity_usage, s_id_failsafe, start_t_failsafe, op.duration, op.capacity_required):
+                            chosen_server, chosen_start = s_id_failsafe, start_t_failsafe
+                            break
+                        start_t_failsafe += 1
+>>>>>>> REPLACE
+</DIFF>

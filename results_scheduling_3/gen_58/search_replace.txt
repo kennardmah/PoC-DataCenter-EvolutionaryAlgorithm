@@ -1,0 +1,12 @@
+<NAME>
+unified_cost_model_v2
+</NAME>
+
+<DESCRIPTION>
+This edit refines the `PlacementEvaluator` by centralizing all priority-based tuning parameters into a single `PRIORITY_CONFIG` dictionary. This allows for a more coherent and adaptable scheduling strategy.
+
+Key improvements:
+1.  **Unified Objective Function (Recommendation 4):** The logic for adjusting cloud costs is now directly integrated into the `_calculate_score` method via a `cloud_cost_mult` from the `PRIORITY_CONFIG`. This replaces the previous `cloud_aggressiveness_threshold` heuristic, ensuring all cost components are evaluated within a single, consistent objective function.
+2.  **Systematic Adaptive Penalties (Recommendation 2):** A new `PRIORITY_CONFIG` dictionary stores multipliers for procrastination, load balancing, cloud costs, search horizons, and delay penalties for each job priority. This allows for fine-grained, priority-aware adjustments to the heuristic's behavior.
+3.  **Enhanced Load Balancing (Recommendation 5):** The `_calculate_score` method now includes a more sophisticated load-balancing penalty. It looks ahead for congestion using `LOAD_BALANCE_LOOKAHEAD`, applies a non-linear penalty based on squared utilization for higher congestion, and scales this penalty using a priority-specific `load_mult`.
+4.  **Dynamic Search Horizon Refinement:** The local machine search horizon (`dynamic_horizon`) is now more robustly calculated, incorporating a base value, a priority-specific `horizon_mult`, and

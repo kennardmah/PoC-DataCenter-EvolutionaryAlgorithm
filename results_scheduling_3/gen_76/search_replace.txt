@@ -1,0 +1,27 @@
+<NAME>
+best_fit_local_search
+</NAME>
+
+<DESCRIPTION>
+The current local placement search employs a "first-fit" strategy, selecting the first available time slot on each machine and breaking the search for that machine. This can lead to suboptimal choices, as a slightly later slot within the search horizon might offer significantly lower compute costs or help avoid future congestion.
+
+This change modifies the logic to perform a "best-fit" search. By removing the premature `break` statement, the algorithm will now evaluate all available slots within the dynamic search horizon for each local server. It then selects the slot with the lowest overall score (considering cost, delay, procrastination, and load). This more comprehensive search allows for better local placements by improving the trade-off between immediate availability and long-term cost efficiency, a pattern observed in previously higher-performing solutions.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+                for start_t in range(self.earliest_start, search_limit):
+                    if has_capacity(self.inst, self.capacity_usage, server.id, start_t, self.op.duration, self.op.capacity_required):
+                        score = self._calculate_operation_score(server.id, start_t)
+                        if score < best_local.score:
+                            best_local = PlacementCandidate(score, server.id, start_t)
+                        break # First-fit for this server
+=======
+                for start_t in range(self.earliest_start, search_limit):
+                    if has_capacity(self.inst, self.capacity_usage, server.id, start_t, self.op.duration, self.op.capacity_required):
+                        score = self._calculate_operation_score(server.id, start_t)
+                        if score < best_local.score:
+                            best_local = PlacementCandidate(score, server.id, start_t)
+                        # By removing the break, we change from first-fit to best-fit within the horizon.
+>>>>>>> REPLACE
+</DIFF>

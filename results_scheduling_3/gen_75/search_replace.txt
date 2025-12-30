@@ -1,0 +1,65 @@
+<NAME>
+reintroduce_successful_heuristics
+</NAME>
+
+<DESCRIPTION>
+The current scheduling algorithm performs worse than a previous version. This change re-introduces two key heuristic components from the best-performing prior solution into the current `PlacementEvaluator` class to improve its decision-making.
+
+1.  **Inverse-Priority Load Penalty:** A `priority_load_multiplier` is added to the `PlacementEvaluator`. This multiplier reduces the load-balancing penalty for high-priority jobs (like 'emergency' and 'critical') and increases it for low-priority ones. This allows critical jobs to be scheduled more aggressively into contended time slots if it minimizes their delay, without being overly penalized for creating a temporary "hotspot". This is crucial in emergency scenarios where speed for key jobs is more important than perfectly even load distribution.
+
+2.  **Direct Local Preference Bonus:** A fixed, negative bonus (`local_preference_bonus = -10.0`) is now added to the score of any potential placement on a local (non-cloud) server. This provides a direct and constant incentive to use cheaper local resources, complementing the existing multiplicative `cloud_aggressiveness_threshold`. This makes the decision logic more robust by ensuring local options are always fundamentally preferred, all else being equal.
+
+These two changes are inspired by a previously successful model and aim to restore a better balance between cost, delay, and resource utilization, particularly for high-priority jobs.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters (Crossover) ---
+        self.priority_procrastination_multiplier = {'emergency': 3.0, 'critical': 2.5, 'high': 1.5, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        self.load_penalty_factor = 5.0
+        self.cloud_aggressiveness_threshold = {'emergency': 1.2, 'critical': 1.15, 'high': 1.0, 'medium': 0.9, 'low': 0.8}
+=======
+        # --- Heuristic Parameters (Crossover) ---
+        self.priority_procrastination_multiplier = {'emergency': 3.0, 'critical': 2.5, 'high': 1.5, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        self.load_penalty_factor = 5.0
+        self.cloud_aggressiveness_threshold = {'emergency': 1.2, 'critical': 1.15, 'high': 1.0, 'medium': 0.9, 'low': 0.8}
+        # Re-introducing concepts from a previously successful model
+        self.priority_load_multiplier = {'emergency': 0.1, 'critical': 0.2, 'high': 0.5, 'medium': 1.0, 'low': 2.0}
+        self.local_preference_bonus = -10.0
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # 4. Load-Balancing Penalty (for local machines)
+        load_penalty = 0.0
+        server = self.inst.servers[server_id]
+        if not server.is_cloud:
+            window_start = max(0, start_time - self.op.duration)
+            window_end = start_time + self.op.duration * 2
+            total_utilization = 0.0
+            num_timesteps = 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_penalty = avg_utilization * self.load_penalty_factor * self.job.delay_weight
+
+        return (compute_cost * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty + load_penalty)
+=======
+        # 4. Load-Balancing Penalty (for local machines)
+        load_penalty = 0.0
+        server = self.inst.servers[server_id]
+        if not server.is_cloud:
+            window_start = max(0, start_time - self.op.duration)
+            window_end = start_time + self.op.duration * 2
+            total_utilization = 0.0
+            num_timesteps = 0
+            for t in range(window_start, window

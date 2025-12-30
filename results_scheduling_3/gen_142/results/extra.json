@@ -1,0 +1,826 @@
+{
+  "multi_scenario": true,
+  "weighted_score": 19566.5,
+  "scenario_weights": {
+    "normal": 0.8,
+    "earthquake": 0.2
+  },
+  "scenarios": {
+    "normal": {
+      "schedule": {
+        "J1": [
+          {
+            "server": "M5",
+            "start": 0
+          },
+          {
+            "server": "M2",
+            "start": 2
+          }
+        ],
+        "J2": [
+          {
+            "server": "M5",
+            "start": 1
+          },
+          {
+            "server": "M1",
+            "start": 2
+          }
+        ],
+        "J3": [
+          {
+            "server": "M5",
+            "start": 2
+          },
+          {
+            "server": "M3",
+            "start": 3
+          },
+          {
+            "server": "M2",
+            "start": 6
+          }
+        ],
+        "J4": [
+          {
+            "server": "M2",
+            "start": 3
+          },
+          {
+            "server": "M3",
+            "start": 5
+          }
+        ],
+        "J15": [
+          {
+            "server": "M5",
+            "start": 3
+          },
+          {
+            "server": "M1",
+            "start": 7
+          },
+          {
+            "server": "M2",
+            "start": 11
+          }
+        ],
+        "J16": [
+          {
+            "server": "M5",
+            "start": 4
+          },
+          {
+            "server": "M1",
+            "start": 7
+          },
+          {
+            "server": "M3",
+            "start": 10
+          }
+        ],
+        "J17": [
+          {
+            "server": "M2",
+            "start": 4
+          },
+          {
+            "server": "M3",
+            "start": 12
+          }
+        ],
+        "J30": [
+          {
+            "server": "M3",
+            "start": 6
+          },
+          {
+            "server": "M2",
+            "start": 9
+          }
+        ],
+        "J18": [
+          {
+            "server": "M5",
+            "start": 5
+          },
+          {
+            "server": "M2",
+            "start": 6
+          },
+          {
+            "server": "M1",
+            "start": 10
+          }
+        ],
+        "J19": [
+          {
+            "server": "M1",
+            "start": 11
+          },
+          {
+            "server": "M2",
+            "start": 15
+          }
+        ],
+        "J29": [
+          {
+            "server": "M2",
+            "start": 5
+          },
+          {
+            "server": "M3",
+            "start": 7
+          }
+        ],
+        "J5": [
+          {
+            "server": "M5",
+            "start": 6
+          },
+          {
+            "server": "C1",
+            "start": 7
+          },
+          {
+            "server": "M2",
+            "start": 10
+          }
+        ],
+        "J20": [
+          {
+            "server": "M4",
+            "start": 6
+          },
+          {
+            "server": "M2",
+            "start": 9
+          }
+        ],
+        "J28": [
+          {
+            "server": "M5",
+            "start": 6
+          },
+          {
+            "server": "M2",
+            "start": 7
+          }
+        ],
+        "J6": [
+          {
+            "server": "M5",
+            "start": 7
+          },
+          {
+            "server": "M2",
+            "start": 8
+          },
+          {
+            "server": "M3",
+            "start": 10
+          }
+        ],
+        "J21": [
+          {
+            "server": "M2",
+            "start": 7
+          },
+          {
+            "server": "C3",
+            "start": 10
+          },
+          {
+            "server": "M1",
+            "start": 12
+          }
+        ],
+        "J7": [
+          {
+            "server": "M4",
+            "start": 9
+          },
+          {
+            "server": "M2",
+            "start": 11
+          },
+          {
+            "server": "C3",
+            "start": 12
+          }
+        ],
+        "J22": [
+          {
+            "server": "C4",
+            "start": 8
+          },
+          {
+            "server": "C1",
+            "start": 10
+          },
+          {
+            "server": "C3",
+            "start": 13
+          }
+        ],
+        "J27": [
+          {
+            "server": "M2",
+            "start": 8
+          },
+          {
+            "server": "M5",
+            "start": 11
+          }
+        ],
+        "J8": [
+          {
+            "server": "C4",
+            "start": 9
+          },
+          {
+            "server": "M4",
+            "start": 12
+          }
+        ],
+        "J23": [
+          {
+            "server": "M5",
+            "start": 9
+          },
+          {
+            "server": "M2",
+            "start": 10
+          },
+          {
+            "server": "M1",
+            "start": 14
+          }
+        ],
+        "J24": [
+          {
+            "server": "M2",
+            "start": 9
+          },
+          {
+            "server": "M3",
+            "start": 15
+          }
+        ],
+        "J9": [
+          {
+            "server": "M5",
+            "start": 10
+          },
+          {
+            "server": "C3",
+            "start": 12
+          },
+          {
+            "server": "M2",
+            "start": 16
+          }
+        ],
+        "J10": [
+          {
+            "server": "M5",
+            "start": 11
+          },
+          {
+            "server": "M2",
+            "start": 13
+          },
+          {
+            "server": "M3",
+            "start": 16
+          }
+        ],
+        "J25": [
+          {
+            "server": "M5",
+            "start": 12
+          },
+          {
+            "server": "M1",
+            "start": 15
+          },
+          {
+            "server": "M2",
+            "start": 19
+          }
+        ],
+        "J11": [
+          {
+            "server": "M5",
+            "start": 13
+          },
+          {
+            "server": "M2",
+            "start": 14
+          },
+          {
+            "server": "M3",
+            "start": 18
+          }
+        ],
+        "J12": [
+          {
+            "server": "M4",
+            "start": 14
+          },
+          {
+            "server": "M1",
+            "start": 16
+          },
+          {
+            "server": "M2",
+            "start": 18
+          }
+        ],
+        "J26": [
+          {
+            "server": "M2",
+            "start": 15
+          },
+          {
+            "server": "M3",
+            "start": 18
+          }
+        ],
+        "J13": [
+          {
+            "server": "M5",
+            "start": 17
+          },
+          {
+            "server": "M2",
+            "start": 18
+          },
+          {
+            "server": "M4",
+            "start": 21
+          }
+        ],
+        "J14": [
+          {
+            "server": "M5",
+            "start": 18
+          },
+          {
+            "server": "M2",
+            "start": 19
+          },
+          {
+            "server": "M3",
+            "start": 21
+          }
+        ]
+      },
+      "score": 18781.0,
+      "compute_cost": 16861,
+      "delay_penalty": 384.0,
+      "violations": [],
+      "job_completion_times": {
+        "J1": 5,
+        "J2": 7,
+        "J3": 7,
+        "J4": 6,
+        "J15": 13,
+        "J16": 12,
+        "J17": 15,
+        "J30": 11,
+        "J18": 12,
+        "J19": 17,
+        "J29": 9,
+        "J5": 12,
+        "J20": 11,
+        "J28": 9,
+        "J6": 12,
+        "J21": 14,
+        "J7": 13,
+        "J22": 15,
+        "J27": 12,
+        "J8": 14,
+        "J23": 16,
+        "J24": 18,
+        "J9": 18,
+        "J10": 18,
+        "J25": 21,
+        "J11": 20,
+        "J12": 19,
+        "J26": 19,
+        "J13": 23,
+        "J14": 22
+      }
+    },
+    "earthquake": {
+      "schedule": {
+        "J1": [
+          {
+            "server": "M5",
+            "start": 0
+          },
+          {
+            "server": "M2",
+            "start": 2
+          }
+        ],
+        "J2": [
+          {
+            "server": "M5",
+            "start": 1
+          },
+          {
+            "server": "M1",
+            "start": 2
+          }
+        ],
+        "J3": [
+          {
+            "server": "M5",
+            "start": 2
+          },
+          {
+            "server": "M3",
+            "start": 3
+          },
+          {
+            "server": "M2",
+            "start": 6
+          }
+        ],
+        "J4": [
+          {
+            "server": "M2",
+            "start": 3
+          },
+          {
+            "server": "M3",
+            "start": 5
+          }
+        ],
+        "J15": [
+          {
+            "server": "M5",
+            "start": 3
+          },
+          {
+            "server": "M1",
+            "start": 7
+          },
+          {
+            "server": "M2",
+            "start": 11
+          }
+        ],
+        "J16": [
+          {
+            "server": "M5",
+            "start": 4
+          },
+          {
+            "server": "M1",
+            "start": 11
+          },
+          {
+            "server": "M3",
+            "start": 14
+          }
+        ],
+        "J17": [
+          {
+            "server": "M2",
+            "start": 4
+          },
+          {
+            "server": "M3",
+            "start": 16
+          }
+        ],
+        "J30": [
+          {
+            "server": "M3",
+            "start": 6
+          },
+          {
+            "server": "M2",
+            "start": 9
+          }
+        ],
+        "J18": [
+          {
+            "server": "M5",
+            "start": 5
+          },
+          {
+            "server": "M2",
+            "start": 6
+          },
+          {
+            "server": "C1",
+            "start": 9
+          }
+        ],
+        "J19": [
+          {
+            "server": "M1",
+            "start": 14
+          },
+          {
+            "server": "M2",
+            "start": 18
+          }
+        ],
+        "J29": [
+          {
+            "server": "M2",
+            "start": 5
+          },
+          {
+            "server": "M3",
+            "start": 7
+          }
+        ],
+        "J5": [
+          {
+            "server": "M5",
+            "start": 6
+          },
+          {
+            "server": "C1",
+            "start": 7
+          },
+          {
+            "server": "M2",
+            "start": 10
+          }
+        ],
+        "J20": [
+          {
+            "server": "M4",
+            "start": 6
+          },
+          {
+            "server": "M2",
+            "start": 9
+          }
+        ],
+        "J28": [
+          {
+            "server": "M5",
+            "start": 6
+          },
+          {
+            "server": "M2",
+            "start": 7
+          }
+        ],
+        "J6": [
+          {
+            "server": "M5",
+            "start": 7
+          },
+          {
+            "server": "M2",
+            "start": 8
+          },
+          {
+            "server": "M3",
+            "start": 10
+          }
+        ],
+        "J21": [
+          {
+            "server": "M2",
+            "start": 7
+          },
+          {
+            "server": "C3",
+            "start": 10
+          },
+          {
+            "server": "C1",
+            "start": 12
+          }
+        ],
+        "J7": [
+          {
+            "server": "M4",
+            "start": 9
+          },
+          {
+            "server": "M2",
+            "start": 11
+          },
+          {
+            "server": "C3",
+            "start": 12
+          }
+        ],
+        "J22": [
+          {
+            "server": "C4",
+            "start": 8
+          },
+          {
+            "server": "C1",
+            "start": 10
+          },
+          {
+            "server": "C3",
+            "start": 13
+          }
+        ],
+        "J27": [
+          {
+            "server": "M2",
+            "start": 8
+          },
+          {
+            "server": "M5",
+            "start": 11
+          }
+        ],
+        "J8": [
+          {
+            "server": "C4",
+            "start": 9
+          },
+          {
+            "server": "M4",
+            "start": 12
+          }
+        ],
+        "J23": [
+          {
+            "server": "M5",
+            "start": 9
+          },
+          {
+            "server": "M2",
+            "start": 10
+          },
+          {
+            "server": "M1",
+            "start": 14
+          }
+        ],
+        "J24": [
+          {
+            "server": "M2",
+            "start": 11
+          },
+          {
+            "server": "C3",
+            "start": 14
+          }
+        ],
+        "J9": [
+          {
+            "server": "M5",
+            "start": 10
+          },
+          {
+            "server": "C3",
+            "start": 12
+          },
+          {
+            "server": "M2",
+            "start": 16
+          }
+        ],
+        "J10": [
+          {
+            "server": "M5",
+            "start": 11
+          },
+          {
+            "server": "M2",
+            "start": 13
+          },
+          {
+            "server": "C3",
+            "start": 16
+          }
+        ],
+        "J25": [
+          {
+            "server": "M5",
+            "start": 12
+          },
+          {
+            "server": "M1",
+            "start": 18
+          },
+          {
+            "server": "M2",
+            "start": 22
+          }
+        ],
+        "J11": [
+          {
+            "server": "M5",
+            "start": 13
+          },
+          {
+            "server": "M2",
+            "start": 14
+          },
+          {
+            "server": "M3",
+            "start": 18
+          }
+        ],
+        "J12": [
+          {
+            "server": "M4",
+            "start": 14
+          },
+          {
+            "server": "M1",
+            "start": 16
+          },
+          {
+            "server": "M2",
+            "start": 18
+          }
+        ],
+        "J26": [
+          {
+            "server": "M2",
+            "start": 15
+          },
+          {
+            "server": "M3",
+            "start": 17
+          }
+        ],
+        "J13": [
+          {
+            "server": "M5",
+            "start": 17
+          },
+          {
+            "server": "M2",
+            "start": 18
+          },
+          {
+            "server": "M4",
+            "start": 21
+          }
+        ],
+        "J14": [
+          {
+            "server": "M5",
+            "start": 18
+          },
+          {
+            "server": "M2",
+            "start": 19
+          },
+          {
+            "server": "M3",
+            "start": 21
+          }
+        ]
+      },
+      "score": 22708.5,
+      "compute_cost": 20271,
+      "delay_penalty": 487.5,
+      "violations": [],
+      "job_completion_times": {
+        "J1": 5,
+        "J2": 7,
+        "J3": 7,
+        "J4": 6,
+        "J15": 13,
+        "J16": 16,
+        "J17": 19,
+        "J30": 11,
+        "J18": 11,
+        "J19": 20,
+        "J29": 9,
+        "J5": 12,
+        "J20": 11,
+        "J28": 9,
+        "J6": 12,
+        "J21": 14,
+        "J7": 13,
+        "J22": 15,
+        "J27": 12,
+        "J8": 14,
+        "J23": 16,
+        "J24": 17,
+        "J9": 18,
+        "J10": 18,
+        "J25": 24,
+        "J11": 20,
+        "J12": 19,
+        "J26": 18,
+        "J13": 23,
+        "J14": 22
+      }
+    }
+  }
+}

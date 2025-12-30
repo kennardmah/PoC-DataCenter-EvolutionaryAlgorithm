@@ -1,0 +1,78 @@
+<NAME>
+slack_aware_best_fit
+</NAME>
+
+<DESCRIPTION>
+This edit introduces two significant enhancements to the scheduling logic to improve decision-making under contention and tight deadlines.
+
+1.  **Slack-Aware Procrastination Penalty**: The `procrastination_penalty` within the scoring function is now non-linear. It scales exponentially based on the job's remaining slack after a potential placement. This change makes the scheduler highly sensitive to consuming the slack of jobs that are already at risk of being delayed. It heavily penalizes waiting when the job has little or no time buffer, preventing the myopic consumption of critical time on early operations and promoting a more holistic view of the job's entire lifecycle.
+
+2.  **Robust Best-Fit Local Search**: The local search strategy has been refactored from a complex, iterative "first-fit" heuristic to a more robust "best-fit" search. The new logic evaluates all available time slots for each local server within a dynamic search horizon and identifies the single best placement (lowest score) for that server. It then compares this server's best option against the global best (including the cloud benchmark and other local servers' bests). This "best-of-best-fits" approach is more thorough, ensuring the scheduler doesn't miss superior, slightly later placements in favor of the very first available slot, leading to better cost and delay trade-offs.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        procrastination_penalty = wait_time * self.PROCRASTINATION_PENALTY_FACTOR * self.unified_urgency
+
+        contention_penalty = 0.0
+=======
+        # Procrastination penalty is non-linearly scaled by how much slack is left for the whole job.
+        # This heavily penalizes waiting if the job is already running late or has little buffer.
+        remaining_slack = self.job.deadline - (start_time + self.op.duration + self.remaining_duration)
+        slack_multiplier = 1.0 + math.exp(-remaining_slack / (TIME_HORIZON / 3.0)) # More sensitive as slack -> 0 or negative
+        procrastination_penalty = wait_time * self.PROCRASTINATION_PENALTY_FACTOR * self.unified_urgency * slack_multiplier
+
+        contention_penalty = 0.0
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # 2. Iterative search on local servers
+        local_options = [s_id for s_id, s in self.inst.servers.items()
+                         if s.server_type == self.op.server_type and not s.is_cloud]
+
+        # Search horizon scales inversely with urgency
+        initial_horizon = max(self.op.duration, int(TIME_HORIZON * 3 / max(1, self.unified_urgency)))
+        step_horizon = max(self.op.duration, int(TIME_HORIZON / max(1, self.unified_urgency)))
+        max_iter = 4
+
+        search_end = self.earliest_start + initial_horizon
+
+        for i in range(max_iter):
+            found_in_iter = False
+            for server_id in local_options:
+                for start_t in range(self.earliest_start, search_end):
+                    if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                        score = self._calculate_placement_score(server_id, start_t)
+                        if score < best_placement[0]:
+                            best_placement = (score, server_id, start_t)
+                            found_in_iter = True
+                        break # Found first-fit in window for this server, move to next
+
+            # If we found a local placement better than the cloud, we can be more confident and stop early
+            if found_in_iter and not self.inst.servers[best_placement[1]].is_cloud:
+                break
+
+            search_end += step_horizon
+=======
+        # 2. Best-fit search on local servers
+        local_options = [s_id for s_id, s in self.inst.servers.items()
+                         if s.server_type == self.op.server_type and not s.is_cloud]
+
+        # Define a single search horizon, scaled inversely by urgency.
+        search_horizon = self.earliest_start + max(self.op.duration + 1, int(TIME_HORIZON * 3 / max(1, self.unified_urgency)))
+
+        # For each local server, find the best possible placement within the horizon.
+        for server_id in local_options:
+            best_score_on_server = float('inf')
+            best_start_on_server = -1
+
+            # Find the best slot for this specific server
+            for start_t in range(self.earliest_start, search_horizon):
+                if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                    score = self._calculate_placement_score(server_id, start_t)
+                    if score < best_score_on_server:
+                        best_score_on_server = score
+                        best_start_on_server = start_t
+
+            # If this server's best option

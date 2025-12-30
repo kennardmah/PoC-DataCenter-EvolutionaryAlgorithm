@@ -1,0 +1,171 @@
+<NAME>
+best_fit_load_aware_scheduler
+</NAME>
+<DESCRIPTION>
+This edit refactors the `PlacementEvaluator` class to implement a more sophisticated scheduling heuristic. The current implementation uses a "first-fit" approach for local machines, which can lead to suboptimal placements. This change introduces three key improvements:
+
+1.  **Best-Fit Local Search:** Instead of greedily taking the first available time slot on a local machine, the new logic performs a "best-fit" search. It evaluates all possible start times for an operation within a dynamic search horizon for each compatible local server and selects the one with the lowest overall score. This allows the scheduler to find cheaper or less delay-inducing slots that might occur slightly later than the first available one.
+
+2.  **Load-Aware Scoring:** A new load-balancing penalty is integrated into the scoring function for local machines. It calculates the average server utilization in a lookahead window (8 hours) and adds a quadratic penalty based on this utilization. This discourages scheduling operations on already congested servers ("hotspots"), preserving their capacity for future high-priority jobs and promoting a more balanced load distribution across the infrastructure.
+
+3.  **Dynamic Cloud Preference:** The static `local_preference_factor` is replaced with a dynamic, priority-based mechanism. High-priority and emergency jobs now have a lower preference factor (e.g., 0.9), making them more likely to use the faster, more reliable cloud resources to avoid delays. Conversely, low-priority jobs have a higher factor (e.g., 1.15), making the scheduler prefer cheaper local options even if they are slightly more costly in the objective function score, thus saving expensive cloud resources for when they are truly needed.
+
+Additionally, a critical bug was fixed where the priority map used "Emergency" with a capital 'E', which did not match the lowercase "emergency" job priority in the data, causing emergency jobs to receive an incorrect, overly long search horizon.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+class PlacementEvaluator:
+    """
+    Encapsulates the logic for finding the best placement for a single operation
+    using a staged-decision heuristic.
+    """
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.priority_map = {"Emergency": 8, "urgent": 12, "high": 24, "medium": 48, "low": 72}
+        self.local_preference_factor = 1.05  # Prefer local if its score is within 5% of cloud
+
+    def _calculate_score(self, server_id, start_time):
+        """Calculates a composite score for a potential placement."""
+        compute = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                      for t in range(start_time, start_time + self.op.duration))
+
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+        compute_cost = compute * self.inst.weights['compute_cost']
+
+        procrastination_penalty = 0.1 * (start_time - self.earliest_start)
+
+        return compute_cost + delay_cost + procrastination_penalty
+
+    def _find_first_available_in_range(self, server_id, start_search, end_search):
+        """Finds the first time slot with enough capacity on a server within a range."""
+        for t in range(start_search, end_search):
+            if has_capacity(self.inst, self.capacity_usage, server_id, t, self.op.duration, self.op.capacity_required):
+                return t
+        return None
+
+    def find_best_placement(self):
+        """Implements the staged decision logic: benchmark cloud, search local, then decide."""
+
+        # 1. Benchmark with the best cloud option
+        cloud_benchmark_score = float('inf')
+        best_cloud_server_id = None
+        compatible_cloud_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type and s.is_cloud]
+        for server in compatible_cloud_servers:
+            score = self._calculate_score(server.id, self.earliest_start)
+            if score < cloud_benchmark_score:
+                cloud_benchmark_score = score
+                best_cloud_server_id = server.id
+
+        # 2. Find the best local placement within a dynamic horizon
+        search_horizon = self.priority_map.get(self.job.priority, 48)
+        search_limit = self.earliest_start + search_horizon
+        best_local_score, best_local_server_id, best_local_start_time = float('inf'), None, -1
+        compatible_local_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type and not s.is_cloud]
+        for server in compatible_local_servers:
+            start_time = self._find_first_available_in_range(server.id, self.earliest_start, search_limit)
+            if start_time is not None:
+                score = self._calculate_score(server.id, start_time)
+                if score < best_local_score:
+                    best_local_score, best_local_server_id, best_local_start_time = score, server.id, start_time
+
+        # 3. Strategic Decision
+        if best_local_server_id and best_local_score <= cloud_benchmark_score * self.local_preference_factor:
+            return best_local_server_id, best_local_start_time
+=======
+class PlacementEvaluator:
+    """
+    Encapsulates the logic for finding the best placement for a single operation
+    using a staged-decision heuristic with best-fit and load-awareness.
+    """
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+
+        # Priority-based search horizons and dynamic cloud preference
+        self.priority_map = {"emergency": 8, "urgent": 12, "high": 24, "medium": 48, "low": 72}
+        self.cloud_preference_map = {"emergency": 0.9, "urgent": 0.95, "high": 1.0, "medium": 1.05, "low": 1.15}
+
+        # Load-balancing parameters
+        self.load_penalty_factor = 0.2
+        self.load_lookahead_window = 8  # hours
+
+    def _calculate_score(self, server_id, start_time):
+        """Calculates a composite score, including compute, delay, procrastination, and load."""
+        server = self.inst.servers[server_id]
+
+        # 1. Base costs (compute + delay)
+        compute = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                      for t in range(start_time, start_time + self.op.duration))
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+        compute_cost = compute * self.inst.weights['compute_cost']
+
+        # 2. Procrastination penalty
+        procrastination_penalty = 0.1 * (start_time - self.earliest_start)
+
+        # 3. Load-balancing penalty for local machines
+        load_penalty = 0.0
+        if not server.is_cloud:
+            utilization_sum = 0
+            for t in range(start_time, start_time + self.load_lookahead_window):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    # Calculate utilization for this timestep if we schedule the op
+                    future_util = (used + self.op.capacity_required) / available
+                    utilization_sum += future_util
+
+            if self.load_lookahead_window > 0:
+                avg_utilization = utilization_sum / self.load_lookahead_window
+                # Quadratic penalty to heavily discourage high utilization
+                load_penalty = self.load_penalty_factor * (avg_utilization ** 2) * compute_cost
+
+        return compute_cost + delay_cost + procrastination_penalty + load_penalty
+
+    def find_best_placement(self):
+        """Implements the staged decision logic: benchmark cloud, perform best-fit local search, then decide."""
+
+        # 1. Benchmark with the best cloud option (always at earliest start)
+        cloud_benchmark_score = float('inf')
+        best_cloud_server_id = None
+        compatible_cloud_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type and s.is_cloud]
+        for server in compatible_cloud_servers:
+            score = self._calculate_score(server.id, self.earliest_start)
+            if score < cloud_benchmark_score:
+                cloud_benchmark_score = score
+                best_cloud_server_id = server.id
+
+        # 2. Find the best local placement using BEST-FIT search within a dynamic horizon
+        search_horizon = self.priority_map.get(self.job.priority, 48)
+        search_limit = self.earliest_start + search_horizon
+        best_local_score, best_local_server_id, best_local_start_time = float('inf'), None, -1
+        compatible_local_servers = [s for s in self.inst.servers.values() if s.server_type == self.op.server_type and not s.is_cloud]
+
+        for server in compatible_local_servers:
+            # Iterate through all possible start times in the horizon
+            for start_time in range(self.earliest_start, search_limit):
+                if has_capacity(self.inst, self.capacity_usage, server.id, start_time, self.op.duration, self.op.capacity_required):
+                    score = self._calculate_score(server.id, start_time)
+                    # If this is the best local placement found so far, record it
+                    if score < best_local_score:
+                        best_local_score, best_local_server_id, best_local_start_time = score, server.id, start_time
+
+        # 3. Strategic Decision using dynamic preference
+        local_preference_factor = self.cloud_preference_map.get(self.job.priority, 1.05)
+        if best_local_server_id and best_local_score <= cloud_benchmark_score * local_preference_factor:
+            return best_local_server_id, best_local_start_time
+>>>>>>> REPLACE
+</DIFF>

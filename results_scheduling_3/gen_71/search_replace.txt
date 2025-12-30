@@ -1,0 +1,13 @@
+<NAME>
+iterative_local_search_horizon
+</NAME>
+
+<DESCRIPTION>
+This edit refactors the `_find_best_local_placement` method to implement an iterative, slack-bounded local search horizon, directly addressing Recommendation 3.
+
+**Problem with previous approach:**
+The prior `_find_best_local_placement` calculated a single, dynamic search horizon and then looked for the best local slot within that fixed window. If no suitable local slot was found within this initial window (e.g., due to temporary congestion or too tight a deadline causing a short horizon), the system would immediately fall back to a cloud placement or an unbounded local failsafe, potentially missing a good local slot that was just slightly outside the initial horizon but still better than cloud.
+
+**Proposed change:**
+1.  **New `__init__` Parameters:** Introduces `incremental_horizon_step` and `max_global_local_search_horizon` to `JobScheduler` to control the iterative search behavior. The existing `priority_base_horizon` is renamed to `initial_local_search_offset_map` and repurposed to define the initial search window.
+2.  **Iterative Expansion:** The `_find_best_local_placement` now starts with an `initial_horizon_offset` (derived from `initial_local_search_offset_map` based on job priority). If no suitable local placement is found within this initial window, it incrementally expands the search horizon by `incremental_horizon_step` in a `while` loop

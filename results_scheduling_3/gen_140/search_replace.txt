@@ -1,0 +1,35 @@
+<NAME>
+refactor_to_jobscheduler_with_heuristics
+</NAME>
+
+<DESCRIPTION>
+The previous attempt failed due to an incorrect `SEARCH` block that did not precisely match the current state of the code. This edit corrects the `SEARCH` block to target the current basic `schedule_job_online` function as presented in the "Current program" section.
+
+The `REPLACE` block then reintroduces a more sophisticated, class-based `JobScheduler` and updates the `schedule_job_online` function to use it. This refactoring brings back a rich set of parameterized heuristics that were present in higher-performing previous generations, including:
+
+1.  **Dynamic Search Horizon:** The `_find_best_local_placement` method now searches for local slots within a horizon that adapts based on job priority and current slack. This allows urgent jobs to find slots quickly while less critical jobs can search further for optimal cost.
+2.  **Adaptive Procrastination Penalty:** The `_calculate_operation_score` includes a penalty for delaying an operation. This penalty scales non-linearly, becoming significantly higher for jobs with higher priority and those nearing their deadlines, thus preventing critical jobs from being pushed too far into the future.
+3.  **Non-Linear Load-Balancing Penalty:** Local server scores are penalized based on their average utilization over a lookahead window, with a quadratic increase for higher congestion. This makes the scheduler more aggressive in avoiding future capacity hotspots and better distributing the workload, especially for high-priority jobs which have an additional multiplier.
+4.  **Priority-Based Cloud Aggressiveness:** The `cloud_aggressiveness_threshold` dynamically adjusts the scheduler's preference for cloud versus local resources based on job priority. High-priority jobs are more aggressively scheduled on the cloud if it offers faster completion, even at a slightly higher cost, whereas lower-priority jobs are more inclined to wait for cheaper local slots.
+
+This reintroduction of robust, configurable heuristics is a foundational step to improving the scheduler's performance across diverse scenarios, particularly in managing priority, deadlines, and resource contention more effectively. It consolidates scheduling logic within a dedicated class, making future enhancements easier.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+#
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable

@@ -1,0 +1,174 @@
+<NAME>
+add_num_future_ops_to_score_sig
+</NAME>
+
+<DESCRIPTION>
+This edit modifies the signature of `_calculate_operation_score` to include `num_future_operations`. This is a foundational step for implementing a cascading penalty (Recommendation 5) which considers the impact of delaying the current operation on subsequent operations within the same job.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+=======
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int, num_future_operations: int) -> float:
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_num_future_ops_to_cloud_sig
+</NAME>
+
+<DESCRIPTION>
+This edit modifies the signature of `_find_best_cloud_placement` to accept `num_future_operations` and passes this value to `_calculate_operation_score`. This ensures the full context of the job's remaining operations is available for score calculation, crucial for implementing the cascading delay penalty (Recommendation 5).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _find_best_cloud_placement(self, op: Operation, remaining_duration_after_op: int) -> Optional[tuple]:
+        """Finds the cheapest immediate cloud placement."""
+        best_score, best_server_id = float('inf'), None
+        for server_id, server in self.inst.servers.items():
+            if server.server_type == op.server_type and server.is_cloud:
+                score = self._calculate_operation_score(server_id, self.current_op_start_time, op, remaining_duration_after_op)
+                if score < best_score:
+                    best_score, best_server_id = score, server_id
+        return (best_score, best_server_id, self.current_op_start_time) if best_server_id else None
+=======
+    def _find_best_cloud_placement(self, op: Operation, remaining_duration_after_op: int, num_future_operations: int) -> Optional[tuple]:
+        """Finds the cheapest immediate cloud placement."""
+        best_score, best_server_id = float('inf'), None
+        for server_id, server in self.inst.servers.items():
+            if server.server_type == op.server_type and server.is_cloud:
+                score = self._calculate_operation_score(server_id, self.current_op_start_time, op, remaining_duration_after_op, num_future_operations)
+                if score < best_score:
+                    best_score, best_server_id = score, server_id
+        return (best_score, best_server_id, self.current_op_start_time) if best_server_id else None
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_num_future_ops_to_local_sig
+</NAME>
+
+<DESCRIPTION>
+This edit modifies the signature of `_find_best_local_placement` to accept `num_future_operations` and passes this value to `_calculate_operation_score`. This ensures the score calculation for local placements also considers the cumulative impact of delays on remaining operations (Recommendation 5).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _find_best_local_placement(self, op: Operation, remaining_duration_after_op: int) -> Optional[tuple]:
+        """Finds the best local placement (server, start_time) within a dynamic horizon."""
+        best_score, best_placement = float('inf'), None
+
+        total_rem_dur = op.duration + remaining_duration_after_op
+        current_slack = self.job.deadline - (self.current_op_start_time + total_rem_dur)
+        base_horizon = self.priority_base_horizon.get(self.job.priority, 32)
+        slack_multiplier = max(0.25, min(3.0, 1.0 + (current_slack / self.inst.time_horizon / 2.0)))
+        search_horizon = max(op.duration, int(base_horizon * slack_multiplier))
+        search_limit = self.current_op_start_time + search_horizon
+
+        for server_id, server in self.inst.servers.items():
+            if server.server_type == op.server_type and not server.is_cloud:
+                for start in range(self.current_op_start_time, search_limit + 1):
+                    if has_capacity(self.inst, self.capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        score = self._calculate_operation_score(server_id, start, op, remaining_duration_after_op)
+                        if score < best_score:
+                            best_score, best_placement = score, (score, server_id, start)
+        return best_placement
+=======
+    def _find_best_local_placement(self, op: Operation, remaining_duration_after_op: int, num_future_operations: int) -> Optional[tuple]:
+        """Finds the best local placement (server, start_time) within a dynamic horizon."""
+        best_score, best_placement = float('inf'), None
+
+        total_rem_dur = op.duration + remaining_duration_after_op
+        current_slack = self.job.deadline - (self.current_op_start_time + total_rem_dur)
+        base_horizon = self.priority_base_horizon.get(self.job.priority, 32)
+        slack_multiplier = max(0.25, min(3.0, 1.0 + (current_slack / self.inst.time_horizon / 2.0)))
+        search_horizon = max(op.duration, int(base_horizon * slack_multiplier))
+        search_limit = self.current_op_start_time + search_horizon
+
+        for server_id, server in self.inst.servers.items():
+            if server.server_type == op.server_type and not server.is_cloud:
+                for start in range(self.current_op_start_time, search_limit + 1):
+                    if has_capacity(self.inst, self.capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        score = self._calculate_operation_score(server_id, start, op, remaining_duration_after_op, num_future_operations)
+                        if score < best_score:
+                            best_score, best_placement = score, (score, server_id, start)
+        return best_placement
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+update_schedule_all_ops_args
+</NAME>
+
+<DESCRIPTION>
+This edit updates the `schedule_all_operations` method to calculate `num_future_operations` for each operation and passes it to `_find_best_cloud_placement` and `_find_best_local_placement`. This completes the argument passing chain required for the cascading delay penalty (Recommendation 5).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            remaining_duration_after_op = sum(o.duration for o in self.job.operations[idx + 1:])
+
+            cloud_res = self._find_best_cloud_placement(op, remaining_duration_after_op)
+            local_res = self._find_best_local_placement(op, remaining_duration_after_op)
+=======
+            remaining_duration_after_op = sum(o.duration for o in self.job.operations[idx + 1:])
+            num_future_operations = len(self.job.operations) - (idx + 1)
+
+            cloud_res = self._find_best_cloud_placement(op, remaining_duration_after_op, num_future_operations)
+            local_res = self._find_best_local_placement(op, remaining_duration_after_op, num_future_operations)
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+implement_cascading_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit implements the cascading impact factor for the procrastination penalty, directly addressing Recommendation 5: "Incorporate Multi-Operation Impact into Procrastination Penalty."
+
+A `cascading_impact_factor` is calculated based on:
+1.  `num_future_operations`: More remaining operations mean a higher potential for cascading delays.
+2.  `current_slack_for_op`: If slack is negative or very low, the impact of further delay is more severe.
+
+This factor non-linearly increases the `procrastination_penalty`, especially for multi-step jobs nearing their deadline. This encourages scheduling operations for complex, urgent jobs more proactively to prevent compounded delays.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_multiplier * slack_ratio
+
+        # 4. Load-Balancing Penalty (Crossover Feature)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+=======
+        # 4. Cascading Impact Factor (Recommendation 5)
+        cascading_impact_factor = 1.0
+        if num_future_operations > 0:
+            # Scale impact by how many future operations exist
+            future_ops_scaling = 1.0 + (num_future_operations * 0.2) # Each future op adds 20% base
+
+            # Further increase if job is urgent or already projected late
+            if current_slack_for_op < 0:
+                cascading_impact_factor = future_ops_scaling * (1.0 + abs(current_slack_for_op) / (self.inst.time_horizon / 8.0)) # More aggressive for late jobs
+            elif current_slack_for_op < self.inst.time_horizon / 4:
+                cascading_impact_factor = future_ops_scaling * (1.0 + (self.inst.time_horizon / 4.0 - current_slack_for_op) / (self.inst.time_horizon / 4.0) * 0.5)
+            else:
+                cascading_impact_factor = future_ops_scaling
+
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_multiplier * slack_ratio * cascading_impact_factor
+
+        # 5. Load-Balancing Penalty (Crossover Feature)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+>>>>>>> REPLACE
+</DIFF>

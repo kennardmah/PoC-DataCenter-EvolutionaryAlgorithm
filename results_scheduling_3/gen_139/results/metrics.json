@@ -1,0 +1,40 @@
+{
+    "combined_score": -16721.0,
+    "public": {
+        "multi_scenario": true,
+        "weighted_score": 16721.0,
+        "scenarios": {
+            "normal": {
+                "schedule_str": "  J1: M5@t=0 \u2192 M2@t=2 (done: t=5)\n  J10: M5@t=11 \u2192 M2@t=14 \u2192 M3@t=20 (done: t=22)\n  J11: M5@t=15 \u2192 M2@t=16 \u2192 M3@t=22 (done: t=24)\n  J12: M4@t=16 \u2192 M1@t=18 \u2192 M2@t=20 (done: t=21)\n  J13: M5@t=17 \u2192 M2@t=19 \u2192 M4@t=22 (done: t=24)\n  J14: M5@t=18 \u2192 M2@t=19 \u2192 M3@t=22 (done: t=23)\n  J15: M5@t=4 \u2192 M1@t=9 \u2192 M2@t=13 (done: t=15)\n  J16: M5@t=4 \u2192 M1@t=13 \u2192 M3@t=16 (done: t=18)\n  J17: M2@t=10 \u2192 M3@t=14 (done: t=17)\n  J18: M5@t=5 \u2192 M2@t=10 \u2192 M1@t=14 (done: t=16)\n  J19: M1@t=16 \u2192 M2@t=20 (done: t=22)\n  J2: M5@t=2 \u2192 M1@t=3 (done: t=8)\n  J20: M4@t=10 \u2192 M2@t=15 (done: t=17)\n  J21: M2@t=7 \u2192 M3@t=10 \u2192 M1@t=12 (done: t=14)\n  J22: M4@t=8 \u2192 C1@t=10 \u2192 C3@t=13 (done: t=15)\n  J23: M5@t=9 \u2192 M2@t=10 \u2192 M1@t=14 (done: t=16)\n  J24: M2@t=13 \u2192 M3@t=17 (done: t=20)\n  J25: M5@t=12 \u2192 M1@t=20 \u2192 M2@t=24 (done: t=26)\n  J26: M2@t=15 \u2192 M3@t=23 (done: t=24)\n  J27: M2@t=14 \u2192 M5@t=22 (done: t=23)\n  J28: M5@t=10 \u2192 M2@t=22 (done: t=24)\n  J29: M2@t=15 \u2192 M3@t=22 (done: t=24)\n  J3: M5@t=3 \u2192 M3@t=24 \u2192 M2@t=27 (done: t=28)\n  J30: M3@t=4 \u2192 M2@t=22 (done: t=24)\n  J4: M2@t=3 \u2192 M3@t=5 (done: t=6)\n  J5: M5@t=7 \u2192 M1@t=9 \u2192 M2@t=12 (done: t=14)\n  J6: M5@t=10 \u2192 M2@t=11 \u2192 M3@t=13 (done: t=15)\n  J7: M4@t=8 \u2192 M2@t=10 \u2192 M3@t=11 (done: t=12)\n  J8: M4@t=13 \u2192 M4@t=16 (done: t=18)\n  J9: M5@t=10 \u2192 M3@t=18 \u2192 M2@t=22 (done: t=24)",
+                "num_jobs": 30,
+                "is_valid": true
+            },
+            "earthquake": {
+                "schedule_str": "  J1: M5@t=0 \u2192 M2@t=2 (done: t=5)\n  J10: M5@t=11 \u2192 M2@t=13 \u2192 M3@t=17 (done: t=19)\n  J11: M5@t=15 \u2192 M2@t=16 \u2192 M3@t=20 (done: t=22)\n  J12: M4@t=16 \u2192 M1@t=21 \u2192 M2@t=23 (done: t=24)\n  J13: M5@t=17 \u2192 M2@t=19 \u2192 M4@t=22 (done: t=24)\n  J14: M5@t=18 \u2192 M2@t=19 \u2192 M3@t=24 (done: t=25)\n  J15: M5@t=4 \u2192 M1@t=9 \u2192 M2@t=13 (done: t=15)\n  J16: M5@t=4 \u2192 M1@t=13 \u2192 M3@t=16 (done: t=18)\n  J17: M2@t=10 \u2192 M3@t=18 (done: t=21)\n  J18: M5@t=5 \u2192 M2@t=10 \u2192 M1@t=14 (done: t=16)\n  J19: M1@t=16 \u2192 M2@t=20 (done: t=22)\n  J2: M5@t=2 \u2192 M1@t=3 (done: t=8)\n  J20: M4@t=10 \u2192 M2@t=15 (done: t=17)\n  J21: M2@t=7 \u2192 M3@t=10 \u2192 C1@t=12 (done: t=14)\n  J22: M4@t=8 \u2192 C1@t=10 \u2192 M3@t=15 (done: t=17)\n  J23: M5@t=9 \u2192 M2@t=10 \u2192 M1@t=19 (done: t=21)\n  J24: M2@t=14 \u2192 M3@t=21 (done: t=24)\n  J25: M5@t=12 \u2192 M1@t=20 \u2192 M2@t=24 (done: t=26)\n  J26: M2@t=15 \u2192 M3@t=23 (done: t=24)\n  J27: M2@t=14 \u2192 M5@t=22 (done: t=23)\n  J28: M5@t=10 \u2192 M2@t=22 (done: t=24)\n  J29: M2@t=15 \u2192 M3@t=22 (done: t=24)\n  J3: M5@t=3 \u2192 M3@t=24 \u2192 M2@t=27 (done: t=28)\n  J30: M3@t=4 \u2192 M2@t=22 (done: t=24)\n  J4: M2@t=3 \u2192 M3@t=5 (done: t=6)\n  J5: M5@t=7 \u2192 M1@t=16 \u2192 M2@t=19 (done: t=21)\n  J6: M5@t=10 \u2192 M2@t=11 \u2192 M3@t=13 (done: t=15)\n  J7: M4@t=8 \u2192 M2@t=10 \u2192 M3@t=11 (done: t=12)\n  J8: M4@t=13 \u2192 M4@t=16 (done: t=18)\n  J9: M5@t=10 \u2192 M3@t=25 \u2192 M2@t=29 (done: t=31)",
+                "num_jobs": 30,
+                "is_valid": true
+            }
+        }
+    },
+    "private": {
+        "scenarios": {
+            "normal": {
+                "score": 16221.0,
+                "compute_cost": 11736.0,
+                "delay_penalty": 897.0,
+                "num_violations": 0
+            },
+            "earthquake": {
+                "score": 18721.0,
+                "compute_cost": 11956.0,
+                "delay_penalty": 1353.0,
+                "num_violations": 0
+            }
+        }
+    },
+    "execution_time_mean": 0.40365247199952137,
+    "execution_time_std": 0.0,
+    "num_valid_runs": 1,
+    "num_invalid_runs": 0,
+    "all_validation_errors": []
+}

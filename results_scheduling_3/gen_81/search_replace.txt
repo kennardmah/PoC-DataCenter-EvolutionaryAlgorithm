@@ -1,0 +1,66 @@
+<NAME>
+capacity_tightness_penalty
+</NAME>
+
+<DESCRIPTION>
+This change introduces a "Capacity Tightness Penalty" to the operation scoring function. This new penalty is designed to be predictive and avoid creating "hotspots" where local server capacity is nearly exhausted.
+
+The key ideas are:
+1.  **Hotspot Identification**: The penalty only triggers if scheduling an operation would push a server's utilization above a high threshold (85%). This avoids penalizing placements on moderately busy servers.
+2.  **Non-Linear Scaling**: The penalty increases quadratically as utilization approaches 100%. This provides a gentle nudge away from busy servers but a strong deterrent from creating a complete bottleneck that would force later jobs to the cloud.
+3.  **Urgency-Aware**: The penalty is scaled by the job's priority multiplier. This makes the scheduler more careful about consuming the last available capacity slots, effectively preserving them for potentially more critical jobs that may arrive in the future.
+
+This heuristic makes the scheduler more forward-looking. Instead of just reacting to the current average load, it actively penalizes decisions that would severely constrain future scheduling options. This is crucial for maintaining flexibility and resilience, especially in the high-contention earthquake scenario where local capacity is scarce.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Inverted: high-priority jobs avoid congested servers more
+        self.priority_load_multiplier = {"emergency": 5.0, "critical": 4.0, "urgent": 3.0, "high": 2.0, "medium": 1.0, "low": 0.5}
+=======
+        # Inverted: high-priority jobs avoid congested servers more
+        self.priority_load_multiplier = {"emergency": 5.0, "critical": 4.0, "urgent": 3.0, "high": 2.0, "medium": 1.0, "low": 0.5}
+
+        # 2. Capacity Tightness Penalty Parameters
+        self.critical_utilization_threshold = 0.85
+        self.tightness_penalty_factor = 20.0
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        return total_score
+=======
+        # 6. Capacity Tightness Penalty (Hotspot Avoidance)
+        capacity_tightness_penalty = 0.0
+        if not server.is_cloud:
+            max_penalty_contribution = 0.0
+            for t in range(start_time, start_time + op.duration):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+
+                if available > 0:
+                    util_after_placement = (used + op.capacity_required) / available
+                    if util_after_placement > self.critical_utilization_threshold:
+                        # Non-linear penalty that grows quadratically as we approach 100% utilization
+                        excess_util = util_after_placement - self.critical_utilization_threshold
+                        # Normalize excess to be in [0, 1] range for the penalty calculation
+                        normalized_excess = excess_util / (1.0 - self.critical_utilization_threshold)
+                        # We use max to capture the worst bottleneck point during the operation's timespan
+                        max_penalty_contribution = max(max_penalty_contribution, normalized_excess**2)
+
+            if max_penalty_contribution > 0:
+                # Scale penalty by job's urgency multiplier to make all jobs cautious about hotspots
+                urgency_multiplier = self.priority_procrastination_multiplier.get(self.job.priority, 1.0)
+                capacity_tightness_penalty = max_penalty_contribution * self.tightness_penalty_factor * urgency_multiplier
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty + capacity_tightness_penalty)
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

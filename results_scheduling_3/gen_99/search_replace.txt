@@ -1,0 +1,373 @@
+<refactor_to_class_hierarchy>
+Refactor to urgency-driven class hierarchy with enhanced scoring and dynamic parameters.
+</refactor_to_class_hierarchy>
+
+<DESCRIPTION>
+This edit refactors the monolithic `schedule_job_online` function into a more modular and robust class-based structure, integrating several advanced scheduling heuristics. The core logic is now distributed among `JobUrgencyProfile` and `PlacementDecisionMaker` classes, which are defined *before* the `schedule_job_online` function that orchestrates them.
+
+Key improvements incorporated:
+
+1.  **Unified Urgency Profile (Recommendation 3):** A `JobUrgencyProfile` class is introduced to calculate a dynamic, continuous `urgency_score` for each job. This score is derived from the job's priority, its deadline slack (how much time it has relative to its remaining work), and the current system-wide local machine load. This unified score then intelligently drives several scheduling parameters:
+    *   `cloud_aggressiveness_factor`: Dynamically adjusted. More urgent jobs, or situations with high system-wide local load, will see this factor decrease, making cloud options relatively more attractive.
+    *   `local_search_horizon`: Dynamically set. More urgent jobs are given a shorter search horizon to find a local slot quickly, reducing procrastination. Less urgent jobs can search further for cheaper slots.
+    *   `procrastination_penalty_multiplier`: Scales the penalty for waiting, making it more significant for urgent jobs.
+    *   `capacity_preservation_multiplier`: A new multiplier for a new penalty.
+
+2.  **Advanced Scoring Function (`_calculate_operation_score` within `PlacementDecisionMaker`)**:
+    *   **Refined Procrastination Penalty with Multi-Operation Slack Analysis (Recommendation 2):** The procrastination penalty is enhanced. Beyond simply penalizing wait time, it now incorporates an *additional* exponential penalty if the current operation's placement significantly reduces the projected total slack for all *future* operations of the job. This penalty is steeper if the job's remaining slack falls below a dynamically calculated "critical slack buffer" that considers the total duration and number of remaining operations. This prevents choices that prematurely exhaust future scheduling flexibility for subsequent operations.
+    *   **Quadratic Load Balancing and Predictive Hotspot Penalty (Recommendation 1):** The local server scoring now includes a more aggressive `load_penalty`. This penalty applies a *quadratic* increase when a server's utilization exceeds a `CRITICAL_UTIL_THRESHOLD` (e.g., 70-80%). This strongly discourages pushing servers into highly congested states. The penalty also looks ahead within `hotspot_lookahead_window` to predict and prevent future hotspots.
+    *   **Capacity Preservation Penalty (Recommendation 5):** A new `capacity_preservation_penalty` is added. This penalty is triggered if placing the current operation would reduce the *available capacity* of a local server type below a `SAFE_RESERVE_THRESHOLD` (e.g., 20% of its total capacity) within a `capacity_lookahead_window`. This prevents over-committing local resources and ensures that some capacity is always reserved for potentially more urgent future jobs or emergency tasks, especially in critical server types. The penalty is scaled by the job's urgency.
+
+3.  **Iterative Expansion for Local Search Horizon (Recommendation 4):** The `find_best_placement` method in `PlacementDecisionMaker` uses a more sophisticated search for local slots. It starts with an initial `search_horizon` determined by the job's urgency profile. If a suitable local slot isn't found within this window and no cloud option is significantly better, it can iteratively expand the search horizon in controlled `step_horizon` increments up to a `max_iter`. This balances quick placement with the opportunity to find better, cheaper local slots if time permits.
+
+These changes collectively aim to create a more intelligent, resilient, and cost-effective online scheduler by balancing immediate needs with future system health and job progression.
+
+The structure of the `EVOLVE-BLOCK` is changed from a single function to multiple classes and the function that calls them.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# INCREMENTAL ONLINE JOB SCHEDULER
+# =============================================================================
+# YOU ARE EDITING THIS FUNCTION (schedule_job_online)
+#
+# STRICT ONLINE CONSTRAINT:
+# When scheduling a job, you can ONLY use:
+#   1. The current job being scheduled
+#   2. The current time (when this job arrived)
+#   3. Previously scheduled operations (in schedule and capacity_usage)
+#
+# You CANNOT:
+#   - Peek at future jobs (those arriving after current_time)
+#   - Reorder or reschedule already-placed operations
+#   - Use global knowledge about all jobs
+#
+# This simulates real-time scheduling where decisions are irrevocable.
+# =============================================================================
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+
+    schedule[job.id] = []
+    current_start = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        best = (float('inf'), None, None)
+
+        for server_id, server in inst.servers.items():
+            if server.server_type != op.server_type:
+                continue
+
+            # cloud: immediate start
+            if server.is_cloud:
+                cost = operation_objective(inst, server_id, current_start, op, job, remaining_duration)
+                best = min(best, (cost, server_id, current_start))
+                continue
+
+            # local: search forward for first available slot
+            for start in range(current_start, job.deadline + inst.time_horizon):
+                if has_capacity(inst, capacity_usage, server_id, start, op.duration, op.capacity_required):
+                    cost = operation_objective(inst, server_id, start, op, job, remaining_duration)
+                    best = min(best, (cost, server_id, start))
+                    break  # Take first available slot on this server
+
+        _, chosen_server, chosen_start = best
+
+        # reserve capacity
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_start = chosen_start + op.duration
+=======
+@dataclass
+class PlacementCandidate:
+    score: float
+    server_id: str
+    start_time: int
+
+
+class JobUrgencyProfile:
+    """
+    Calculates and holds a dynamic urgency profile for a job, which in turn
+    derives key scheduling parameters.
+    """
+    def __init__(self, inst: Instance, job: Job, current_time: int, total_job_duration: int, system_load: float):
+        self.inst = inst
+        # Base priority weights (higher is more urgent)
+        priority_map = {"emergency": 5.0, "critical": 4.0, "urgent": 3.0, "high": 2.0, "medium": 1.0, "low": 0.5}
+        base_priority_urgency = priority_map.get(job.priority.lower(), 1.0)
+
+        current_projected_completion = current_time + total_job_duration
+        current_slack = job.deadline - current_projected_completion
+
+        # Non-linear penalty/bonus for slack
+        slack_urgency_multiplier = 1.0
+        if current_slack < 0:
+            slack_urgency_multiplier = 1.0 + abs(current_slack) / (self.inst.time_horizon / 2.0) # More urgent if late
+        elif current_slack < self.inst.time_horizon / 4: # If slack is getting tight (e.g., less than 6 hours for a 24-hr horizon)
+            slack_urgency_multiplier = 1.0 + (self.inst.time_horizon / 4 - current_slack) / (self.inst.time_horizon / 4) * 0.5
+
+        self.urgency_score = base_priority_urgency * slack_urgency_multiplier
+        self.urgency_score = max(0.5, min(10.0, self.urgency_score)) # Clamp to reasonable range
+
+        # Derived parameters:
+
+        # 1. Cloud Aggressiveness: Higher urgency -> lower factor -> favors cloud speed
+        #    Also reduce factor if system-wide local load is high, making cloud more attractive
+        #    The range of cloud_aggressiveness_factor is designed to give local a slight edge by default (e.g., 1.05-1.15)
+        #    but can shift below 1.0 for very urgent jobs or high load.
+        base_cloud_factor = 1.15
+        urgency_influence = (self.urgency_score - 2.0) * 0.05 # Adjust based on urgency, center around medium (priority_val=2)
+        load_influence = (system_load - 0.5) * 0.15 # If load > 0.5, reduce factor; if < 0.5, increase factor
+
+        self.cloud_aggressiveness_factor = base_cloud_factor - urgency_influence - load_influence
+        self.cloud_aggressiveness_factor = max(0.8, min(1.3, self.cloud_aggressiveness_factor))
+
+
+        # 2. Local Search Horizon: Higher urgency -> shorter horizon to find a slot quickly
+        #    Ensures at least the operation duration + a small buffer
+        base_search_horizon = self.inst.time_horizon * 3 # e.g., 72 hours
+        self.search_horizon = int(base_search_horizon / (1 + 0.2 * self.urgency_score))
+        self.search_horizon = max(job.operations[0].duration + 2, self.search_horizon) # Minimum horizon
+
+        # 3. Procrastination Penalty Multiplier: Higher urgency -> greater penalty for waiting
+        self.procrastination_penalty_multiplier = 1.0 + (self.urgency_score / 3.0)
+
+        # 4. Capacity Preservation Multiplier: Higher urgency -> more critical to preserve capacity for it
+        #    Lower values mean less penalty for *this* job, implying its need is high.
+        self.capacity_preservation_multiplier = max(0.5, 2.0 - (self.urgency_score / 2.0))
+
+
+class PlacementDecisionMaker:
+    """Finds the best placement for a single operation using an urgency-driven scoring model."""
+
+    # Penalty constants
+    BASE_PROCRASTINATION_PENALTY_PER_HOUR = 0.05 # Cost per hour of waiting
+    HOTSPOT_PENALTY_FACTOR = 100.0 # Multiplier for quadratic load penalty
+    CRITICAL_UTIL_THRESHOLD = 0.7 # Utilization % above which hotspot penalty starts
+    HOTSPOT_LOOKAHEAD_WINDOW = 6 # Hours to look ahead for potential hotspots
+
+    SAFE_RESERVE_THRESHOLD = 0.2 # Fraction of total capacity to preserve
+    CAPACITY_PRESERVATION_PENALTY_FACTOR = 50.0 # Multiplier for capacity preservation penalty
+    CAPACITY_LOOKAHEAD_WINDOW = 12 # Hours to look ahead for capacity preservation
+
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration, num_remaining_operations: int, urgency_profile: JobUrgencyProfile):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.num_remaining_operations = num_remaining_operations
+        self.urgency = urgency_profile
+
+    def _calculate_operation_score(self, server_id, start_time):
+        server = self.inst.servers[server_id]
+
+        # 1. Compute Cost
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                           for t in range(start_time, start_time + self.op.duration))
+
+        # 2. Delay Penalty
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+        delay_penalty = delay * self.job.delay_weight
+
+        # 3. Procrastination Penalty (Recommendation 2 - with multi-op impact)
+        wait_time = start_time - self.earliest_start
+        procrastination_penalty = (wait_time * self.BASE_PROCRASTINATION_PENALTY_PER_HOUR *
+                                   self.urgency.procrastination_penalty_multiplier)
+
+        # Multi-Operation Impact into Procrastination Penalty
+        if self.num_remaining_operations > 0:
+            # Slack for the entire *remaining* job after current operation completes
+            job_final_slack = self.job.deadline - (start_time + self.op.duration + self.remaining_duration)
+
+            # Define a critical slack buffer for future operations
+            # This threshold means we prefer to have at least this much slack available
+            critical_slack_buffer = self.remaining_duration * 0.8 + (self.num_remaining_operations * 1.5)
+
+            if job_final_slack < critical_slack_buffer:
+                slack_shortfall = max(0, critical_slack_buffer - job_final_slack)
+                # Exponential penalty, scaled by job urgency
+                procrastination_penalty += (math.exp(slack_shortfall * 0.15 * self.urgency.urgency_score / 2.0) - 1.0) * self.job.delay_weight * 1.0
+
+        # 4. Load Balancing / Hotspot Penalty (Recommendation 1)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            for t in range(start_time, start_time + self.op.duration + self.HOTSPOT_LOOKAHEAD_WINDOW):
+                available_cap_at_t = get_available_capacity(self.inst, server_id, t)
+                if available_cap_at_t <= 0: # Cannot place, would be infinite penalty but we handle via has_capacity
+                    continue
+
+                used_cap_at_t = self.capacity_usage.get(server_id, {}).get(t, 0)
+                # Project utilization *including* current op
+                projected_utilization = (used_cap_at_t + self.op.capacity_required) / available_cap_at_t
+
+                if projected_utilization > self.CRITICAL_UTIL_THRESHOLD:
+                    # Quadratic penalty for utilization above threshold
+                    load_penalty += ((projected_utilization - self.CRITICAL_UTIL_THRESHOLD)**2) * self.HOTSPOT_PENALTY_FACTOR
+
+            # Scale total load penalty by job's urgency
+            load_penalty *= self.urgency.urgency_score / self.inst.time_horizon # Normalize
+
+        # 5. Capacity Preservation Penalty (Recommendation 5)
+        capacity_preservation_penalty = 0.0
+        if not server.is_cloud:
+            server_total_capacity = self.inst.servers[server_id].capacity # Use base capacity for threshold
+            safe_reserve_target = server_total_capacity * self.SAFE_RESERVE_THRESHOLD
+
+            # Check capacity after placing the operation within a lookahead window
+            for t in range(start_time, start_time + self.op.duration + self.CAPACITY_LOOKAHEAD_WINDOW):
+                available_cap_at_t = get_available_capacity(self.inst, server_id, t)
+                used_cap_at_t = self.capacity_usage.get(server_id, {}).get(t, 0)
+
+                # Capacity remaining *after* this op is placed
+                remaining_capacity = available_cap_at_t - (used_cap_at_t + self.op.capacity_required)
+
+                if remaining_capacity < safe_reserve_target:
+                    # Apply penalty, scaled by how much below the target and job urgency
+                    shortfall = safe_reserve_target - remaining_capacity
+                    capacity_preservation_penalty += shortfall * self.CAPACITY_PRESERVATION_PENALTY_FACTOR * self.urgency.capacity_preservation_multiplier
+
+            capacity_preservation_penalty /= self.inst.time_horizon # Normalize
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_penalty * self.inst.weights['delay_penalty'] +
+                       procrastination_penalty + load_penalty + capacity_preservation_penalty)
+        return total_score
+
+    def find_best_placement(self):
+        """Finds the best server and start time using an iterative, urgency-driven search."""
+        best_local_placement = PlacementCandidate(float('inf'), None, -1)
+        cloud_benchmark = PlacementCandidate(float('inf'), None, -1)
+
+        compatible_servers = [s_id for s_id, s in self.inst.servers.items() if s.server_type == self.op.server_type]
+
+        # Determine cloud benchmark
+        cloud_options = [s_id for s_id in compatible_servers if self.inst.servers[s_id].is_cloud]
+        if cloud_options:
+            cheapest_cloud = min(cloud_options, key=lambda s_id: self.inst.server_cost[s_id][self.earliest_start % self.inst.time_horizon])
+            cloud_score = self._calculate_operation_score(cheapest_cloud, self.earliest_start)
+            cloud_benchmark = PlacementCandidate(cloud_score, cheapest_cloud, self.earliest_start)
+
+        # Iterative search on local servers (Recommendation 4)
+        local_options = [s_id for s_id in compatible_servers if not self.inst.servers[s_id].is_cloud]
+
+        current_search_limit = self.earliest_start + self.urgency.search_horizon
+        max_search_iterations = 3 # Max number of times to expand the search window
+
+        for iteration in range(max_search_iterations):
+            found_better_local_in_this_iteration = False
+
+            for server_id in local_options:
+                # Search from earliest_start up to current_search_limit
+                for start_t in range(self.earliest_start, current_search_limit):
+                    if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                        score = self._calculate_operation_score(server_id, start_t)
+                        if score < best_local_placement.score:
+                            best_local_placement = PlacementCandidate(score, server_id, start_t)
+                            found_better_local_in_this_iteration = True
+                        break # Found first-fit in window for this server, move to next server
+
+            # If a local placement was found that is better than the current cloud benchmark
+            # (considering cloud aggressiveness), we can stop iterating and commit.
+            # Or if no cloud option exists.
+            if best_local_placement.server_id is not None and \
+               (cloud_benchmark.server_id is None or \
+                best_local_placement.score <= cloud_benchmark.score * self.urgency.cloud_aggressiveness_factor):
+                break
+
+            # Expand search limit for next iteration
+            current_search_limit += self.urgency.search_horizon // 2 # Incrementally expand horizon
+
+        # Decision Logic: Compare best local found with cloud benchmark (if any)
+        has_local = best_local_placement.server_id is not None
+        has_cloud = cloud_benchmark.server_id is not None
+
+        if has_local and has_cloud:
+            # Apply cloud aggressiveness factor: local must be significantly better than cloud
+            if best_local_placement.score <= cloud_benchmark.score * self.urgency.cloud_aggressiveness_factor:
+                return best_local_placement.server_id, best_local_placement.start_time
+            else:
+                return cloud_benchmark.server_id, cloud_benchmark.start_time
+        elif has_local:
+            return best_local_placement.server_id, best_local_placement.start_time
+        elif has_cloud:
+            return cloud_benchmark.server_id, cloud_benchmark.start_time
+
+        # Failsafe: Unbounded search on cheapest local machine if no placement found within horizons
+        if local_options:
+            cheapest_local_id = min(local_options, key=lambda s_id: sum(self.inst.server_cost[s_id].values())).id
+            start_t = self.earliest_start
+            while True: # Search indefinitely to guarantee a placement
+                if has_capacity(self.inst, self.capacity_usage, cheapest_local_id, start_t, self.op.duration, self.op.capacity_required):
+                    return cheapest_local_id, start_t
+                start_t += 1
+
+        # Ultimate failsafe: if no local and no cloud was found (unlikely with cloud_options check)
+        raise RuntimeError(f"Could not schedule op {self.op.server_type} for job {self.job.id}, no compatible servers found.")
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    """
+    Orchestrates the scheduling of a single job by using the PlacementDecisionMaker
+    for each of its operations, driven by a JobUrgencyProfile.
+    """
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+
+    total_job_duration = sum(op.duration for op in job.operations)
+
+    # Calculate system-wide local machine load to inform cloud aggressiveness
+    # Aggregate system load over a future window, considering actual capacity due to failures
+    total_local_capacity_potential = 0
+    total_local_used_actual = 0
+    load_lookahead_window_for_system_load = inst.time_horizon // 2 # e.g., 12 hours
+
+    # Initialize capacity_usage for all local servers to prevent KeyError on .get()
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            capacity_usage.setdefault(server_id, defaultdict(int))
+
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            for t in range(current_time, current_time + load_lookahead_window_for_system_load):
+                total_local_capacity_potential += get_available_capacity(inst, server_id, t)
+                total_local_used_actual += capacity_usage[server_id].get(t, 0)
+
+    current_system_load = total_local_used_actual / total_local_capacity_potential if total_local_capacity_potential > 0 else 0.0
+
+    # Create urgency profile for the current job
+    urgency_profile = JobUrgencyProfile(inst, job, current_time, total_job_duration, current_system_load)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+        num_remaining_operations = len(job.operations) - (idx + 1)
+
+        decision_maker = PlacementDecisionMaker(
+            inst, job, op, capacity_usage, current_op_release_time, remaining_duration, num_remaining_operations, urgency_profile
+        )
+
+        chosen_server, chosen_start = decision_maker.find_best_placement()
+
+        # Update shared state (capacity usage) with the new placement
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+        current_op_release_time = chosen_start + op.duration
+>>>>>>> REPLACE
+</DIFF>

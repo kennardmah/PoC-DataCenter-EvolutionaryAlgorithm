@@ -1,0 +1,60 @@
+<NAME>
+bounded_local_search_queuing_v2
+</NAME>
+
+<DESCRIPTION>
+This edit refines the `_find_first_available` method within the `QueueCompetitionDispatcher` class to address potential inefficiencies and unbounded searches when looking for available local server slots.
+
+The original implementation used an indefinite `while True` loop, which could lead to very long execution times or even hang in scenarios of extreme, persistent congestion or for jobs with `float('inf')` deadlines where no immediate slot is found.
+
+The improved version introduces a `max_search_limit` that dynamically bounds the search window. This limit is calculated as the minimum of:
+1.  `job.deadline + inst.time_horizon`: A buffer beyond the job's deadline, allowing for slight delays while still considering the deadline as a primary constraint. If the deadline is `float('inf')`, this component remains `float('inf')`.
+2.  `earliest_start + inst.time_horizon * 5`: A practical upper bound of 5 `TIME_HORIZON` cycles (e.g., 5 * 24 = 120 hours) from the earliest possible start time of the current operation. This prevents searching excessively far into the future when deadlines are very loose or infinite.
+
+By using this bounded search, the scheduler ensures that:
+*   **Efficiency:** The search for a local slot is always finite, preventing performance bottlenecks in congested or poorly defined deadline scenarios.
+*   **Cost Accuracy:** If no capacity is found within this reasonable `max_search_limit`, the method returns `max_search_limit` itself. This means the `_calculate_score` function will apply a significant `queuing_cost` corresponding to this long wait time, accurately reflecting the undesirability of such a delayed placement without discarding the option entirely. This allows the dispatcher to make a balanced decision, possibly preferring an immediate, slightly more expensive cloud option over an extremely delayed (or practically impossible) local one.
+
+This change enhances the robustness and performance of the local server selection logic within the `QueueCompetitionDispatcher`.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _find_first_available(self, server_id):
+        """Finds the first available time slot for the op on a server."""
+        start_t = self.earliest_start
+        # Search forward indefinitely. This guarantees a slot is found.
+        while True:
+            if has_capacity(self.inst, self.capacity_usage, server_id, start_t, self.op.duration, self.op.capacity_required):
+                return start_t
+            start_t += 1
+=======
+    def _find_first_available(self, server_id):
+        """Finds the first available time slot for the op on a server, within a reasonable cap."""
+        start_t = self.earliest_start
+
+        # Define a reasonable upper bound for searching.
+        # If job.deadline is float('inf'), use a large multiple of inst.time_horizon (e.g., 5 * 24 hours).
+        # Otherwise, cap at deadline + a buffer, or the large multiple, whichever is smaller.
+        max_search_limit_from_deadline = float('inf')
+        if self.job.deadline != float('inf'):
+            # Allow searching up to deadline + one time_horizon as a buffer
+            max_search_limit_from_deadline = self.job.deadline + self.inst.time_horizon
+
+        # Also, limit the search from the current earliest_start to prevent excessively long searches
+        max_search_limit_from_earliest_start = self.earliest_start + self.inst.time_horizon * 5 # e.g., 5 * 24 hours
+
+        # Take the minimum of these limits to ensure a practical, finite bound
+        max_search_limit = min(max_search_limit_from_deadline, max_search_limit_from_earliest_start)
+
+        current_time_to_check = start_t
+        while current_time_to_check <= max_search_limit:
+            if has_capacity(self.inst, self.capacity_usage, server_id, current_time_to_check, self.op.duration, self.op.capacity_required):
+                return current_time_to_check
+            current_time_to_check += 1
+
+        # If no capacity found within the search limit, return the limit itself.
+        # This will incur a high queuing cost, effectively penalizing an unfeasible long wait.
+        return max_search_limit
+>>>>>>> REPLACE
+</DIFF>

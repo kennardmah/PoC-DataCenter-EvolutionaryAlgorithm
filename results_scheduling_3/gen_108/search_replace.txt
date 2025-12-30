@@ -1,0 +1,74 @@
+<NAME>
+resilient_capacity_heuristic
+</NAME>
+
+<DESCRIPTION>
+This edit introduces a more robust and resilient scheduling heuristic by making two primary changes:
+
+1.  **Parameter Overhaul and Correction:** The existing heuristic parameters have been completely revised. The `cloud_aggressiveness_threshold` has been logically inverted to correctly prioritize cloud usage for high-priority jobs (e.g., 'emergency', 'critical') and favor cheaper local resources for low-priority ones. All priority-based dictionaries have been updated to include the 'emergency' category, ensuring that urgent jobs in the earthquake scenario are handled with maximum priority. Parameter values have been re-tuned across the board for a more consistent and aggressive response to job urgency.
+
+2.  **Proactive Capacity Preservation Penalty:** A new penalty term, `preservation_penalty`, has been added to the operation scoring function. This heuristic discourages scheduling an operation on a local server if doing so would reduce the server's available capacity below a "safe" threshold (20%). By penalizing placements that exhaust local resources, the scheduler proactively preserves a capacity buffer. This makes the system more resilient to sudden spikes in demand or unexpected failures, which is particularly beneficial in the earthquake scenario. The load-balancing penalty was also changed to be non-linear (`utilization^2`) to more strongly punish high congestion.
+
+Together, these changes create a scheduler that is more aware of resource scarcity and better equipped to handle high-priority and emergency jobs by making smarter tradeoffs between cost, delay, and system resilience.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters from Base Implementation ---
+        self.priority_base_horizon = {'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+        self.priority_procrastination_multiplier = {'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        self.priority_load_multiplier = {"emergency": 3.0, "urgent": 2.5, "critical": 2.0, "high": 1.5, "medium": 1.0, "low": 0.5}
+        # Local preference bonus was removed in favor of the more dynamic cloud_aggressiveness_threshold heuristic.
+=======
+        # --- Refined Heuristic Parameters ---
+        self.priority_base_horizon = {
+            'emergency': 4, 'critical': 8, 'urgent': 12,
+            'high': 24, 'medium': 48, 'low': 72
+        }
+        self.priority_procrastination_multiplier = {
+            'emergency': 15.0, 'critical': 10.0, 'urgent': 5.0,
+            'high': 2.5, 'medium': 1.0, 'low': 0.5
+        }
+        self.base_procrastination_penalty_factor = 0.08
+        self.cloud_aggressiveness_threshold = {
+            'emergency': 0.85, 'critical': 0.9, 'urgent': 1.0,
+            'high': 1.1, 'medium': 1.2, 'low': 1.3
+        }
+        self.load_penalty_factor = 8.0
+        self.priority_load_multiplier = {
+            "emergency": 5.0, "critical": 4.0, "urgent": 3.0,
+            "high": 2.0, "medium": 1.0, "low": 0.5
+        }
+        # New: Parameters for capacity preservation heuristic
+        self.capacity_preservation_threshold = 0.20 # Try to keep 20% capacity free
+        self.capacity_preservation_penalty_factor = 40.0 # High penalty for dipping below
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # 4. Load-Balancing Penalty (Crossover Feature)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+            window_end = start_time + op.duration * 2
+            total_utilization, num_timesteps = 0.0, 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = avg_utilization * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load

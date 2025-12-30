@@ -1,0 +1,84 @@
+<NAME>
+capacity_preservation_penalty
+</NAME>
+<DESCRIPTION>
+This edit introduces a new "Capacity Preservation Penalty" to the scoring function for local server placements, while also correcting a subtle bug in the existing load penalty calculation. The goal is to improve the scheduler's resilience, particularly for the earthquake scenario, by discouraging placements that exhaust a machine's absolute capacity.
+
+**Rationale:**
+The existing `load_penalty` is based on *utilization percentage*, which can be misleading. A machine with capacity 2 and 1 job has 50% utilization, same as a machine with capacity 10 and 5 jobs. However, the first machine is much closer to saturation and cannot accept another job. This makes the system fragile, as future high-priority jobs might be blocked if no machine has a free slot.
+
+The new penalty addresses this by creating a "safety buffer" of absolute capacity.
+
+**Mechanism:**
+1.  **Capacity Preservation Penalty:** A `safe_reserve_fraction` (set to 25%) of a server's total capacity is defined as a safety buffer. When evaluating a placement, the algorithm looks ahead and if the server's remaining capacity drops below this buffer, a non-linear (quadratic) penalty is applied. The penalty's magnitude is proportional to the square of the "shortfall", making it highly sensitive to significant capacity depletion.
+2.  **Bug Fix:** The previous `load_penalty` calculation incorrectly applied the current operation's load across the entire lookahead window, overestimating contention. The new implementation correctly applies the load only during the operation's actual execution window.
+3.  **Unified Implementation:** Both the corrected `load_penalty` and the new `capacity_preservation_penalty` are calculated within a single, more accurate lookahead loop.
+
+This combined change makes the scheduler smarter about leaving resources available for future, potentially urgent, jobs, thereby improving the overall robustness and quality of the schedule.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        load_penalty = 0.0
+        server = self.inst.servers[server_id]
+        if not server.is_cloud:
+            # Look ahead from current operation start, not just after operation end
+            for t in range(start_time, start_time + self.op.duration + self.hotspot_lookahead_window):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    current_utilization = (used + self.op.capacity_required) / available
+                    # Apply a quadratic penalty for high utilization, kicks in above 70%
+                    if current_utilization > 0.7:
+                        load_penalty += (current_utilization - 0.7) ** 2 * self.hotspot_penalty_factor * 20 # Increased factor for impact
+
+            # Scale total load penalty by job urgency
+            load_penalty *= self.urgency.urgency_score
+
+        return (compute_cost * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty + load_penalty)
+=======
+        load_penalty = 0.0
+        capacity_preservation_penalty = 0.0
+        server = self.inst.servers[server_id]
+        if not server.is_cloud:
+            # --- Define parameters for penalties ---
+            safe_reserve_fraction = 0.25
+            preservation_penalty_factor = 10.0 # Factor to scale the penalty
+            safe_reserve_capacity = math.ceil(server.capacity * safe_reserve_fraction)
+            max_shortfall = 0.0
+
+            # --- Unified loop for lookahead-based penalties ---
+            # This loop fixes a bug where op_load was added for the entire lookahead window.
+            for t in range(start_time, start_time + self.op.duration + self.hotspot_lookahead_window):
+                used_before_op = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available_at_t = get_available_capacity(self.inst, server_id, t)
+
+                # Load of the operation being considered for placement (only during its execution)
+                current_op_load = self.op.capacity_required if start_time <= t < (start_time + self.op.duration) else 0
+                total_used_after_op = used_before_op + current_op_load
+
+                # 1. Calculate Load Penalty (utilization-based)
+                if available_at_t > 0:
+                    current_utilization = total_used_after_op / available_at_t
+                    if current_utilization > 0.7:
+                        load_penalty += (current_utilization - 0.7) ** 2 * self.hotspot_penalty_factor * 20
+
+                # 2. Calculate Capacity Preservation Shortfall (absolute capacity-based)
+                remaining_capacity = available_at_t - total_used_after_op
+                if remaining_capacity < safe_reserve_capacity:
+                    shortfall = safe_reserve_capacity - remaining_capacity
+                    max_shortfall = max(max_shortfall, shortfall) # Track the worst breach
+
+            # --- Finalize penalties ---
+            load_penalty *= self.urgency.urgency_score
+
+            if max_shortfall > 0:
+                # Apply a squared penalty for the worst-case breach of the safety reserve, scaled by job importance
+                capacity_preservation_penalty = (max_shortfall ** 2) * preservation_penalty_factor * self.job.delay_weight
+
+        return (compute_cost * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty + load_penalty + capacity_preservation_penalty)
+>>>>>>> REPLACE
+</DIFF>

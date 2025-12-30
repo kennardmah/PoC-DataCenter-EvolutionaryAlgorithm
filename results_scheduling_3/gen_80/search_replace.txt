@@ -1,0 +1,155 @@
+<NAME>
+tuned_procrastination_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit addresses two key issues in the `QueueCompetitionDispatcher` that were degrading its performance: a critical bug and poor parameter tuning.
+
+1.  **Bug Fix: Incorrect Priority Keys:** The dictionary mapping job priorities to urgency scalars (`PRIORITY_WAIT_PENALTY`) used capitalized keys ("Low", "High") and was missing "critical". The job data uses lowercase keys ('low', 'high', 'critical'). This bug caused most jobs to default to a medium priority scalar, ignoring their actual priority. I have corrected the keys to match the data, added the missing "critical" priority, and renamed the dictionary to `PRIORITY_SCALARS` for clarity.
+
+2.  **Tuning: Strengthened Procrastination Penalty:** The original "best-fit" search within a time window was too willing to delay operations for minor cost savings, leading to downstream congestion and higher total costs. This was because the penalty for waiting (`procrastination_penalty`) was far too low compared to compute costs. I have increased its scaling factor by 15x (from 0.1 to 1.5). This change makes the dispatcher strongly prefer earlier time slots, transforming the "best-fit" search into a more robust "near-first-fit" heuristic. It will now only accept a delay if the cost savings are significant, retaining the benefits of cost optimization without the drawbacks of unnecessary waiting.
+
+Finally, a duplicated `schedule_job_online` function was removed to improve code clarity. Together, these changes make the scheduling heuristic more intelligent, responsive to job priority, and better balanced between immediate execution and cost optimization.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # These weights dynamically penalize waiting based on job priority.
+    # Emergency jobs have a much higher implicit cost for delay.
+    PRIORITY_WAIT_PENALTY = {
+        "Low": 0.5, "Medium": 1.0, "High": 2.0, "Emergency": 10.0
+    }
+=======
+    # These weights dynamically penalize waiting and deadline delays based on job priority.
+    PRIORITY_SCALARS = {
+        "low": 0.8, "medium": 1.0, "high": 3.0, "critical": 5.0, "Emergency": 10.0
+    }
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        # 2. Priority-Scaled Delay Penalty
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+        # Use job.delay_weight for initial scaling, then priority.
+        priority_delay_scalar = self.PRIORITY_WAIT_PENALTY.get(self.job.priority, 1.0)
+        delay_penalty = delay * self.job.delay_weight * priority_delay_scalar
+
+        # 3. Procrastination Penalty (cost of waiting)
+        # Penalize waiting, especially for urgent jobs.
+        wait_time = start_time - self.earliest_start
+        procrastination_penalty = wait_time * self.job.delay_weight * self.PRIORITY_WAIT_PENALTY.get(self.job.priority, 1.0) * 0.1 # Reduced base factor
+=======
+        # 2. Priority-Scaled Delay Penalty
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+        # Use job.delay_weight for initial scaling, then priority.
+        priority_scalar = self.PRIORITY_SCALARS.get(self.job.priority, 1.0)
+        delay_penalty = delay * self.job.delay_weight * priority_scalar
+
+        # 3. Procrastination Penalty (cost of waiting)
+        # Penalize waiting, especially for urgent jobs. A strong penalty is needed
+        # to prevent the best-fit search from choosing distant but slightly cheaper slots.
+        wait_time = start_time - self.earliest_start
+        procrastination_penalty = wait_time * self.job.delay_weight * priority_scalar * 1.5
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    """
+    Orchestrates the scheduling of a single job using the QueueCompetitionDispatcher
+    for each of its operations.
+    """
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Instantiate the dispatcher for the current operation
+        dispatcher = QueueCompetitionDispatcher(
+            inst=inst,
+            job=job,
+            op=op,
+            capacity_usage=capacity_usage,
+            earliest_start=current_op_release_time,
+            remaining_duration=remaining_duration
+        )
+
+        # Get the best placement from the dispatcher
+        chosen_server, chosen_start = dispatcher.find_best_placement()
+
+        # Update shared state
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+
+        # The next operation cannot start before the current one finishes
+        current_op_release_time = chosen_start + op.duration
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    """
+    Orchestrates the scheduling of a single job using the QueueCompetitionDispatcher
+    for each of its operations.
+    """
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Instantiate the dispatcher for the current operation
+        dispatcher = QueueCompetitionDispatcher(
+            inst=inst,
+            job=job,
+            op=op,
+            capacity_usage=capacity_usage,
+            earliest_start=current_op_release_time,
+            remaining_duration=remaining_duration
+        )
+
+        # Get the best placement from the dispatcher
+        chosen_server, chosen_start = dispatcher.find_best_placement()
+
+        # Update shared state
+        for t in range(chosen_start, chosen_start + op.duration):
+            capacity_usage[chosen_server][t] = capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+        schedule[job.id].append({"server": chosen_server, "start": chosen_start})
+
+        # The next operation cannot start before the current one finishes
+        current_op_release_time = chosen_start + op.duration
+=======
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    """
+    Orchestrates the scheduling of a single job using the QueueCompetitionDispatcher
+    for each of its operations.
+    """
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+
+    for idx, op in enumerate(job.operations):
+        remaining_duration = sum(o.duration for o in job.operations[idx + 1:])
+
+        # Instantiate the dispatcher for the current operation
+        dispatcher = QueueCompetitionDispatcher(
+            inst=inst,
+            job=job,
+            op=op,
+            capacity_usage=capacity_usage,
+            earliest_start=current_op_release_time,
+            remaining_duration=remaining_duration
+        )
+
+        # Get the

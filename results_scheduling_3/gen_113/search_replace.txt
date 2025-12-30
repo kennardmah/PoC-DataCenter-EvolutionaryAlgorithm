@@ -1,0 +1,50 @@
+<NAME>
+best_fit_and_load_fix
+</NAME>
+<DESCRIPTION>
+This edit proposes two targeted improvements to the scheduling heuristic to enhance placement decisions:
+
+1.  **Corrected Load Penalty Calculation**: The load-balancing penalty in `PlacementDecisionMaker._calculate_operation_score` is corrected. The original code incorrectly added the current operation's capacity requirement to the utilization calculation for the entire lookahead window, even for time steps *after* the operation would have completed. This overestimated future load and could lead to suboptimal decisions. The logic is fixed to only add the operation's capacity requirement for the time steps during its actual execution, making the hotspot avoidance heuristic more accurate and reliable.
+
+2.  **Best-Fit Local Search**: The local placement search logic in `PlacementDecisionMaker.find_best_placement` is changed from a variant of "first-fit" to a comprehensive "best-fit". The original implementation would evaluate only the first available time slot on each local server before moving to the next. By removing the `break` statement, the algorithm now evaluates *all* available time slots within the dynamic search horizon for *all* compatible local servers. This enables it to discover potentially much better placements that might occur slightly later but offer lower compute costs or avoid congestion. This more thorough search increases the quality of local placement candidates.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        if not server.is_cloud:
+            # Look ahead from current operation start, not just after operation end
+            for t in range(start_time, start_time + self.op.duration + self.hotspot_lookahead_window):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    current_utilization = (used + self.op.capacity_required) / available
+                    # Apply a quadratic penalty for high utilization, kicks in above 70%
+                    if current_utilization > 0.7:
+                        load_penalty += (current_utilization - 0.7) ** 2 * self.hotspot_penalty_factor * 20 # Increased factor for impact
+=======
+        if not server.is_cloud:
+            # Look ahead from current operation start to assess future congestion (hotspots).
+            for t in range(start_time, start_time + self.op.duration + self.hotspot_lookahead_window):
+                base_used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                # Only consider the current op's capacity during its execution window.
+                current_op_load = self.op.capacity_required if start_time <= t < (start_time + self.op.duration) else 0
+                total_used = base_used + current_op_load
+
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    current_utilization = total_used / available
+                    # Apply a quadratic penalty for high utilization, kicks in above 70%
+                    if current_utilization > 0.7:
+                        load_penalty += (current_utilization - 0.7) ** 2 * self.hotspot_penalty_factor * 20 # Increased factor for impact
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+                        if score < best_local.score:
+                            best_local = PlacementCandidate(score, server.id, start_t)
+                        break # First-fit for this server
+=======
+                        if score < best_local.score:
+                            best_local = PlacementCandidate(score, server.id, start_t)
+                        # By removing the break, we now search for the best-fit slot on this server, not just the first.
+>>>>>>> REPLACE
+</DIFF>

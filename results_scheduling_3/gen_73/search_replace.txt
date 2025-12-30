@@ -1,0 +1,71 @@
+<NAME>
+contention_and_delay_weighted_load_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit introduces two enhancements to the operation scoring heuristic to make more resilient and cost-aware scheduling decisions, especially under high-contention scenarios like the earthquake emergency.
+
+1.  **Delay-Weighted Load Penalty:** The existing load-balancing penalty is modified to be scaled by the job's `delay_weight`. This change, inspired by a previously high-performing implementation, ensures that jobs which are more sensitive to delays (i.e., have a higher delay penalty) are more strongly discouraged from being placed on already busy local servers. This reduces the risk of contention-induced delays for critical jobs.
+
+2.  **Contention-Aware Scoring:** A new "contention penalty" is added to the scoring function. This penalty is applied when a potential operation placement would utilize the last one or two available capacity slots on a local server. By making it more "expensive" to completely saturate a machine, the scheduler is encouraged to maintain a small capacity buffer. This buffer provides crucial flexibility for scheduling future urgent or unexpected jobs, improving the system's overall robustness without explicitly scheduling "slack". The penalty is also scaled by job priority and delay weight, making it more pronounced for important jobs.
+
+Together, these changes refine the local vs. cloud trade-off by making the scheduler more aware of the implicit risks associated with high server utilization, leading to better performance in both normal and capacity-constrained scenarios.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        self.load_penalty_factor = 10.0
+        self.priority_load_multiplier = {"emergency": 4.0, "critical": 3.0, "urgent": 2.5, "high": 2.0, "medium": 1.0, "low": 0.5}
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+=======
+        self.load_penalty_factor = 10.0
+        self.priority_load_multiplier = {"emergency": 4.0, "critical": 3.0, "urgent": 2.5, "high": 2.0, "medium": 1.0, "low": 0.5}
+        self.contention_penalty_factor = 5.0 # Penalty for using last capacity slots
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = avg_utilization * self.load_penalty_factor * load_prio_mult
+
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+
+        return total_score
+=======
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                # Scale load penalty by job's delay sensitivity
+                load_penalty = avg_utilization * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+        # 5. Contention Penalty for using last capacity slots
+        contention_penalty = 0.0
+        if not server.is_cloud:
+            prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+            for t in range(start_time, start_time + op.duration):
+                used_before = self.capacity_usage.get(server_id, {}).get(t, 0)
+                total_used_after = used_before + op.capacity_required
+                available_cap = get_available_capacity(self.inst, server_id, t)
+                remaining_cap = available_cap - total_used_after
+                if remaining_cap == 0:
+                    contention_penalty += self.contention_penalty_factor
+                elif remaining_cap == 1:
+                    contention_penalty += self.contention_penalty_factor / 2.0
+
+            if contention_penalty > 0:
+                contention_penalty *= self.job.delay_weight * prio_mult
+
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty + contention_penalty)
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

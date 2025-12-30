@@ -1,0 +1,39 @@
+<NAME>
+advanced_jobscheduler_reinstated
+</NAME>
+<DESCRIPTION>
+This edit replaces the simplistic `PlacementEvaluator` with a more sophisticated, holistic `JobScheduler` class, reintroducing and refining several high-performing heuristics from previous generations. The current model evaluates each operation in isolation with a basic scoring function, which is suboptimal. The new `JobScheduler` will make more intelligent, context-aware decisions.
+
+The key improvements are:
+1.  **Holistic Job-Level Scheduling**: The `JobScheduler` class manages the scheduling for all operations of a single job, allowing for more strategic, long-term planning rather than myopic, operation-level choices.
+
+2.  **Advanced Scoring Function**: A new `_calculate_operation_score` method is implemented. This function incorporates:
+    *   **A Non-linear, Slack-Aware Procrastination Penalty**: This penalty increases quadratically as a job's slack time diminishes and exponentially if it's already late. This ensures that jobs genuinely at risk of missing their deadlines are prioritized for immediate scheduling.
+    *   **A Non-linear Load-Balancing Penalty**: To prevent server "hotspots," the score heavily penalizes scheduling on local machines with high utilization using a squared utilization term. This is critical for maintaining performance in the capacity-constrained earthquake scenario.
+
+3.  **Dynamic, Priority-Driven Heuristics**: The `JobScheduler` is highly adaptive, using dictionaries to map job priorities (including `emergency`) to specific scheduling parameters:
+    *   `cloud_aggressiveness_threshold`: For high-priority jobs, this value is set below 1.0, meaning a local placement must be *significantly* cheaper than the cloud to be chosen. This pushes urgent tasks to the reliable, immediate cloud to reduce delay risk.
+    *   `priority_base_horizon`: The search window for local slots is dynamically adjusted based on both priority and current slack, focusing search efforts where they are most effective.
+
+This change aims to significantly improve performance by making smarter decisions that better balance cost, delay, and resource contention, especially for high-stakes emergency jobs.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+class PlacementEvaluator:
+    """A service to find the best placement for a single operation."""
+
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_duration = remaining_duration
+        self.compatible_servers = [
+            (s_id, s) for s_id, s in self.inst.servers.items()
+            if s.server_type == self.op.server_type
+        ]
+
+    def _calculate_score(self, server_id, start_time):
+        """Calculates the objective score for a given placement."""
+        compute =

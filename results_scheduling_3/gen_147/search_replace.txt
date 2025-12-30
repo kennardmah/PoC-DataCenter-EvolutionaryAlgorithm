@@ -1,0 +1,125 @@
+<NAME>
+type_specific_system_load
+</NAME>
+
+<DESCRIPTION>
+The original algorithm calculated a single system-wide load across all local machine types. This is inaccurate, as the contention a job faces is specific to the machine types its operations require. This change corrects this flaw by:
+1. Identifying the unique set of server types required by the job being scheduled.
+2. Calculating the average utilization for each of these specific server types over a lookahead window.
+3. Averaging these type-specific loads to produce a single, more relevant `current_system_load` metric.
+This improved metric provides a much more accurate input to the `JobUrgencyProfile`, leading to more intelligent decisions about cloud aggressiveness. For instance, the scheduler will now correctly recognize that the system is not congested for a GPU job even if the CPU servers are busy. The lookahead window is also increased from 6 to 12 hours for a more stable prediction.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Calculate system-wide local machine load to inform cloud aggressiveness
+    total_local_capacity_potential = 0
+    total_local_used_actual = 0
+    load_lookahead_window_for_system_load = 6 # Look 6 hours into the future for system load aggregation
+
+    # Ensure capacity_usage has entries for all local servers to prevent KeyError on .get() in below loop
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            # Ensure an entry exists for the server in capacity_usage
+            if server_id not in capacity_usage:
+                capacity_usage[server_id] = defaultdict(int) # Initialize with defaultdict if not already
+
+            for t in range(current_time, current_time + load_lookahead_window_for_system_load):
+                # We need capacity including failures, but usage for *actual* current demand
+                # get_available_capacity correctly accounts for failures
+                total_local_capacity_potential += get_available_capacity(inst, server_id, t)
+                total_local_used_actual += capacity_usage[server_id].get(t, 0)
+
+    current_system_load = total_local_used_actual / total_local_capacity_potential if total_local_capacity_potential > 0 else 0.0
+=======
+    # Calculate system-wide local machine load PER REQUIRED TYPE to inform cloud aggressiveness
+    job_server_types = set(op.server_type for op in job.operations)
+    type_loads = []
+    load_lookahead_window = 12  # Look 12 hours ahead
+
+    for server_type in job_server_types:
+        total_capacity = 0
+        total_used = 0
+        relevant_servers = [s_id for s_id, s in inst.servers.items() if s.server_type == server_type and not s.is_cloud]
+
+        if not relevant_servers:
+            continue  # This type might be cloud-only
+
+        for server_id in relevant_servers:
+            # Ensure an entry exists for the server in capacity_usage
+            if server_id not in capacity_usage:
+                capacity_usage[server_id] = defaultdict(int)
+
+            for t in range(current_time, current_time + load_lookahead_window):
+                total_capacity += get_available_capacity(inst, server_id, t)
+                total_used += capacity_usage[server_id].get(t, 0)
+
+        type_load = total_used / total_capacity if total_capacity > 0 else 0.0
+        type_loads.append(type_load)
+
+    current_system_load = sum(type_loads) / len(type_loads) if type_loads else 0.0
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+refined_slack_preservation
+</NAME>
+
+<DESCRIPTION>
+The previous implementation of the "slack preservation" penalty, designed to prevent early operations from consuming all the slack needed for later ones, used a complex and potentially unstable exponential function. This change refactors this heuristic for better stability and predictability:
+1. **Simplified Buffer Calculation:** The `critical_slack_buffer` is now calculated with a more intuitive formula: `remaining_duration * 1.25 + num_remaining_ops`, which represents a 25% time buffer plus a 1-hour-per-operation allowance for scheduling friction.
+2. **Quadratic Penalty:** The volatile exponential penalty is replaced with a more stable quadratic penalty (`slack_shortfall ** 2`). This penalizes eating into the buffer at an increasing rate without the risk of explosive, unpredictable scores.
+3. **Urgency Scaling:** The penalty's magnitude is scaled by the job's `delay_weight` and its dynamic `procrastination_penalty_multiplier`. This ensures the heuristic applies the most pressure to urgent, high-value jobs where preserving future flexibility is most critical. This change makes the decision-making process more robust against consuming future slack.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Incorporate Multi-Operation Impact into Procrastination Penalty (Recommendation 5)
+        if self.num_remaining_operations > 0:
+            # Slack for the entire *remaining* job after current operation completes
+            job_final_slack = self.job.deadline - (start_time + self.op.duration + self.remaining_duration)
+
+            # Define a critical slack threshold based on remaining duration and number of ops
+            # This threshold means we prefer to have at least this much slack available for future operations
+            # More remaining ops or longer ops means a slightly higher buffer is desired
+            critical_slack_buffer = self.remaining_duration + (self.num_remaining_operations * 0.5)
+
+            multi_op_impact_penalty = 0.0
+            if job_final_slack < critical_slack_buffer:
+                # If slack is less than the critical buffer, apply an exponential penalty
+                # The closer the slack is to zero (or negative), the steeper the penalty
+                slack_shortfall = max(0, critical_slack_buffer - job_final_slack)
+
+                # The exponent base determines how steeply the penalty grows.
+                # Higher urgency and smaller remaining duration (making future ops more vulnerable)
+                # should lead to a steeper penalty.
+                # Clamp to avoid extremely large or small bases from edge cases.
+                exponent_base = 0.1 + (0.02 * self.urgency.urgency_score) # Base sensitivity by urgency
+                if self.remaining_duration > 0:
+                    exponent_base += (0.03 * self.num_remaining_operations) / self.remaining_duration # More ops/shorter duration -> steeper
+
+                multi_op_impact_penalty = (math.exp(slack_shortfall * exponent_base) - 1.0) * self.job.delay_weight * 0.5
+
+            procrastination_penalty += multi_op_impact_penalty
+=======
+        # Incorporate Multi-Operation Impact into Procrastination Penalty (Recommendation 5)
+        if self.num_remaining_operations > 0:
+            # Slack for the entire *remaining* job after current operation completes
+            job_final_slack = self.job.deadline - (start_time + self.op.duration + self.remaining_duration)
+
+            # Define a critical slack threshold as a percentage of remaining work plus a per-op buffer.
+            # This provides a buffer to handle future contention or delays.
+            critical_slack_buffer = self.remaining_duration * 1.25 + self.num_remaining_operations
+
+            multi_op_impact_penalty = 0.0
+            if job_final_slack < critical_slack_buffer:
+                # If placing this op eats into the critical buffer for future ops, apply a penalty.
+                slack_shortfall = critical_slack_buffer - job_final_slack
+
+                # Use a quadratic penalty on the shortfall, making it increasingly costly to eat into the buffer.
+                # The penalty is scaled by the job's importance (delay_weight) and current urgency.
+                penalty_factor = 0.1 * self.job.delay_weight * self.urgency.procrastination_penalty_multiplier
+                multi_op_impact_penalty = (slack_shortfall ** 2) * penalty_factor
+
+            procrastination_penalty += multi_op_impact_penalty
+>>>>>>> REPLACE
+</DIFF>

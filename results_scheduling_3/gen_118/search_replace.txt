@@ -1,0 +1,133 @@
+<enhance_load_balancing_and_slack>
+<DESCRIPTION>
+This edit enhances the scheduling logic in `_calculate_operation_score` by introducing more sophisticated load balancing, hotspot avoidance, and multi-operation slack awareness.
+
+1.  **New Parameters:** `critical_utilization_threshold`, `critical_hotspot_penalty_factor`, `hotspot_lookahead_duration`, and `multi_op_slack_penalty_factor` are added to `JobScheduler.__init__` to configure the new load balancing and slack management behaviors.
+2.  **Multi-Operation Slack Awareness:** The `procrastination_penalty` is extended to include a `slack_crunch_penalty`. This penalty triggers if scheduling the current operation leaves insufficient slack for subsequent operations of the same job, relative to their combined duration. This encourages proactive scheduling to maintain flexibility for an entire job's sequence.
+3.  **Enhanced Load-Balancing and Hotspot Avoidance:**
+    *   **Dynamic Lookahead Window:** The load calculation window is refined to span the operation's duration plus a configurable `hotspot_lookahead_duration`. This provides a more forward-looking view of capacity impact.
+    *   **Immediate Capacity Check:** An explicit check is added within the load loop: if scheduling the operation would immediately exceed available capacity at any point in the lookahead window, the placement is rejected (`return float('inf')`). This ensures hard constraints are strictly met even for future projected states within the window.
+    *   **Non-Linear Base Load Penalty:** The `avg_utilization` is replaced with `(avg_projected_utilization ** 3)` to apply a non-linear (cubic) penalty, which steeply increases as utilization grows. This more aggressively discourages scheduling on already busy local machines.
+    *   **Hotspot Penalty:** A distinct `hotspot_penalty` is added. This penalty triggers if the projected utilization in any timestep within the lookahead window exceeds a `critical_utilization_threshold`, strongly penalizing placements that create or exacerbate congestion.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        self.priority_load_multiplier = {"emergency": 4.0, 'critical': 3.0, 'urgent': 2.5, 'high': 1.5, 'medium': 1.0, 'low': 0.5}
+=======
+        self.priority_load_multiplier = {"emergency": 4.0, 'critical': 3.0, 'urgent': 2.5, 'high': 1.5, 'medium': 1.0, 'low': 0.5}
+
+        # --- Enhanced Load Balancing and Slack Parameters ---
+        self.critical_utilization_threshold = 0.8
+        self.critical_hotspot_penalty_factor = 100.0
+        self.hotspot_lookahead_duration = 4 # hours
+        self.multi_op_slack_penalty_factor = 0.5
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        slack_ratio = 1.0
+        if current_slack_for_op < 0:
+            slack_ratio = 1.0 + (math.exp(abs(current_slack_for_op) / (self.inst.time_horizon / 4.0)) - 1.0)
+        elif current_slack_for_op < self.inst.time_horizon / 4:
+            ratio_to_threshold = (self.inst.time_horizon / 4.0 - current_slack_for_op) / (self.inst.time_horizon / 4.0)
+            slack_ratio = 1.0 + (ratio_to_threshold**2) * 2.0
+
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_multiplier * slack_ratio
+
+        # 4. Load-Balancing Penalty
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+            window_end = start_time + op.duration * 2
+            total_utilization, num_timesteps = 0.0, 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = avg_utilization * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+        return total_score
+=======
+        slack_ratio = 1.0
+        if current_slack_for_op < 0:
+            slack_ratio = 1.0 + (math.exp(abs(current_slack_for_op) / (self.inst.time_horizon / 4.0)) - 1.0)
+        elif current_slack_for_op < self.inst.time_horizon / 4:
+            ratio_to_threshold = (self.inst.time_horizon / 4.0 - current_slack_for_op) / (self.inst.time_horizon / 4.0)
+            slack_ratio = 1.0 + (ratio_to_threshold**2) * 2.0
+
+        procrastination_penalty = self.base_procrastination_penalty_factor \
+                                * (start_time - self.current_op_start_time) \
+                                * urgency_multiplier * slack_ratio
+
+        # New: Multi-operation slack crunch penalty
+        if remaining_duration_after_op > 0:
+            total_remaining_job_duration = op.duration + remaining_duration_after_op
+            # Slack available for the *rest* of the operations after *this* operation finishes at start_time + op.duration
+            projected_next_op_start = start_time + op.duration
+            remaining_ops_duration = remaining_duration_after_op
+
+            projected_job_finish_time = projected_next_op_start + remaining_ops_duration
+            job_slack_remaining = self.job.deadline - projected_job_finish_time
+
+            # If remaining slack is less than the total duration of subsequent ops, penalize heavily
+            # This incentivizes keeping slack for complex jobs
+            if job_slack_remaining < remaining_ops_duration * 0.5: # Penalize if slack is less than 50% of remaining op duration
+                slack_crunch_amount = (remaining_ops_duration * 0.5) - job_slack_remaining
+                # Scale by job urgency and a specific factor
+                procrastination_penalty += slack_crunch_amount * self.multi_op_slack_penalty_factor * urgency_multiplier
+
+
+        # 4. Enhanced Load-Balancing and Hotspot Avoidance Penalty
+        load_penalty = 0.0
+        if not server.is_cloud:
+            # Lookahead window for load: from current op start to its end + a configurable lookahead
+            check_window_start = start_time
+            check_window_end = start_time + op.duration + self.hotspot_lookahead_duration
+
+            total_projected_utilization = 0.0
+            num_timesteps = 0
+            hotspot_detected = False
+
+            for t in range(check_window_start, check_window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+
+                # HARD CONSTRAINT CHECK: If this placement *will* exceed capacity at any point, it's invalid
+                if used + op.capacity_required > available:
+                    return float('inf') # Fail fast: this placement is impossible
+
+                if available > 0:
+                    # Calculate projected utilization *with* the current operation
+                    projected_utilization = (used + op.capacity_required) / available
+                    total_projected_utilization += projected_utilization
+
+                    if projected_utilization > self.critical_utilization_threshold:
+                        hotspot_detected = True
+                num_timesteps += 1
+
+            if num_timesteps > 0:
+                avg_projected_utilization = total_projected_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+
+                # Non-linear penalty: cubic scaling for general load, more aggressive than linear or squared
+                load_penalty = (avg_projected_utilization ** 3) * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+                # Additional penalty if a critical hotspot is detected
+                if hotspot_detected:
+                    load_penalty += self.critical_hotspot_penalty_factor * load_prio_mult * self.job.delay_weight
+
+
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

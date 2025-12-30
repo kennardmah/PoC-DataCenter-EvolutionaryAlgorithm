@@ -1,0 +1,130 @@
+<load_and_urgency_refinements>
+<DESCRIPTION>
+This edit refines the job urgency profile and integrates it more deeply into the load-balancing and cloud-preference decisions.
+
+**Key Changes:**
+
+1.  **Removed Redundant `capacity_usage` Initialization:** The explicit loop initializing `capacity_usage[server_id] = defaultdict(int)` was removed from `schedule_job_online`. The `capacity_usage` being a `defaultdict(dict)` correctly handles missing `server_id` keys, and `capacity_usage[server_id].get(t, 0)` works even if the inner dictionary is a standard `dict`. This simplifies the code without impacting functionality.
+
+2.  **Refined `JobUrgencyProfile` Parameters:**
+    *   **Cloud Aggressiveness Factor:** The calculation for `cloud_aggressiveness_factor` is made more sensitive to `urgency_score` and `system_load`. Higher urgency and higher system load will make the scheduler more aggressive about using the cloud (lower `cloud_aggressiveness_factor`), prioritizing speed and avoiding local congestion.
+    *   **Local Search Horizon:** The `search_horizon` for local placements is now more sharply reduced for urgent jobs, pushing them to find a slot quickly or opt for the cloud.
+    *   **Procrastination Penalty Multiplier:** The penalty for delaying an operation is made steeper for more urgent jobs.
+    *   **New `load_penalty_sensitivity`:** A new attribute `load_penalty_sensitivity` is added to the urgency profile. This value scales based on job urgency, making high-priority jobs inherently more sensitive to local machine utilization and thus more likely to avoid hotspots.
+
+3.  **Enhanced Non-Linear Load-Balancing in `_calculate_operation_score`:**
+    *   The `load_penalty` now applies a penalty for utilization exceeding 50% (down from 70%).
+    *   The penalty is `(current_utilization ** dynamic_exponent)`, where `dynamic_exponent` itself increases with job urgency (ranging from `~2.1` for low urgency to `4.0` for high urgency). This creates a much more aggressive and non-linear penalty for higher utilization, especially for urgent jobs.
+    *   The overall `load_penalty` is then scaled by the `load_penalty_sensitivity` from the job's urgency profile, ensuring urgent jobs are significantly deterred by local congestion.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Ensure capacity_usage has entries for all local servers to prevent KeyError on .get() in below loop
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            # Ensure an entry exists for the server in capacity_usage
+            if server_id not in capacity_usage:
+                capacity_usage[server_id] = defaultdict(int) # Initialize with defaultdict if not already
+
+            for t in range(current_time, current_time + load_lookahead_window_for_system_load):
+                # We need capacity including failures, but usage for *actual* current demand
+                # get_available_capacity correctly accounts for failures
+                total_local_capacity_potential += get_available_capacity(inst, server_id, t)
+                total_local_used_actual += capacity_usage[server_id].get(t, 0)
+=======
+            for t in range(current_time, current_time + load_lookahead_window_for_system_load):
+                # We need capacity including failures, but usage for *actual* current demand
+                # get_available_capacity correctly accounts for failures
+                total_local_capacity_potential += get_available_capacity(inst, server_id, t)
+                total_local_used_actual += capacity_usage[server_id].get(t, 0)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        self.urgency_score = max(0.5, min(10.0, self.urgency_score))
+
+        # 1. Cloud Aggressiveness: Higher urgency -> lower factor -> favors cloud speed
+        #    Also reduce factor if system-wide local load is high, making cloud more attractive
+        self.cloud_aggressiveness_factor = 1.25 - (0.1 * self.urgency_score)
+        system_load_influence = (system_load - 0.5) * 0.2 # E.g., if load is 0.8, influence is 0.06 (reduce factor)
+        self.cloud_aggressiveness_factor -= system_load_influence # Reduce factor if system_load > 0.5, increase if < 0.5
+        self.cloud_aggressiveness_factor = max(0.8, min(1.3, self.cloud_aggressiveness_factor))
+
+        # 2. Local Search Horizon: Higher urgency -> shorter horizon to find a slot quickly
+        self.search_horizon = int(72 / (1 + 0.15 * self.urgency_score))
+        self.search_horizon = max(job.operations[0].duration + 1, self.search_horizon)
+
+        # 3. Procrastination Penalty Multiplier: Higher urgency -> greater penalty for waiting
+        self.procrastination_penalty_multiplier = 1.0 + self.urgency_score / 2.0
+=======
+        self.urgency_score = max(0.5, min(10.0, self.urgency_score))
+
+        # 1. Cloud Aggressiveness: Higher urgency -> lower factor -> favors cloud speed
+        #    More aggressively uses cloud if system-wide local load is high, reducing factor further.
+        #    Range: ~0.8 for high urgency/load to ~1.3 for low urgency/load
+        self.cloud_aggressiveness_factor = max(0.8, min(1.3, 1.5 - (0.15 * self.urgency_score) + (system_load * 0.2)))
+
+        # 2. Local Search Horizon: Higher urgency -> shorter horizon to find a slot quickly
+        #    Base horizon is 48 hours for lowest urgency, quickly shrinks for higher urgency.
+        self.search_horizon = int(48 / (1 + 0.2 * self.urgency_score))
+        self.search_horizon = max(1, self.search_horizon) # Ensure minimum search of at least 1 timestep
+
+        # 3. Procrastination Penalty Multiplier: Higher urgency -> greater penalty for waiting
+        #    Scales from ~1.375 for low urgency to ~8.5 for high urgency.
+        self.procrastination_penalty_multiplier = 1.0 + self.urgency_score * 0.75
+
+        # 4. Load Penalty Sensitivity: Higher urgency -> more sensitive to high local machine load
+        #    Scales from ~1.16 for low urgency to ~4.33 for high urgency.
+        self.load_penalty_sensitivity = 1.0 + (self.urgency_score / 3.0)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        load_penalty = 0.0
+        server = self.inst.servers[server_id]
+        if not server.is_cloud:
+            # Look ahead from current operation start, not just after operation end
+            for t in range(start_time, start_time + self.op.duration + self.hotspot_lookahead_window):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    current_utilization = (used + self.op.capacity_required) / available
+                    # Apply a quadratic penalty for high utilization, kicks in above 70%
+                    if current_utilization > 0.7:
+                        load_penalty += (current_utilization - 0.7) ** 2 * self.hotspot_penalty_factor * 20 # Increased factor for impact
+
+            # Scale total load penalty by job urgency
+            load_penalty *= self.urgency.urgency_score
+
+        return (compute_cost * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty + load_penalty)
+=======
+        load_penalty = 0.0
+        server = self.inst.servers[server_id]
+        if not server.is_cloud:
+            # Dynamic Load-Balancing Penalty: Non-linear penalty for high utilization, sensitive to urgency.
+            # Look ahead from current operation start, covering the operation duration and a forward window.
+            lookahead_end_time = start_time + self.op.duration + self.hotspot_lookahead_window
+            for t in range(start_time, lookahead_end_time):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    prospective_utilization = (used + self.op.capacity_required) / available
+                    # Apply a non-linear penalty for utilization above a moderate threshold (e.g., 50%)
+                    if prospective_utilization > 0.5:
+                        # Dynamic exponent: increases with urgency for steeper penalties for urgent jobs
+                        dynamic_exponent = 2.0 + (self.urgency.urgency_score / 3.0) # From ~2.1 to ~5.3
+                        # Penalty is (utilization ^ exponent) * base_factor
+                        load_penalty += (prospective_utilization ** dynamic_exponent) * self.hotspot_penalty_factor * 50
+
+            # Scale the total load penalty by the job's urgency-based load sensitivity
+            load_penalty *= self.urgency.load_penalty_sensitivity
+
+        return (compute_cost * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty + load_penalty)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,127 @@
+<NAME>
+slack_and_capacity_preservation
+</NAME>
+
+<DESCRIPTION>
+This edit enhances the scheduling heuristic by integrating two proactive penalties into the operation scoring function:
+
+1.  **Refined Multi-Operation Slack Preservation Penalty:** The previous `multi_op_impact_penalty` is replaced and improved to explicitly penalize if placing the current operation disproportionately consumes the available slack for subsequent operations within the *same job*. It calculates a "minimum slack buffer per future operation" and applies an exponential penalty if the job's overall remaining slack falls below the total required buffer, scaled by job urgency. This encourages maintaining a healthy temporal buffer for chained operations, especially for critical jobs.
+
+2.  **Proactive Capacity Preservation Penalty:** A new penalty component is introduced for local servers. It discourages scheduling an operation if doing so would cause the server's *available capacity* (after accounting for currently scheduled tasks and machine failures) to drop below a predefined "safe reserve percentage" within a specified future `lookahead` window (e.g., 6 hours). This penalty is exponential, increasing sharply as the capacity dips below the reserve, and is scaled by the job's urgency. This helps to prevent resource exhaustion, maintain resilience, and ensure capacity for upcoming high-priority or emergency jobs.
+
+These changes are inspired by Recommendation 1, aiming to make the scheduler more robust to future uncertainties and better at managing capacity and job flow by proactively preserving critical resources.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Incorporate Multi-Operation Impact into Procrastination Penalty (Recommendation 5)
+        if self.num_remaining_operations > 0:
+            # Slack for the entire *remaining* job after current operation completes
+            job_final_slack = self.job.deadline - (start_time + self.op.duration + self.remaining_duration)
+
+            # Define a critical slack threshold based on remaining duration and number of ops
+            # This threshold means we prefer to have at least this much slack available for future operations
+            # More remaining ops or longer ops means a slightly higher buffer is desired
+            critical_slack_buffer = self.remaining_duration + (self.num_remaining_operations * 0.5)
+
+            multi_op_impact_penalty = 0.0
+            if job_final_slack < critical_slack_buffer:
+                # If slack is less than the critical buffer, apply an exponential penalty
+                # The closer the slack is to zero (or negative), the steeper the penalty
+                slack_shortfall = max(0, critical_slack_buffer - job_final_slack)
+
+                # The exponent base determines how steeply the penalty grows.
+                # Higher urgency and smaller remaining duration (making future ops more vulnerable)
+                # should lead to a steeper penalty.
+                # Clamp to avoid extremely large or small bases from edge cases.
+                exponent_base = 0.1 + (0.02 * self.urgency.urgency_score) # Base sensitivity by urgency
+                if self.remaining_duration > 0:
+                    exponent_base += (0.03 * self.num_remaining_operations) / self.remaining_duration # More ops/shorter duration -> steeper
+
+                multi_op_impact_penalty = (math.exp(slack_shortfall * exponent_base) - 1.0) * self.job.delay_weight * 0.5
+
+            procrastination_penalty += multi_op_impact_penalty
+=======
+        # Proactive Multi-Operation Slack Preservation Penalty (Recommendation 1)
+        multi_op_slack_penalty = 0.0
+        if self.num_remaining_operations > 0:
+            # Calculate the total remaining time for the job if this operation finishes at start_time + op.duration
+            projected_job_end_time_after_this_op = start_time + self.op.duration + self.remaining_duration
+            job_overall_slack_remaining = self.job.deadline - projected_job_end_time_after_this_op
+
+            # Calculate the minimum required slack "buffer" per remaining operation
+            # More urgent jobs or longer subsequent ops require a higher buffer
+            min_slack_buffer_per_op = 0.5 + (0.1 * self.urgency.urgency_score) # Base of 0.5 hours per op, scaled by urgency
+
+            # Total required slack for all future operations, including their actual durations
+            total_required_future_time = self.remaining_duration + (self.num_remaining_operations * min_slack_buffer_per_op)
+
+            # If the job's overall slack remaining is less than the total required future time
+            if job_overall_slack_remaining < total_required_future_time:
+                # Calculate the shortfall in required buffer
+                slack_shortfall = max(0, total_required_future_time - job_overall_slack_remaining)
+
+                # Apply an exponential penalty that grows significantly with shortfall, scaled by job urgency
+                # The base of the exponent determines the steepness of the penalty growth
+                exponent_base = 0.1 + (0.05 * self.urgency.urgency_score)
+                multi_op_slack_penalty = (math.exp(slack_shortfall * exponent_base) - 1.0) * self.job.delay_weight * 0.75
+
+        procrastination_penalty += multi_op_slack_penalty
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        self.hotspot_penalty_factor = 0.1
+        self.hotspot_lookahead_window = 6
+=======
+        self.hotspot_penalty_factor = 0.1
+        self.hotspot_lookahead_window = 6
+        self.capacity_reserve_percentage = 0.25 # Aim to keep 25% of local server capacity free
+        self.capacity_preservation_lookahead = 6 # Look 6 hours into the future for capacity preservation
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Scale total load penalty by job urgency
+            load_penalty *= self.urgency.urgency_score
+
+        return (compute_cost * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty + load_penalty)
+=======
+            # Scale total load penalty by job urgency
+            load_penalty *= self.urgency.urgency_score
+
+        # Capacity Preservation Penalty (Recommendation 1)
+        capacity_preservation_penalty = 0.0
+        server = self.inst.servers[server_id] # Re-fetch server object for clarity
+        if not server.is_cloud:
+            server_base_capacity = server.capacity
+            reserve_absolute_threshold = server_base_capacity * self.capacity_reserve_percentage
+
+            # Check capacity in a window AFTER the proposed operation finishes
+            # This ensures we don't block capacity for future operations/jobs
+            for t_check in range(start_time + self.op.duration,
+                                 start_time + self.op.duration + self.capacity_preservation_lookahead):
+
+                # Available capacity at t_check considering failures
+                actual_available_at_t_check = get_available_capacity(self.inst, server_id, t_check)
+                # Capacity *currently* used by other jobs (excluding the one we are placing)
+                current_used_by_others = self.capacity_usage.get(server_id, {}).get(t_check, 0)
+
+                remaining_physical_capacity = actual_available_at_t_check - current_used_by_others
+
+                # If remaining capacity (after accounting for existing jobs) falls below our reserve threshold
+                if remaining_physical_capacity < reserve_absolute_threshold:
+                    shortfall = reserve_absolute_threshold - remaining_physical_capacity
+                    # Exponential penalty, significantly higher for critical shortfalls,
+                    # scaled by job urgency to prioritize keeping capacity for high-priority tasks.
+                    capacity_preservation_penalty += (math.exp(shortfall * 0.08 * self.urgency.urgency_score) - 1.0) * 15.0 # Stronger penalty
+
+        return (compute_cost * self.inst.weights['compute_cost'] +
+                delay_penalty * self.inst.weights['delay_penalty'] +
+                procrastination_penalty + load_penalty + capacity_preservation_penalty)
+>>>>>>> REPLACE
+</DIFF>

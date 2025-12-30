@@ -1,0 +1,37 @@
+<NAME>
+dynamic_urgency_profile_refactor
+</NAME>
+
+<DESCRIPTION>
+This edit refactors the scheduling logic to use a dynamic `JobUrgencyProfile` and a more robust `PlacementEvaluator`. The previous attempt failed likely due to an incomplete `REPLACE` block or a `SEARCH` block mismatch. This version ensures the `SEARCH` block is accurate and the `REPLACE` block is fully self-contained and syntactically correct.
+
+**Core Improvements:**
+
+1.  **`PlacementCandidate` Data Class:** Introduced for cleaner representation of potential operation placements.
+2.  **`JobUrgencyProfile` Class:**
+    *   **Continuous Urgency Score:** Calculates a single, continuous `urgency_score` by combining base priority, current deadline slack (penalizing negative or low slack more severely), and a boost for the number of remaining operations in the job.
+    *   **Adaptive Parameters:** This `urgency_score`, along with the `current_system_load`, dynamically derives adaptive values for `cloud_aggressiveness_factor`, `search_horizon` for local machines, and `procrastination_penalty_multiplier`. This replaces the static, discrete priority-based lookups.
+3.  **`PlacementEvaluator` Refactoring:**
+    *   **Dependency Injection:** The `PlacementEvaluator` now receives the `urgency_profile` and `num_remaining_operations` (number of operations *after* the current one) in its constructor. This centralizes urgency calculation and allows the evaluator to focus on scoring and decision-making.
+    *   **Adaptive Scoring:** The `_calculate_operation_score` method now uses the adaptive parameters from the `urgency_profile`.
+    *   **Multi-Operation Slack Penalty (Refined):** The procrastination penalty is further enhanced with a penalty for disproportionately consuming slack required for *subsequent* operations of the *same job*. This penalty scales exponentially with the slack shortfall and the overall job urgency, preventing placements that might make future operations infeasible or very expensive.
+    *   **Non-Linear Hotspot Avoidance:** The load balancing penalty for local servers is made non-linear, applying a quadratic penalty that kicks in more aggressively when utilization exceeds 70% in a lookahead window, scaled by job urgency.
+    *   **Robust Placement Logic:** The `find_best_placement` method systematically benchmarks cloud options against local options within the dynamically adjusted `search_horizon`, prioritizing local based on the `cloud_aggressiveness_factor`, and includes robust failsafe mechanisms for scenarios where initial searches yield no valid placements.
+4.  **`schedule_job_online` Integration:**
+    *   Calculates a `current_system_load` by aggregating utilization across all local servers for a short lookahead window.
+    *   Instantiates the `JobUrgencyProfile` for the current job, passing the total job duration and initial number of operations.
+    *   Passes the created `urgency_profile` and the *remaining* operation details to the `PlacementEvaluator` for each operation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class PlacementEvaluator:
+    """A service to find the best placement for a single operation."""
+
+    def __init__(self, inst, job, op, capacity_usage, earliest_start, remaining_duration):
+        self.inst = inst
+        self.job = job
+        self.op = op
+        self.capacity_usage = capacity_usage
+        self.earliest_start = earliest_start
+        self.remaining_

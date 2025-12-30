@@ -1,0 +1,66 @@
+contention_sensitive_scheduling
+This edit introduces two complementary changes to make the scheduler more sensitive to resource contention, improving its resilience and decision-making, especially under high load or in failure scenarios.
+
+1.  **RMS System Load:** The global `system_load` metric, which informs job-level urgency and cloud strategy, is changed from a simple average to a Root Mean Square (RMS) of utilization across all local servers and time slots. An average can hide critical peaks in demand, while RMS gives more weight to high-utilization periods, providing a more accurate signal of true system congestion.
+
+2.  **Increased Contention Penalty Weight:** The proactive `hotspot_penalty` and `capacity_preservation_penalty` are made more influential in the operation placement score. By reducing their normalization factor (from dividing by 6 to 3), their weight is effectively doubled. This makes the scheduler more aggressively avoid creating or contributing to bottlenecks on local servers, encouraging it to either wait for a less congested time or utilize the cloud, thereby preserving local capacity for truly critical moments.
+
+Together, these changes create a more sophisticated and risk-averse scheduling policy that better anticipates and navigates resource contention.
+<DIFF>
+<<<<<<< SEARCH
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_penalty * self.inst.weights['delay_penalty'] +
+                       procrastination_penalty +
+                       (hotspot_penalty + cap_preservation_penalty) / (self.inst.time_horizon / 4)) # Normalize penalties
+        return total_score
+=======
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_penalty * self.inst.weights['delay_penalty'] +
+                       procrastination_penalty +
+                       (hotspot_penalty + cap_preservation_penalty) / (self.inst.time_horizon / 8)) # Normalize penalties, with higher impact
+        return total_score
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+def schedule_job_online(inst: Instance, job: Job, schedule: Schedule, capacity_usage: Dict[str, Dict[int, int]], current_time: int):
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+    total_job_duration = sum(op.duration for op in job.operations)
+
+    # Calculate system-wide local load
+    total_cap, total_used = 0, 0
+    load_window = inst.time_horizon // 2
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            for t in range(current_time, current_time + load_window):
+                total_cap += get_available_capacity(inst, server_id, t)
+                total_used += capacity_usage.get(server_id, {}).get(t, 0)
+    system_load = total_used / total_cap if total_cap > 0 else 0.0
+
+    urgency_profile = JobUrgencyProfile(inst, job, current_time, total_job_duration, system_load)
+=======
+def schedule_job_online(inst: Instance, job: Job, schedule: Schedule, capacity_usage: Dict[str, Dict[int, int]], current_time: int):
+    schedule[job.id] = []
+    current_op_release_time = max(job.arrival_time, current_time)
+    total_job_duration = sum(op.duration for op in job.operations)
+
+    # Calculate system-wide local load using Root-Mean-Square to be sensitive to peaks
+    utilizations = []
+    load_window = inst.time_horizon // 2
+    for server_id, server in inst.servers.items():
+        if not server.is_cloud:
+            for t in range(current_time, current_time + load_window):
+                available_cap = get_available_capacity(inst, server_id, t)
+                if available_cap > 0:
+                    used_cap = capacity_usage.get(server_id, {}).get(t, 0)
+                    utilizations.append(used_cap / available_cap)
+
+    if not utilizations:
+        system_load = 0.0
+    else:
+        system_load = math.sqrt(sum(u**2 for u in utilizations) / len(utilizations))
+
+    urgency_profile = JobUrgencyProfile(inst, job, current_time, total_job_duration, system_load)
+>>>>>>> REPLACE
+</DIFF>

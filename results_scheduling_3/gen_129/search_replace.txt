@@ -1,0 +1,6 @@
+<NAME>
+proactive_load_balancing
+</NAME>
+
+<DESCRIPTION>
+This edit refines the scheduling heuristic to be more proactive and intelligent in managing machine load, which is critical for both normal and emergency scenarios. The changes are focused within the `JobUrgencyProfile`

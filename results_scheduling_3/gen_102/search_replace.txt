@@ -1,0 +1,70 @@
+<NAME>
+comprehensive_heuristic_tuning
+</NAME>
+<DESCRIPTION>
+This edit performs a comprehensive correction and tuning of the scheduling heuristics. The previous implementation had several logical flaws that severely hampered its performance, especially for high-priority and emergency jobs.
+
+1.  **Corrected Priority Logic:** All heuristic parameter dictionaries (`priority_base_horizon`, `priority_procrastination_multiplier`, `cloud_aggressiveness_threshold`, `priority_load_multiplier`) were missing entries for `'emergency'` jobs. This edit adds them, ensuring these critical jobs receive appropriate, aggressive scheduling.
+
+2.  **Fixed Monotonicity:** The `priority_load_multiplier` dictionary was not ordered correctly by priority (e.g., 'critical' had a lower multiplier than 'urgent'). This has been fixed to ensure that sensitivity to server load correctly increases with job priority.
+
+3.  **Inverted Cloud Aggressiveness:** The `cloud_aggressiveness_threshold` logic was backward. High-priority jobs were incorrectly configured to prefer expensive local slots, while low-priority jobs were pushed to the cloud. This has been inverted: high-priority jobs now strongly prefer the cloud to avoid delays (threshold < 1.0), while low-priority jobs will wait for much cheaper local capacity (threshold > 1.0).
+
+4.  **Introduced Non-Linear Load Penalty:** The load-balancing penalty was changed from a linear `(avg_utilization)` to a non-linear `(avg_utilization ** 2)` function. This drastically penalizes scheduling on highly congested servers, a proven strategy for improving throughput and reducing delays by avoiding bottlenecks. The associated `load_penalty_factor` was increased to give this more powerful penalty appropriate weight.
+
+5.  **General Tuning:** Other parameters, like `base_procrastination_penalty_factor`, were fine-tuned to better balance the trade-offs between waiting for cheaper slots and scheduling immediately to avoid delay penalties.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters from Base Implementation ---
+        self.priority_base_horizon = {'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+        self.priority_procrastination_multiplier = {'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        self.priority_load_multiplier = {"emergency": 3.0, "urgent": 2.5, "critical": 2.0, "high": 1.5, "medium": 1.0, "low": 0.5}
+        # Local preference bonus was removed in favor of the more dynamic cloud_aggressiveness_threshold heuristic.
+=======
+        # --- Heuristic Parameters (Corrected & Tuned) ---
+        # Search horizon: Short for urgent jobs, long for non-urgent.
+        self.priority_base_horizon = {
+            'emergency': 4, 'critical': 6, 'urgent': 12,
+            'high': 24, 'medium': 48, 'low': 72
+        }
+        # Procrastination penalty: High penalty for delaying important jobs.
+        self.priority_procrastination_multiplier = {
+            'emergency': 12.0, 'critical': 10.0, 'urgent': 5.0,
+            'high': 2.5, 'medium': 1.0, 'low': 0.5
+        }
+        self.base_procrastination_penalty_factor = 0.075
+        # Cloud aggressiveness: High-prio jobs are pushed to cloud if local is not quickly available.
+        # A value < 1.0 makes cloud more attractive.
+        self.cloud_aggressiveness_threshold = {
+            'emergency': 0.90, 'critical': 1.0, 'urgent': 1.1,
+            'high': 1.15, 'medium': 1.2, 'low': 1.25
+        }
+        # Load penalty: High-prio jobs are very sensitive to server congestion.
+        self.load_penalty_factor = 8.0
+        self.priority_load_multiplier = {
+            "emergency": 5.0, "critical": 4.0, "urgent": 3.0,
+            "high": 2.0, "medium": 1.0, "low": 0.5
+        }
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = avg_utilization * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+=======
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                # Using a squared penalty to heavily discourage scheduling on congested servers.
+                load_penalty = (avg_utilization ** 2) * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+>>>>>>> REPLACE
+</DIFF>

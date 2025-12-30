@@ -1,0 +1,178 @@
+# EVOLVE-BLOCK-START
+@dataclass
+class UrgencyProfile:
+    urgency_score: float
+    search_horizon: int
+    cloud_aggressiveness_factor: float
+    procrastination_multiplier: float
+
+
+class JobScheduler:
+    def __init__(self, inst: Instance, job: Job,
+                 schedule: Schedule, capacity_usage: Dict[str, Dict[int, int]],
+                 current_system_time: int):
+        self.inst = inst
+        self.job = job
+        self.schedule = schedule
+        self.capacity_usage = capacity_usage
+        self.current_op_start_time = max(job.arrival_time, current_system_time)
+        self.scheduled_job_ops = []
+
+        # --- NEW: Tunable parameters for the urgency and scoring models ---
+        self.hotspot_threshold = 0.8
+        self.hotspot_penalty_factor = 25.0
+        self.base_procrastination_penalty = 0.07
+
+        # Compute the urgency profile for this job once
+        self.urgency_profile = self._compute_urgency_profile()
+
+    def _compute_urgency_profile(self) -> UrgencyProfile:
+        """
+        Computes a unified, continuous urgency profile for the job, which then drives
+        all other heuristic parameters.
+        """
+        priority_map = {"emergency": 10.0, "critical": 6.0, "urgent": 4.0, "high": 2.0, "medium": 1.0, "low": 0.5}
+        base_priority_urgency = priority_map.get(self.job.priority.lower(), 1.0)
+
+        total_job_duration = sum(op.duration for op in self.job.operations)
+        current_slack = self.job.deadline - (self.current_op_start_time + total_job_duration)
+
+        slack_urgency_multiplier = 1.0
+        if current_slack < 0:
+            slack_urgency_multiplier = 1.0 + (math.exp(abs(current_slack) / 8.0) - 1.0)
+        elif current_slack < total_job_duration * 0.5:
+            slack_urgency_multiplier = 1.0 + ((total_job_duration * 0.5 - current_slack) / (total_job_duration * 0.5))**2 * 3.0
+
+        urgency_score = base_priority_urgency * slack_urgency_multiplier
+        urgency_score = max(0.5, min(20.0, urgency_score))
+
+        search_horizon = int(72 / (1 + 0.2 * urgency_score))
+        search_horizon = max(total_job_duration, search_horizon)
+
+        cloud_aggressiveness_factor = 1.25 - (0.05 * urgency_score)
+        cloud_aggressiveness_factor = max(0.85, min(1.4, cloud_aggressiveness_factor))
+
+        procrastination_multiplier = 1.0 + urgency_score / 2.0
+
+        return UrgencyProfile(
+            urgency_score=urgency_score,
+            search_horizon=search_horizon,
+            cloud_aggressiveness_factor=cloud_aggressiveness_factor,
+            procrastination_multiplier=procrastination_multiplier
+        )
+
+    def _calculate_operation_score(self, server_id: str, start_time: int, op: Operation,
+                                   remaining_duration_after_op: int) -> float:
+        """Calculates a composite score based on cost, delay, and proactive penalties."""
+        server = self.inst.servers[server_id]
+
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                           for t in range(start_time, start_time + op.duration))
+
+        projected_completion_time = start_time + op.duration + remaining_duration_after_op
+        delay = max(0, projected_completion_time - self.job.deadline)
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+
+        wait_time = start_time - self.current_op_start_time
+        procrastination_penalty = wait_time * self.base_procrastination_penalty * self.urgency_profile.procrastination_multiplier
+
+        slack_after_this_op = self.job.deadline - projected_completion_time
+        critical_slack_buffer = remaining_duration_after_op * 1.2
+        if slack_after_this_op < critical_slack_buffer:
+            slack_shortfall = critical_slack_buffer - slack_after_this_op
+            procrastination_penalty += slack_shortfall * self.job.delay_weight * self.urgency_profile.urgency_score * 0.1
+
+        hotspot_penalty = 0.0
+        if not server.is_cloud:
+            max_utilization = 0
+            for t in range(start_time, start_time + op.duration):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    utilization = (used + op.capacity_required) / available
+                    max_utilization = max(max_utilization, utilization)
+            
+            if max_utilization > self.hotspot_threshold:
+                penalty_magnitude = ((max_utilization - self.hotspot_threshold) / (1.0 - self.hotspot_threshold))**2
+                hotspot_penalty = penalty_magnitude * self.hotspot_penalty_factor * op.duration * self.urgency_profile.urgency_score
+        
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost +
+                       procrastination_penalty +
+                       hotspot_penalty)
+        return total_score
+
+    def _find_best_cloud_placement(self, op: Operation, remaining_duration_after_op: int) -> Optional[tuple]:
+        best_score, best_server_id = float('inf'), None
+        for server_id, server in self.inst.servers.items():
+            if server.server_type == op.server_type and server.is_cloud:
+                score = self._calculate_operation_score(server_id, self.current_op_start_time, op, remaining_duration_after_op)
+                if score < best_score:
+                    best_score, best_server_id = score, server_id
+        return (best_score, best_server_id, self.current_op_start_time) if best_server_id else None
+
+    def _find_best_local_placement(self, op: Operation, remaining_duration_after_op: int) -> Optional[tuple]:
+        best_score, best_placement = float('inf'), None
+        search_limit = self.current_op_start_time + self.urgency_profile.search_horizon
+
+        for server_id, server in self.inst.servers.items():
+            if server.server_type == op.server_type and not server.is_cloud:
+                for start in range(self.current_op_start_time, search_limit + 1):
+                    if has_capacity(self.inst, self.capacity_usage, server_id, start, op.duration, op.capacity_required):
+                        score = self._calculate_operation_score(server_id, start, op, remaining_duration_after_op)
+                        if score < best_score:
+                            best_score, best_placement = score, (score, server_id, start)
+        return best_placement
+
+    def schedule_all_operations(self):
+        for idx, op in enumerate(self.job.operations):
+            remaining_duration_after_op = sum(o.duration for o in self.job.operations[idx + 1:])
+
+            cloud_res = self._find_best_cloud_placement(op, remaining_duration_after_op)
+            local_res = self._find_best_local_placement(op, remaining_duration_after_op)
+
+            cloud_score = cloud_res[0] if cloud_res else float('inf')
+            local_score = local_res[0] if local_res else float('inf')
+
+            chosen_server, chosen_start = None, -1
+            cloud_pref_factor = self.urgency_profile.cloud_aggressiveness_factor
+
+            if local_res and local_score < (cloud_score * cloud_pref_factor):
+                chosen_server, chosen_start = local_res[1], local_res[2]
+            elif cloud_res:
+                chosen_server, chosen_start = cloud_res[1], cloud_res[2]
+            else:
+                compatible_servers = [s for s in self.inst.servers.values() if s.server_type == op.server_type]
+                if any(s.is_cloud for s in compatible_servers):
+                    cheapest_cloud = min((s for s in compatible_servers if s.is_cloud),
+                                         key=lambda s: self.inst.server_cost[s.id][self.current_op_start_time % self.inst.time_horizon])
+                    chosen_server, chosen_start = cheapest_cloud.id, self.current_op_start_time
+                else:
+                    cheapest_local = min((s for s in compatible_servers if not s.is_cloud),
+                                         key=lambda s: sum(self.inst.server_cost[s.id].values()))
+                    start_t = self.current_op_start_time
+                    while True:
+                        if has_capacity(self.inst, self.capacity_usage, cheapest_local.id, start_t, op.duration, op.capacity_required):
+                            chosen_server, chosen_start = cheapest_local.id, start_t
+                            break
+                        start_t += 1
+
+            for t in range(chosen_start, chosen_start + op.duration):
+                self.capacity_usage[chosen_server][t] = self.capacity_usage[chosen_server].get(t, 0) + op.capacity_required
+
+            self.scheduled_job_ops.append({"server": chosen_server, "start": chosen_start})
+            self.current_op_start_time = chosen_start + op.duration
+
+        self.schedule[self.job.id] = self.scheduled_job_ops
+
+
+def schedule_job_online(inst: Instance,
+                        job: Job,
+                        schedule: Schedule,
+                        capacity_usage: Dict[str, Dict[int, int]],
+                        current_time: int):
+    """Orchestrates scheduling for a single job using the JobScheduler class."""
+    job_scheduler = JobScheduler(inst, job, schedule, capacity_usage, current_time)
+    job_scheduler.schedule_all_operations()
+
+# EVOLVE-BLOCK-END

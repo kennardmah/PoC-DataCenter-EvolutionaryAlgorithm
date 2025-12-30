@@ -1,0 +1,110 @@
+<NAME>
+principled_cost_tradeoff_heuristic
+</NAME>
+
+<DESCRIPTION>
+The current scoring function in `PlacementStrategy._calculate_score` has a logical flaw: it applies the `criticality_factor` as a multiplier to the *entire* score, including the `compute_cost`. This is counterproductive for urgent jobs, as it magnifies the high cost of fast cloud machines, potentially making them less attractive than cheaper, slower local machines that increase the risk of delay.
+
+This edit refactors the scoring function to establish a more principled trade-off between compute cost and time-related penalties. The key changes are:
+1.  **Separation of Costs:** The score is now calculated as `total_score = compute_cost + time_penalties * criticality_factor`. The `criticality_factor` now correctly scales only the time-related penalties (delay, procrastination, deadline proximity, capacity hotspot), effectively representing the job's willingness to pay more to avoid being late.
+2.  **Logical Cloud Preference:** The `cloud_tolerance_factor` is now applied directly and only to the `compute_cost` of cloud options. This makes the logic clearer: for an emergency job, the perceived cost of using the cloud is reduced, making it a more attractive option for rapid placement, without distorting the time-based penalties.
+
+This change aligns the heuristic more closely with the underlying optimization goal: for critical jobs, minimizing delay is paramount, even at a higher compute cost, while for non-critical jobs, minimizing compute cost is the primary driver. This should lead to better scheduling decisions, especially in the earthquake scenario where urgent jobs and resource contention are high.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def _calculate_score(self, server_id: str, start_time: int, is_cloud: bool) -> float:
+        """Calculates a composite score for a potential placement, adjusted by job urgency."""
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                           for t in range(start_time, start_time + self.op.duration)) * self.inst.weights['compute_cost']
+
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+        delay = max(0, projected_completion - self.job.deadline)
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+
+        # Procrastination penalty: penalize waiting unnecessarily
+        procrastination_penalty = self.procrastination_penalty_base * (start_time - self.earliest_start)
+
+        # Deadline proximity penalty: significantly increases as completion nears/passes deadline
+        deadline_proximity_penalty = 0.0
+        remaining_slack_at_completion = self.job.deadline - projected_completion
+        if remaining_slack_at_completion < 0: # Already late
+            deadline_proximity_penalty = -remaining_slack_at_completion * 10 # Heavier penalty for being late
+        elif remaining_slack_at_completion < self.op.duration * 2: # Close to deadline
+            deadline_proximity_penalty = (self.op.duration * 2 - remaining_slack_at_completion) * self.deadline_proximity_penalty_factor
+
+        total_score = compute_cost + delay_cost + procrastination_penalty + deadline_proximity_penalty
+
+        # Apply overall urgency factor to the total score
+        total_score *= self.urgency_profile.criticality_factor
+
+        # Add capacity hotspot penalty for local machines
+        if not is_cloud:
+            hotspot_penalty = 0.0
+            for t in range(start_time, start_time + self.op.duration + self.capacity_hotspot_lookahead):
+                current_used = self.capacity_usage[server_id].get(t, 0)
+                available_cap = get_available_capacity(self.inst, server_id, t)
+                if available_cap > 0: # Avoid division by zero
+                    # Penalize more if capacity is heavily utilized in the near future
+                    utilization = (current_used + self.op.capacity_required) / available_cap
+                    hotspot_penalty += max(0, utilization - 0.75) * self.capacity_hotspot_penalty_factor * self.inst.time_horizon
+
+            total_score += hotspot_penalty * self.urgency_profile.criticality_factor
+
+        # Adjust cloud cost based on tolerance
+        if is_cloud:
+            total_score *= self.urgency_profile.cloud_tolerance_factor
+
+        return total_score
+=======
+    def _calculate_score(self, server_id: str, start_time: int, is_cloud: bool) -> float:
+        """
+        Calculates a composite score for a potential placement, adjusted by job urgency.
+        This version separates compute cost from time-related penalties to make better trade-offs.
+        """
+        # 1. Calculate base compute cost
+        compute_cost = sum(self.inst.server_cost[server_id][t % self.inst.time_horizon]
+                           for t in range(start_time, start_time + self.op.duration)) * self.inst.weights['compute_cost']
+
+        # Adjust compute cost for cloud options based on job's cloud tolerance.
+        # This makes cloud seem cheaper for urgent jobs, encouraging their use.
+        if is_cloud:
+            compute_cost *= self.urgency_profile.cloud_tolerance_factor
+
+        # 2. Calculate all time-related penalties
+        projected_completion = start_time + self.op.duration + self.remaining_duration
+
+        # Penalty for missing the deadline
+        delay = max(0, projected_completion - self.job.deadline)
+        delay_cost = delay * self.job.delay_weight * self.inst.weights['delay_penalty']
+
+        # Penalty for waiting (procrastinating) even if deadline is met
+        procrastination_penalty = self.procrastination_penalty_base * (start_time - self.earliest_start)
+
+        # Penalty that ramps up as the job gets dangerously close to its deadline
+        deadline_proximity_penalty = 0.0
+        remaining_slack_at_completion = self.job.deadline - projected_completion
+        if remaining_slack_at_completion < 0: # Already late
+            deadline_proximity_penalty = -remaining_slack_at_completion * 10.0 # Heavier penalty for being late
+        elif remaining_slack_at_completion < self.op.duration * 2: # Close to deadline
+            deadline_proximity_penalty = (self.op.duration * 2 - remaining_slack_at_completion) * self.deadline_proximity_penalty_factor
+
+        # Penalty for scheduling on a congested (hotspot) local machine
+        hotspot_penalty = 0.0
+        if not is_cloud:
+            for t in range(start_time, start_time + self.op.duration + self.capacity_hotspot_lookahead):
+                current_used = self.capacity_usage[server_id].get(t, 0)
+                available_cap = get_available_capacity(self.inst, server_id, t)
+                if available_cap > 0:
+                    utilization = (current_used + self.op.capacity_required) / available_cap
+                    hotspot_penalty += max(0, utilization - 0.75) * self.capacity_hotspot_penalty_factor * self.inst.time_horizon
+
+        # 3. Combine costs: Scale the sum of time penalties by job criticality and add to compute cost
+        time_penalties = delay_cost + procrastination_penalty + deadline_proximity_penalty + hotspot_penalty
+
+        total_score = compute_cost + time_penalties * self.urgency_profile.criticality_factor
+
+        return total_score
+>>>>>>> REPLACE
+</DIFF>

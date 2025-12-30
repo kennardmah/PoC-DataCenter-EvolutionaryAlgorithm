@@ -1,0 +1,14 @@
+<name>adaptive_urgency_cost_scaling_v2</name>
+<description>
+This edit refines the urgency profiling and cost calculation for operation placement, directly addressing the recommendations for enhanced urgency-driven adaptive parameter tuning and comprehensive multi-factor heuristic scoring. It's a re-attempt of the previous successful mutation, ensuring the `SEARCH` blocks are precise.
+
+The core improvements are:
+
+1.  **Refined `JobUrgencyProfile`**:
+    *   The `urgency_score` is now more holistic, combining `base_priority_urgency`, real-time `slack_urgency_multiplier`, and a new component for the `num_total_operations` in the job. This provides a more robust measure of overall job criticality.
+    *   Introduces `cloud_cost_premium_factor` and `local_hotspot_penalty_factor`. These are dynamically calculated based on the `urgency_score` and `system_load`.
+        *   `cloud_cost_premium_factor` directly scales the compute cost of cloud resources, making them relatively cheaper for urgent jobs or when local capacity is strained.
+        *   `local_hotspot_penalty_factor` adjusts the penalty for adding to local machine contention, allowing critical jobs to "push through" slightly more readily.
+    *   The `procrastination_penalty_multiplier` and `search_horizon` are also refined to scale more aggressively with the new, more granular `urgency_score`.
+
+2.  **Adaptive Cost

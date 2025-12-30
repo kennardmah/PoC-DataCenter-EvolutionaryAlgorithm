@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "'PlacementStrategy' object has no attribute '_calculate_score'"
+}

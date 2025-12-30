@@ -1,0 +1,49 @@
+<NAME>
+tuned_priority_heuristics
+</NAME>
+
+<DESCRIPTION>
+This edit refines the scheduling heuristics by introducing a more consistent and logical handling of job priorities, especially for high-urgency and emergency jobs. The changes are focused on three areas:
+
+1.  **Systematic `emergency` Priority Handling**: The 'emergency' priority level, critical in the earthquake scenario, was not consistently defined across all heuristic parameter maps. This change adds 'emergency' to all relevant dictionaries (`priority_base_horizon`, `priority_procrastination_multiplier`, `cloud_aggressiveness_threshold`) and tunes its values to be more aggressive than 'critical', ensuring these jobs are processed with maximum urgency (e.g., shorter search horizon, higher penalty for waiting). The `priority_load_multiplier` for emergency jobs is also increased to steer them away from congested machines.
+
+2.  **Inverted Cloud Aggressiveness Logic**: The previous `cloud_aggressiveness_threshold` was counter-intuitive, allowing high-priority jobs to accept a more expensive local placement over a faster cloud option. This logic has been inverted. The new values (< 1.0 for high-priority) ensure that urgent jobs default to the cloud unless a local server offers a significant cost saving (`local_score < cloud_score * 0.8` for emergency). Conversely, low-priority jobs will now patiently wait for cheaper local resources unless the cost becomes excessive, better balancing cost and delay across priorities.
+
+3.  **Strengthened Procrastination Penalty**: The `base_procrastination_penalty_factor` has been quadrupled (from 0.05 to 0.2). The original penalty for waiting was too small compared to typical compute costs, making the scheduler overly patient. This increase makes the "cost of waiting" a more significant factor in the decision-making process for all jobs, encouraging earlier start times and reducing the risk of deadline violations.
+
+Together, these changes create a more robust, priority-aware scheduling strategy that should perform better in both normal and emergency scenarios by making more intelligent trade-offs between cost, delay, and resource utilization.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Heuristic Parameters from Base Implementation ---
+        self.priority_base_horizon = {'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+        self.priority_procrastination_multiplier = {'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.05
+        self.cloud_aggressiveness_threshold = {'critical': 1.2, 'urgent': 1.1, 'high': 1.0, 'medium': 0.95, 'low': 0.9}
+
+        # --- Crossover Features ---
+        # 1. Load-balancing penalty parameters
+        self.load_penalty_factor = 5.0
+        self.priority_load_multiplier = {"emergency": 3.0, "urgent": 2.5, "critical": 2.0, "high": 1.5, "medium": 1.0, "low": 0.5}
+        # Local preference bonus was removed in favor of the more dynamic cloud_aggressiveness_threshold heuristic.
+=======
+        # --- Tuned Heuristic Parameters ---
+        # Search horizon: Emergency/critical jobs need immediate placement, less time to search for optimal slots.
+        self.priority_base_horizon = {'emergency': 4, 'critical': 6, 'urgent': 12, 'high': 24, 'medium': 48, 'low': 72}
+
+        # Procrastination penalty: Higher multiplier for high-priority jobs to penalize waiting.
+        self.priority_procrastination_multiplier = {'emergency': 10.0, 'critical': 8.0, 'urgent': 4.0, 'high': 2.0, 'medium': 1.0, 'low': 0.5}
+        self.base_procrastination_penalty_factor = 0.2  # Increased to make waiting more costly overall.
+
+        # Cloud aggressiveness: <1.0 means cloud is preferred unless local is cheaper by that factor.
+        # This pushes urgent jobs to the fast, reliable cloud, while letting low-prio jobs wait for cheaper local slots.
+        self.cloud_aggressiveness_threshold = {'emergency': 0.8, 'critical': 0.9, 'urgent': 0.95, 'high': 1.05, 'medium': 1.15, 'low': 1.25}
+
+        # --- Crossover Features ---
+        # Load-balancing: Penalize placing jobs on highly utilized servers.
+        self.load_penalty_factor = 5.0
+        # High-priority jobs are more sensitive to load.
+        self.priority_load_multiplier = {"emergency": 4.0, "urgent": 2.5, "critical": 2.0, "high": 1.5, "medium": 1.0, "low": 0.5}
+>>>>>>> REPLACE
+</DIFF>

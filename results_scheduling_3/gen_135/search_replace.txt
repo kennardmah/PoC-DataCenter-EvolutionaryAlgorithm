@@ -1,0 +1,83 @@
+<NAME>
+slack_crunch_penalty
+</NAME>
+
+<DESCRIPTION>
+This edit introduces a "Slack Crunch Penalty" to the operation scoring function. The primary motivation is to prevent myopic, greedy scheduling decisions for an early operation that negatively impact the scheduling flexibility of subsequent operations within the same job.
+
+Currently, the scheduler might place an operation on a local server after a short wait, which appears optimal in isolation. However, this delay could consume all the available buffer time (slack) for the rest of the job's operations, forcing them onto expensive cloud servers or causing deadline violations.
+
+The new penalty function works as follows:
+1.  For a potential placement (`server_id`, `start_time`), it calculates the `remaining_slack` for all subsequent operations of the job.
+2.  It defines a `critical_buffer` (e.g., 33% of the total duration of subsequent operations). This buffer represents a desirable amount of scheduling flexibility.
+3.  If the `remaining_slack` for a given placement falls below this `critical_buffer`, a non-linear (quadratic) penalty is applied.
+4.  The penalty's magnitude scales with the severity of the "crunch" (how far below the buffer the slack is), the job's delay weight, and its priority.
+
+This proactive penalty encourages the scheduler to select placements that preserve flexibility for the entire job, leading to better overall solutions by balancing the cost of the current operation against the potential future costs for subsequent operations. It directly makes the scheduler "aware" of the downstream consequences of its decisions for each job.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # 4. Non-Linear Load-Balancing Penalty (Crossover Feature)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+            window_end = start_time + op.duration * 2
+            total_utilization, num_timesteps = 0.0, 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = (avg_utilization ** 2) * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty)
+        return total_score
+=======
+        # 4. Non-Linear Load-Balancing Penalty (Crossover Feature)
+        load_penalty = 0.0
+        if not server.is_cloud:
+            window_start = max(0, start_time - op.duration)
+            window_end = start_time + op.duration * 2
+            total_utilization, num_timesteps = 0.0, 0
+            for t in range(window_start, window_end):
+                used = self.capacity_usage.get(server_id, {}).get(t, 0)
+                available = get_available_capacity(self.inst, server_id, t)
+                if available > 0:
+                    total_utilization += used / available
+                num_timesteps += 1
+            if num_timesteps > 0:
+                avg_utilization = total_utilization / num_timesteps
+                load_prio_mult = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                load_penalty = (avg_utilization ** 2) * self.load_penalty_factor * load_prio_mult * self.job.delay_weight
+
+        # 5. Slack Crunch Penalty (NEW)
+        # This penalizes a placement that severely reduces scheduling flexibility for subsequent operations of the same job.
+        slack_crunch_penalty = 0.0
+        if remaining_duration_after_op > 0:
+            # Calculate slack for remaining ops *after* this op is placed at start_time
+            projected_next_op_start = start_time + op.duration
+            remaining_slack = self.job.deadline - (projected_next_op_start + remaining_duration_after_op)
+
+            # A critical buffer is a percentage of the remaining work. If slack drops below this, it's a "crunch".
+            critical_buffer = remaining_duration_after_op * 0.33  # e.g., 33% buffer time
+
+            if remaining_slack < critical_buffer:
+                # The penalty grows quadratically as slack is consumed below the buffer.
+                crunch_severity = (critical_buffer - remaining_slack) / (critical_buffer + 1e-9)
+                urgency_factor = self.priority_load_multiplier.get(self.job.priority, 1.0)
+                # A high penalty factor to strongly discourage choices that create future problems for the job.
+                slack_crunch_penalty = (crunch_severity ** 2) * self.job.delay_weight * urgency_factor * 20.0
+
+        # Combine all cost components
+        total_score = (compute_cost * self.inst.weights['compute_cost'] +
+                       delay_cost + procrastination_penalty + load_penalty + slack_crunch_penalty)
+        return total_score
+>>>>>>> REPLACE
+</DIFF>
