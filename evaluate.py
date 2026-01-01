@@ -7,12 +7,8 @@ import sys
 import json
 import argparse
 from typing import Tuple, Optional, List, Dict, Any
-
-# Add helpers to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'helpers'))
-
 from shinka.core import run_shinka_eval
-
 
 def format_schedule_string(schedule: Dict, fitness) -> str:
     """Formats schedule into a multi-line string for display."""
@@ -24,47 +20,28 @@ def format_schedule_string(schedule: Dict, fitness) -> str:
         lines.append(f"  {job_id}: {op_str} (done: t={completion})")
     return "\n".join(lines)
 
-
-def validate_schedule(
-    run_output: Tuple[Dict, Any, float],
-    atol: float = 1e-6,
-) -> Tuple[bool, Optional[str]]:
+def validate_schedule(run_output: Tuple[Dict, Any, float],atol: float = 1e-6,) -> Tuple[bool, Optional[str]]:
     """
     Validates schedule results based on the output of 'run_scheduling'.
-    
-    For multi-scenario runs, run_output is actually a dict with scenario results.
-    For single scenario runs, it's the standard tuple format.
-
-    Args:
-        run_output: Either Tuple (schedule, fitness, reported_score) from run_scheduling
-                    or Dict with scenario results for multi-scenario evaluation
-        atol: Absolute tolerance for numerical checks.
-
-    Returns:
-        (is_valid: bool, error_message: Optional[str])
+    Returns: (is_valid: bool, error_message: Optional[str])
     """
-    # Check if this is a multi-scenario result (dict) or single scenario (tuple)
+    # Check if multi-scenario result (dict) or single scenario (tuple)
     if isinstance(run_output, dict) and "scenarios" in run_output:
-        # Multi-scenario validation: all scenarios must be valid
         for scenario_name, result in run_output["scenarios"].items():
             schedule, fitness, reported_score = result
             is_valid, msg = _validate_single_schedule(
                 schedule, fitness, reported_score, scenario_name, atol
-            )
+            ) # Validate each scenario
             if not is_valid:
                 return False, f"[{scenario_name}] {msg}"
         return True, "All scenarios valid. All constraints satisfied."
     else:
-        # Single scenario validation
         schedule, fitness, reported_score = run_output
         return _validate_single_schedule(
             schedule, fitness, reported_score, "baseline", atol
         )
 
-
-def _validate_single_schedule(
-    schedule: Dict,
-    fitness: Any,
+def _validate_single_schedule(schedule: Dict, fitness: Any,
     reported_score: float,
     scenario: str,
     atol: float = 1e-6,
@@ -72,26 +49,16 @@ def _validate_single_schedule(
     """Validates a single scenario schedule."""
     msg = "The schedule is valid. All constraints satisfied."
 
-    # Import instance for validation
-    from initial import create_instance
+    from initial import create_instance # Import instance for validation
     inst = create_instance(scenario=scenario, failure_scenario=None)
-
-    # Check all jobs are scheduled
-    if set(schedule.keys()) != set(inst.jobs.keys()):
+    if set(schedule.keys()) != set(inst.jobs.keys()): # Check all jobs are scheduled
         missing = set(inst.jobs.keys()) - set(schedule.keys())
         extra = set(schedule.keys()) - set(inst.jobs.keys())
         msg = f"Job mismatch. Missing: {missing}, Extra: {extra}"
         return False, msg
 
-    # Check operation counts
-    for job_id, ops in schedule.items():
-        expected = len(inst.jobs[job_id].operations)
-        if len(ops) != expected:
-            msg = f"{job_id}: expected {expected} ops, got {len(ops)}"
-            return False, msg
-
-    # Check server type compatibility
-    for job_id, ops in schedule.items():
+    # SERVER RELATED
+    for job_id, ops in schedule.items(): # server type check
         job = inst.jobs[job_id]
         for idx, op_sched in enumerate(ops):
             required = job.operations[idx].server_type
@@ -99,9 +66,31 @@ def _validate_single_schedule(
             if required != actual:
                 msg = f"{job_id} op {idx}: requires {required}, assigned {actual}"
                 return False, msg
-
-    # Check job precedence constraints
+    capacity_usage = {s: {} for s in inst.servers} # capacity usage
     for job_id, ops in schedule.items():
+        job = inst.jobs[job_id]
+        for idx, op_sched in enumerate(ops):
+            server = op_sched["server"]
+            start = op_sched["start"]
+            duration = job.operations[idx].duration
+            capacity_req = job.operations[idx].capacity_required
+            for t in range(start, start + duration):
+                if t not in capacity_usage[server]:
+                    capacity_usage[server][t] = 0
+                capacity_usage[server][t] += capacity_req
+    for server, usage_by_time in capacity_usage.items(): # verify capacity not exceeded at any timestep
+        server_capacity = inst.servers[server].capacity
+        for time, used in usage_by_time.items():
+            if used > server_capacity:
+                msg = f"{server}: capacity exceeded at t={time} (used: {used}, available: {server_capacity})"
+                return False, msg
+    # JOBS RELATED
+    for job_id, ops in schedule.items(): # operations count check
+        expected = len(inst.jobs[job_id].operations)
+        if len(ops) != expected:
+            msg = f"{job_id}: expected {expected} ops, got {len(ops)}"
+            return False, msg
+    for job_id, ops in schedule.items(): # operation order check
         job = inst.jobs[job_id]
         prev_end = 0
         for idx, op_sched in enumerate(ops):
@@ -111,50 +100,19 @@ def _validate_single_schedule(
                 msg = f"{job_id} op {idx}: starts at {start} before prev ends at {prev_end}"
                 return False, msg
             prev_end = start + duration
-
-    # Check server capacity constraints
-    capacity_usage = {s: {} for s in inst.servers}
-    for job_id, ops in schedule.items():
-        job = inst.jobs[job_id]
-        for idx, op_sched in enumerate(ops):
-            server = op_sched["server"]
-            start = op_sched["start"]
-            duration = job.operations[idx].duration
-            capacity_req = job.operations[idx].capacity_required
-            
-            # Track capacity usage for each timestep
-            for t in range(start, start + duration):
-                if t not in capacity_usage[server]:
-                    capacity_usage[server][t] = 0
-                capacity_usage[server][t] += capacity_req
-    
-    # Verify capacity not exceeded at any timestep
-    for server, usage_by_time in capacity_usage.items():
-        server_capacity = inst.servers[server].capacity
-        for time, used in usage_by_time.items():
-            if used > server_capacity:
-                msg = f"{server}: capacity exceeded at t={time} (used: {used}, available: {server_capacity})"
-                return False, msg
-
-    # Check non-negative start times
-    for job_id, ops in schedule.items():
+    for job_id, ops in schedule.items(): # Check non-negative start times
         for idx, op_sched in enumerate(ops):
             if op_sched["start"] < 0:
                 msg = f"{job_id} op {idx}: negative start time {op_sched['start']}"
                 return False, msg
-
-    # Check fitness violations match
-    if fitness.violations:
+    if fitness.violations: # Check fitness violations match
         msg = f"Fitness has violations: {fitness.violations}"
         return False, msg
 
-    # Check score consistency
-    if abs(fitness.score - reported_score) > atol:
+    if abs(fitness.score - reported_score) > atol: # Check score consistency
         msg = f"Score mismatch: fitness.score={fitness.score}, reported={reported_score}"
         return False, msg
-
     return True, msg
-
 
 def get_scheduling_kwargs(run_index: int) -> Dict[str, Any]:
     """Provides keyword arguments for multi-scenario scheduling runs."""
@@ -271,8 +229,6 @@ def main(program_path: str, results_dir: str):
     print(f"Saving results to: {results_dir}")
     os.makedirs(results_dir, exist_ok=True)
 
-    num_experiment_runs = 1
-
     # Define a nested function to pass results_dir to the aggregator
     def _aggregator_with_context(
         r: List[Tuple[Dict, Any, float]],
@@ -283,7 +239,7 @@ def main(program_path: str, results_dir: str):
         program_path=program_path,
         results_dir=results_dir,
         experiment_fn_name="run_scheduling",
-        num_runs=num_experiment_runs,
+        num_runs=1,
         get_experiment_kwargs=get_scheduling_kwargs,
         validate_fn=validate_schedule,
         aggregate_metrics_fn=_aggregator_with_context,
@@ -293,7 +249,6 @@ def main(program_path: str, results_dir: str):
         print("Evaluation and Validation completed successfully.")
     else:
         print(f"Evaluation or Validation failed: {error_msg}")
-
     print("Metrics:")
     for key, value in metrics.items():
         if isinstance(value, str) and len(value) > 100:

@@ -7,19 +7,14 @@ Government data center workload scheduling optimization.
 
 import multiprocessing
 import sys
-
-# Set multiprocessing start method to 'fork' on macOS to preserve environment
 if sys.platform == 'darwin' and __name__ == '__main__':
     try:
         multiprocessing.set_start_method('fork', force=True)
     except RuntimeError:
-        pass  # Already set
-
+        pass
 from dotenv import load_dotenv
 import os
-
-load_dotenv()  # Load environment variables from .env file
-
+load_dotenv()  # load API keys from .env file
 from shinka.core import EvolutionRunner, EvolutionConfig
 from shinka.database import DatabaseConfig
 from shinka.launch import LocalJobConfig
@@ -27,58 +22,43 @@ from shinka.launch import LocalJobConfig
 job_config = LocalJobConfig(eval_program_path="evaluate.py")
 
 strategy = "weighted"
-if strategy == "uniform":
-    # 1. Uniform from correct programs
+if strategy == "uniform": # 1. Uniform from correct programs
     parent_config = dict(
         parent_selection_strategy="power_law",
         exploitation_alpha=0.0,
         exploitation_ratio=1.0,
     )
-elif strategy == "hill_climbing":
-    # 2. Hill Climbing (Always from the Best)
+elif strategy == "hill_climbing": # 2. Hill Climbing (Always from the Best)
     parent_config = dict(
         parent_selection_strategy="power_law",
         exploitation_alpha=100.0,
         exploitation_ratio=1.0,
     )
-elif strategy == "weighted":
-    # 3. Weighted Prioritization
+elif strategy == "weighted": # 3. Weighted Prioritization
     parent_config = dict(
         parent_selection_strategy="weighted",
         parent_selection_lambda=10.0,
     )
-elif strategy == "power_law":
-    # 4. Power-Law Prioritization
+elif strategy == "power_law": # 4. Power-Law Prioritization
     parent_config = dict(
         parent_selection_strategy="power_law",
         exploitation_alpha=1.0,
         exploitation_ratio=0.2,
     )
-elif strategy == "power_law_high":
-    # 4. Power-Law Prioritization
-    parent_config = dict(
-        parent_selection_strategy="power_law",
-        exploitation_alpha=2.0,
-        exploitation_ratio=0.2,
-    )
-elif strategy == "beam_search":
-    # 5. Beam Search
+elif strategy == "beam_search": # 5. Beam Search
     parent_config = dict(
         parent_selection_strategy="beam_search",
         num_beams=10,
     )
 
-
 db_config = DatabaseConfig(
     db_path="evolution_db.sqlite",
     num_islands=3,
     archive_size=30,
-    # Inspiration parameters
-    elite_selection_ratio=0.3,
+    elite_selection_ratio=0.3, # Inspiration parameters
     num_archive_inspirations=4,
     num_top_k_inspirations=2,
-    # Island migration parameters
-    migration_interval=10,
+    migration_interval=10, # Island migration parameters
     migration_rate=0.1,  # chance to migrate program to random island
     island_elitism=True,  # Island elite is protected from migration
     **parent_config,
@@ -109,7 +89,7 @@ Hard constraints:
 • Assign operations only to compatible machine types (local or cloud)
 • All start times must be non-negative
 
-Focus on discovering effective online dispatch heuristics that balance:
+Consider discovering effective online dispatch heuristics that balance:
 • Priority and deadline urgency
 • Local vs. cloud cost tradeoffs
 • Capacity contention and failure resilience
