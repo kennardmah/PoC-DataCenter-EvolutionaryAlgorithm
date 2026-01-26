@@ -14,30 +14,18 @@ The goal is to minimize total cost = compute cost + delay penalties.
 
 ## How the Simulation Works: Step-by-Step
 
-### 1. **Scenario Selection**
+### Scenarios
 
 Two primary scenarios test the scheduler under different conditions:
 
-- **Normal Day** (16 jobs, 24-hour realistic workload)
-  - **Overnight batch** (t=0-6): Census ETL, climate training, historical data, performance analytics
-  - **Morning** (t=6-9): Tax fraud detection, health dashboards
-  - **Business hours** (t=8-14): Emergency coord, classified intel, traffic monitoring
-  - **Afternoon/Evening** (t=14-24): Audits, citizen services, border security
-  - **Late night** (t=20-24): Database backups, log archival
-  - Mix of priorities: 2 CRITICAL, 3 HIGH, 6 MEDIUM, 5 LOW
-  - **80% evaluation weight** - optimizes for daily operations
-  
-- **Earthquake Emergency** (26 jobs = normal + disaster)
-  - **All 16 normal day jobs continue running**
-  - **Earthquake strikes at t=10** - 10 emergency jobs flood in (t=10-13)
-  - Emergency jobs: 5 CRITICAL, 4 HIGH, 1 MEDIUM (damage assessment, evacuation, medical)
-  - Machine failures: M1 capacity -10, M3 capacity -5 (earthquake_moderate)
-  - Tests: "What if earthquake happens during normal workday?"
-  - **20% evaluation weight** - ensures disaster resilience
+- Normal Day
+- Earthquake Emergency
+
+Both are tested with Offline (Future information) and Online (No Future information) Approaches
 
 **Important:** Scenarios are **predetermined**, loaded from CSV files in `data/`. The earthquake doesn't happen randomly—it's a scripted scenario that always occurs at t=10 in the earthquake scenario.
 
-### 2. **Job Arrival Process**
+### Job Arrival
 
 Jobs **do NOT all arrive at once**. Each job has an `arrival_time`:
 
@@ -54,16 +42,16 @@ t=13: → J8, J10 arrive (supply chain, inspections)
 - Early-arriving jobs may block resources needed by later high-priority jobs
 - Scheduler must decide: use expensive cloud to free local resources, or wait?
 
-### 3. **Machine Configuration**
+### Resources
 
 **Local Machines (limited capacity):**
-- **M1**: 1x GPU machine (capacity=20) - ML training/inference
-- **M2**: 1x CPU machine (capacity=40) - Data processing
-- **M3**: 1x High-Memory machine (capacity=10) - Analytics
-- **M4**: 1x Secure machine (capacity=5) - Classified workloads
-- **M5**: 1x Ingest machine (capacity=30) - Data staging
+- **M1**: 1x GPU machine (capacity=20) 
+- **M2**: 1x CPU machine (capacity=40) 
+- **M3**: 1x High-Memory machine (capacity=10) 
+- **M4**: 1x Secure machine (capacity=5) 
+- **M5**: 1x Ingest machine (capacity=30) 
 
-Each local machine can run **multiple operations simultaneously** up to its capacity limit.
+Each local machine can run multiple operations simultaneously up to its capacity limit.
 
 **Cloud Machines (infinite capacity, 5x cost):**
 - **C1-C5**: Cloud equivalents of each type
@@ -71,7 +59,7 @@ Each local machine can run **multiple operations simultaneously** up to its capa
 - Cost 5x more than local machines
 - Used for overflow when local machines are busy or failed
 
-### 4. **Time-Varying Costs**
+##### Costs
 
 Server costs change by hour to reflect demand-based pricing:
 
@@ -85,21 +73,13 @@ Server costs change by hour to reflect demand-based pricing:
 
 **Cloud costs are 5x higher** at all times.
 
-**Strategy implications:**
 - Delay non-urgent jobs to off-peak hours (if deadline allows)
 - Critical jobs may need expensive evening slots
 - Cloud overflow is very expensive but sometimes necessary
 
-### 5. **Machine Failures (Optional)**
+##### Failures
 
-Failures are **predetermined** from `data/machine_failures.csv`, not random:
-
-**Failure Scenarios:**
-- `earthquake_moderate`: M1 (capacity -10), M3 (capacity -5) at t=8-12/14 - cooling/memory damage
-- `tsunami_warning`: M4 (capacity -3) at t=5-10 - facility access restricted
-- `power_outage`: M2 (capacity -20), M5 (capacity -15) at t=15-18 - rolling blackout
-- `typhoon_severe`: M2 (capacity -25), M3 (capacity -7) at t=10-20/22 - major cooling failure
-- `nuclear_alert`: M4 (capacity -2) at t=0-8 - security protocol overhead
+Failures are **predetermined** from `data/machine_failures.csv` and random:
 
 **Exponential Failure Model:**
 Failures don't happen instantly—they follow exponential curves:
@@ -114,16 +94,7 @@ Failures don't happen instantly—they follow exponential curves:
    - `recovery_rate = 0.5`: Gradual restoration over ~2 hours
    - Capacity restores: `max_reduction * e^(-recovery_rate * time_since_end)`
 
-**Example:** Power outage on M2 (capacity=40, reduction=20) at t=15-18:
-- t=14: Machine fully operational (capacity=40)
-- t=15: **Instant failure** (capacity=20) - lost 20 capacity
-- t=15-18: Machine degraded (capacity=20)
-- t=18: **Instant recovery** starts (capacity=20)
-- t=19: Fully operational again (capacity=40)
-
-**Note:** Most scenarios use instant failure/recovery (rate ≥0.8), but model supports gradual degradation.
-
-### 6. **How Jobs Are Scheduled**
+### **How Jobs Are Scheduled**
 
 The scheduler (in `initial.py` or evolved versions) determines:
 1. **Which machine** to use for each operation (local vs cloud)
@@ -132,83 +103,19 @@ The scheduler (in `initial.py` or evolved versions) determines:
 **Job Structure Example:**
 ```
 J2: Tax fraud detection
-├─ Operation 1: Ingest (1 hour, needs M5/C5) - load data
-├─ Operation 2: GPU (3 hours, needs M1/C1) - train model
-└─ Operation 3: CPU (1 hour, needs M2/C2) - generate report
+├─ Operation 1: Ingest (1 hour, needs M5/C5)
+├─ Operation 2: GPU (3 hours, needs M1/C1)
+└─ Operation 3: CPU (1 hour, needs M2/C2)
 ```
 
 **Constraints the scheduler must satisfy:**
-1. ✅ **Precedence**: Op2 can't start before Op1 finishes
-2. ✅ **Arrival**: Can't start before job arrives
-3. ✅ **Machine type**: Each operation needs specific machine type
-4. ✅ **Capacity**: Total concurrent operations can't exceed machine capacity
-5. ✅ **No preemption**: Once started, operations run to completion
+1. Op2 can't start before Op1 finishes
+2. Can't start before job arrives
+3. Each operation needs specific machine type
+4. Total concurrent operations can't exceed machine capacity
+5. Once started, operations run to completion
 
-**Scheduling strategies** (evolved by AI):
-- **Priority-based**: Schedule CRITICAL jobs first
-- **Cost-aware**: Shift operations to off-peak hours when possible
-- **Lookahead**: Reserve local machines for high-priority jobs, use cloud for others
-- **Slack-based**: Calculate deadline - remaining work, schedule tightest jobs first
-
-### 7. **How Jobs Are Completed**
-
-Step-by-step execution:
-
-```
-t=6: J1 arrives (census processing)
-  → Op1 (Ingest, 2hr) scheduled on M5a starting t=6
-  → Op1 runs t=6-8, cost = 2 × ¥30 = ¥60
-
-t=8: Op1 completes
-  → Op2 (HighMem, 3hr) scheduled on M3a starting t=8
-  → Op2 runs t=8-11, cost = 3 × ¥95 = ¥285
-
-t=11: Op2 completes
-  → Op3 (CPU, 2hr) scheduled on M2a starting t=11
-  → Op3 runs t=11-13, cost = 2 × ¥30 = ¥60
-
-t=13: Op3 completes → J1 FINISHED
-  → Completion time: 13
-  → Deadline: 18
-  → Delay: max(0, 13-18) = 0 → No penalty!
-  → Total cost for J1: ¥405
-```
-
-**If machine fails during execution:**
-```
-t=8: Op2 starts on M3a
-t=10: EARTHQUAKE! M3a fails (capacity drops to 0)
-  → Op2 is stuck, can't make progress
-  → Either: wait for recovery (wastes time, may miss deadline)
-  → Or: reschedule to C3 (cloud, 5x cost but available)
-```
-
-### 8. **Evaluation and Scoring**
-
-Each schedule is evaluated on:
-
-**Cost Components:**
-```python
-compute_cost = sum of (operation_duration × machine_cost_per_hour)
-delay_penalty = sum of (delay × job_priority_weight)
-  where delay = max(0, completion_time - deadline)
-
-total_score = 1.0 × compute_cost + 5.0 × delay_penalty
-```
-
-**Validation Checks:**
-- ✅ All jobs scheduled with correct number of operations
-- ✅ Operations use correct machine types
-- ✅ No job starts before arrival time
-- ✅ Precedence constraints satisfied (ops in order)
-- ✅ No machine capacity violations (total concurrent capacity ≤ machine limit)
-- ✅ No overlapping operations on same machine
-
-**Penalty for violations:**
-- Invalid schedules get +10,000 per violation
-- This forces the evolutionary algorithm to find valid solutions
-
-### 9. **Multi-Scenario Weighted Evaluation**
+### **Evaluation**: Multi-Scenario Weighted Evaluation
 
 The algorithm is tested on **two scenarios simultaneously** with weighted scoring:
 
@@ -220,45 +127,16 @@ The algorithm is tested on **two scenarios simultaneously** with weighted scorin
 ```python
 total_score = 0.8 × normal_score + 0.2 × earthquake_score
 
-where each scenario_score = compute_cost × weight + delay_penalty × weight + violations × 10000
+where each scenario_score = compute_cost × weight + delay_penalty × weight
 ```
 
 **Why weighted?**
-✅ Ensures good performance on typical workloads (80% focus)  
-✅ Still handles disaster scenarios gracefully (20% focus)  
-✅ Prevents over-optimization for rare emergencies  
-✅ More realistic evaluation than single-scenario testing
+- Ensures good performance on typical workloads (80% focus)  
+- Still handles disaster scenarios gracefully (20% focus)
+- Prevents over-optimization for rare emergencies
+- More realistic evaluation than single-scenario testing
 
 The evolutionary algorithm evolves schedulers that balance both scenarios.
-
----
-
-## Quick Start
-
-### 1. Install Dependencies
-```bash
-uv sync
-```
-
-### 2. Run Evaluation (Single Test)
-```bash
-uv run python evaluate.py --program_path initial.py --results_dir results
-```
-
-### 3. Run Evolution (AI-Driven Optimization)
-```bash
-uv run python run_evo.py
-```
-
-This will:
-1. Start with the baseline scheduler (`initial.py`)
-2. Use AI to propose improvements (different scheduling strategies)
-3. Test each variant on the baseline scenario
-4. Keep the best performers
-5. Generate new variants from successful schedulers
-6. Repeat for 400 generations
-
-Results saved to `results_scheduling/gen_N/`
 
 ---
 
@@ -266,18 +144,16 @@ Results saved to `results_scheduling/gen_N/`
 
 ```
 PoC-JPNGOV-DataCenter/
-├── data/
-│   ├── machines.csv              # Machine specs & costs
-│   ├── machine_failures.csv      # Failure scenarios
-│   ├── scenario_baseline.csv     # 8 jobs, normal workday
-│   ├── scenario_peak_load.csv    # 12 jobs, rush hours
-│   ├── scenario_emergency.csv    # 10 jobs, earthquake response
-│   └── scenario_light_load.csv   # 5 jobs, overnight batch
+├── data/ # experiment configs
+│   ├── machines.csv              
+│   ├── machine_failures.csv      
+│   ├── scenario_baseline.csv     
+│   ├── scenario_earthquake.csv   
 ├── initial.py                    # Baseline scheduler (FIFO + priority)
-├── evaluate.py                   # Evaluation harness
+├── evaluate.py                   # Evaluation
 ├── run_evo.py                    # Evolutionary optimization
-├── scenario_loader.py            # CSV data loading
-└── results_scheduling/           # Evolution outputs
+├── scenario_loader.py            # Helper
+└── results_scheduling/           # Evolution outputs (for each test)
     └── gen_N/
         ├── main.py              # Evolved scheduler code
         └── results/
@@ -289,7 +165,6 @@ PoC-JPNGOV-DataCenter/
 
 ---
 
-## Technical Details
 
 ### Problem Formulation
 
@@ -361,57 +236,6 @@ Where:
 
 ---
 
-## 3. Computational Complexity
-
-This problem is a variant of the **Job-Shop Scheduling Problem (JSP)**:
-
-- If server costs are constant and deadlines are ignored, the problem reduces to minimizing makespan in a classic JSP.
-- The classic JSP is **NP-hard**.
-- Adding time-varying costs and weighted deadlines strictly increases complexity.
-
-**Therefore, this problem is NP-hard in the general case.**
-
-More precisely, it belongs to the class of:
-- **Cost-Aware Job-Shop Scheduling**
-- **Multi-objective NP-hard combinatorial optimization problems**
-- **Time-dependent resource-constrained scheduling problems**
-
----
-
-## 4. Optimal Solutions and Tractability
-
-### With Complete Information
-
-If all inputs are known in advance (job specifications, deadlines, server costs), the problem can be solved to **provable optimality** using:
-
-1. **Mixed Integer Linear Programming (MILP)** - formulate constraints and objective, solve with commercial solvers
-2. **Constraint Programming (CP-SAT)** - Google OR-Tools CP-SAT solver
-3. **Branch and Bound** with intelligent pruning strategies
-
-### Instance Size Matters
-
-- **Small instances** (like this demo: 6 jobs, 4 servers, 24 hours): Exact methods are **tractable** and can find optimal solutions in seconds to minutes
-- **Large-scale instances** (100s of jobs, 1000s of operations): Exact methods become **computationally infeasible**
-
-The number of feasible schedules grows combinatorially with:
-- the number of jobs,
-- the number of operations per job,
-- the number of shared servers.
-
-### Why Use Evolutionary Methods?
-
-For this demonstration:
-1. **Educational value**: Shows how evolutionary algorithms work on well-defined problems
-2. **Scalability**: Evolutionary methods scale better to large instances
-3. **Flexibility**: Easy to modify objectives and constraints without reformulating
-4. **Benchmarking**: Can compare evolved solutions against optimal (from CP-SAT)
-
-For production systems with larger instances, evolutionary/heuristic methods become necessary.
-
----
-
-## 5. AlphaEvolve / ShinkaEvolve Approach
-
-### Conceptual Overview
+## AlphaEvolve / ShinkaEvolve Approach
 
 **AlphaEvolve / ShinkaEvolve** is a population-based evolutionary optimization framework tailored for
