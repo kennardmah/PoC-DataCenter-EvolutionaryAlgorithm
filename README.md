@@ -93,6 +93,10 @@ t=14:  Capacity ≈ 25 (62% recovered)
 t=16:  Capacity ≈ 36 (90% recovered)
 ```
 
+![Shock Failure Scenarios](figs/Shock%20Failure%20Scenarios.png)
+
+*Figure: Visualization of shock failure patterns and their exponential recovery dynamics. Shows how different failure modes (instant drop, gradual onset, exponential recovery) impact machine capacity over time.*
+
 **Why this matters:**
 - Trivial solutions like "always use cloud" become suboptimal once costs dominate
 - Scheduler must predict when local capacity will recover and batch jobs strategically
@@ -217,6 +221,7 @@ PoC-DataCenter-EvolutionaryAlgorithm/
 ├── evaluate.py                        # Evaluation engine
 ├── run_evo.py                         # Evolutionary optimization loop
 ├── scenario_loader.py                 # Configuration and data loading
+├── generate_figures.ipynb             # Figure generation notebook
 └── results_scheduling/                # Evolution outputs
     └── gen_N/
         ├── main.py                    # Evolved scheduler code
@@ -229,12 +234,23 @@ PoC-DataCenter-EvolutionaryAlgorithm/
 
 ## Results & Performance
 
-**See `figs/` directory for detailed visualizations:**
+### MIP Baseline vs. Evolved Solutions
 
-- **Shock Failure Scenarios**: Visualization of different failure modes and their exponential recovery dynamics
-- **Baseline Comparison**: Gantt charts showing MIP solutions vs. evolved schedulers under earthquake scenario
-- **Convergence**: ShinkaEvolve outperforms MIP baseline after ~70 generations
-- **Stability Analysis**: Solution convergence and near-stagnation post-optimization
+![MIP Solution under Earthquake Scenario](figs/MIP%20Solution%20under%20Earthquake%20Scenario.png)
+
+*Left: Gantt chart showing job schedules and cloud resource utilization (C1, C3, C4) under earthquake scenario. Right: Resource capacity over time, highlighting shock failure periods and recovery dynamics.*
+
+### Evolutionary Algorithm Convergence
+
+![ShinkaEvolve Outperforms MIP Baseline](figs/ShinkaEvolve%20Outperforms%20MIP%20Baseline.png)
+
+*ShinkaEvolve discovers solutions outperforming MIP baseline after approximately 70 generations, demonstrating effectiveness of LLM-driven code generation for scheduling optimization.*
+
+### Solution Stability
+
+![Convergence Analysis](figs/ShinkaEvolve%20Convergence.png)
+
+*Solution quality stabilizes and plateaus across generations after reaching near-optimal configuration, indicating convergence to a robust scheduling policy.*
 
 ---
 
@@ -256,6 +272,12 @@ python run_evo.py --generations 100 --population 20
 
 ```bash
 python evaluate.py --scheduler results_scheduling/gen_N/main.py
+```
+
+### Generating Figures
+
+```bash
+jupyter notebook generate_figures.ipynb
 ```
 
 ---
