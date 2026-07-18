@@ -238,4 +238,32 @@ Where:
 
 ## AlphaEvolve / ShinkaEvolve Approach
 
-**AlphaEvolve / ShinkaEvolve** is a population-based evolutionary optimization framework tailored for
+**AlphaEvolve / ShinkaEvolve** is a population-based evolutionary optimization framework tailored for scheduling tasks in complex, multi-scenario environments.
+
+---
+
+## Results
+
+### Shock Failure Scenarios
+
+![Shock Failure Scenarios](figs/Shock%20Failure%20Scenarios.png)
+
+This figure illustrates different shock failure patterns that can affect data center operations. The visualization shows how various failure modes impact system performance and resource availability.
+
+### MIP Solution under Earthquake Scenario
+
+![MIP Solution under Earthquake Scenario](figs/MIP%20Solution%20under%20Earthquake%20Scenario%2C%20Left%3A%20Gantt%20chart%20of%20job%20schedules%2C%20including%20cloud%20usage%20%28C1%2C%20C3%2C%20C4%29%3B%20Right%3A%20Resource%20capacity%20over%20time%2C%20highlighting%20stochastic%20and%20shock%20failures%3B%20on-prem%20usage%20in%20orange%20and%20cloud%20fallback%20in%20red.png)
+
+The left panel shows the Gantt chart of job schedules under the earthquake scenario, including cloud resource utilization (C1, C3, C4). The right panel displays resource capacity over time, highlighting both stochastic and shock failures, with on-premises usage shown in orange and cloud fallback in red.
+
+### Evolutionary Algorithm Performance
+
+![ShinkaEvolve Outperforms MIP Baseline after ~70 Generations](figs/ShinkaEvolve%20Outperforms%20MIP%20Baseline%20after%20~70%20Generations.png)
+
+This graph demonstrates that ShinkaEvolve outperforms the MIP baseline solution after approximately 70 generations, showing the effectiveness of the evolutionary approach in finding high-quality scheduling solutions.
+
+### Convergence Analysis
+
+![ShinkaEvolve's Discovered Solution is Nearly Stagnant throughout Generations](figs/ShinkaEvolve%27s%20Discovered%20Solution%20is%20Nearly%20Stagnant%20throughout%20Generations.png)
+
+This figure shows convergence behavior of ShinkaEvolve, illustrating how the solution quality stabilizes and becomes nearly stagnant across generations after reaching the optimal configuration.
