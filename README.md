@@ -2,7 +2,7 @@
 
 ## Overview
 
-This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization** to solve dynamic job-shop scheduling in data centers. The system uses **SakanaAI's ShinkaEvolve** to evolve scheduling policies that minimize operational costs while managing:
+This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization** to solve dynamic job-shop scheduling in data centers. The system uses **SakanaAI's ShinkaEvolve** to evolve schedul[...]
 
 - **Time-varying costs** (cheaper at night, expensive during peak hours)
 - **Stochastic failures** (earthquakes, power outages, hardware degradation)
@@ -60,7 +60,8 @@ This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization*
 
 $$\min \left(
 \alpha \sum_{j,i} \sum_{t=s_{ji}}^{s_{ji}+p_{ji}-1} c_{m(j,i)}(t)
-\;+\;
+\;+
+\;
 \beta \sum_j w_j \cdot \max(0, C_j - d_j)
 \right)$$
 
@@ -236,19 +237,19 @@ PoC-DataCenter-EvolutionaryAlgorithm/
 
 ### MIP Baseline vs. Evolved Solutions
 
-![MIP Solution under Earthquake Scenario](figs/MIP%20Solution%20under%20Earthquake%20Scenario.png)
+![MIP Solution under Earthquake Scenario](figs/MIP%20Solution%20under%20Earthquake%20Scenario,%20Left:%20Gantt%20chart%20of%20job%20schedules,%20including%20cloud%20usage%20(C1,%20C3,%20C4);%20Right:%20Resource%20capacity%20over%20time,%20highlighting%20stochastic%20and%20shock%20failures;%20on-prem%20usage%20in%20orange%20and%20cloud%20fallback%20in%20red.png)
 
-*Left: Gantt chart showing job schedules and cloud resource utilization (C1, C3, C4) under earthquake scenario. Right: Resource capacity over time, highlighting shock failure periods and recovery dynamics.*
+*Left: Gantt chart showing job schedules and cloud resource utilization (C1, C3, C4) under earthquake scenario. Right: Resource capacity over time, highlighting shock failure periods and recovery.*
 
 ### Evolutionary Algorithm Convergence
 
-![ShinkaEvolve Outperforms MIP Baseline](figs/ShinkaEvolve%20Outperforms%20MIP%20Baseline.png)
+![ShinkaEvolve Outperforms MIP Baseline](figs/ShinkaEvolve%20Outperforms%20MIP%20Baseline%20after%20~70%20Generations.png)
 
 *ShinkaEvolve discovers solutions outperforming MIP baseline after approximately 70 generations, demonstrating effectiveness of LLM-driven code generation for scheduling optimization.*
 
 ### Solution Stability
 
-![Convergence Analysis](figs/ShinkaEvolve%20Convergence.png)
+![Convergence Analysis](figs/ShinkaEvolve's%20Discovered%20Solution%20is%20Nearly%20Stagnant%20throughout%20Generations.png)
 
 *Solution quality stabilizes and plateaus across generations after reaching near-optimal configuration, indicating convergence to a robust scheduling policy.*
 
