@@ -1,269 +1,306 @@
-# Cost-Aware Job-Shop Scheduling for Government Data Centers
+# Cost-Aware Job-Shop Scheduling for Data Centers using Evolutionary Algorithms
 
 ## Overview
 
-This simulation models a **government data center** that must schedule computational workloads across limited server resources while managing:
+This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization** to solve dynamic job-shop scheduling in data centers. The system uses **SakanaAI's ShinkaEvolve** to evolve scheduling policies that minimize operational costs while managing:
+
 - **Time-varying costs** (cheaper at night, expensive during peak hours)
-- **Machine failures** (earthquakes, power outages, etc.)
+- **Stochastic failures** (earthquakes, power outages, hardware degradation)
 - **Job deadlines** with priority-based penalties
 - **Cloud overflow** (expensive backup capacity)
 
-The goal is to minimize total cost = compute cost + delay penalties.
+**Goal:** Minimize total cost = compute cost + delay penalties, while maintaining robustness across diverse operational scenarios.
 
 ---
 
-## How the Simulation Works: Step-by-Step
+## Key Features
 
-### Scenarios
+| Feature | Description |
+|---------|-------------|
+| **Multi-Scenario Optimization** | Simultaneously optimizes for normal operations (80%) and disaster scenarios (20%) |
+| **Shock Failure Models** | Realistic shock failures (earthquakes, power outages) with exponential recovery dynamics |
+| **Time-Varying Costs** | Hourly pricing reflects real demand-based infrastructure costs |
+| **Evolutionary Learning** | LLM-driven iteration discovers novel scheduling strategies beyond classical baselines |
+| **Hybrid Cloud Strategy** | Automatically decides when to use expensive cloud resources vs. waiting |
 
-Two primary scenarios test the scheduler under different conditions:
+---
 
-- Normal Day
-- Earthquake Emergency
+## Problem Formulation
 
-Both are tested with Offline (Future information) and Online (No Future information) Approaches
+### Input Elements
 
-**Important:** Scenarios are **predetermined**, loaded from CSV files in `data/`. The earthquake doesn't happen randomly—it's a scripted scenario that always occurs at t=10 in the earthquake scenario.
+**Jobs (Workloads):**
+- Set of jobs $J = \{1, \dots, n\}$
+- Each job $j$ contains an ordered sequence of operations $O_j = (o_{j1}, o_{j2}, \dots, o_{jk_j})$
+- Each operation has: required server type, processing duration $p_{ji}$
 
-### Job Arrival
+**Servers (Machines):**
+- Local machines: M1 (GPU), M2 (CPU), M3 (High-Memory), M4 (Secure), M5 (Ingest)
+- Cloud equivalents: C1–C5 (infinite capacity, 5× cost)
+- Each machine has time-varying costs $c_m(t)$
 
-Jobs **do NOT all arrive at once**. Each job has an `arrival_time`:
+**Cost Model:**
+- Time-varying pricing by hour reflecting demand patterns
+- Off-peak (night): ¥20–¥80/hr depending on machine type
+- Peak (evening): ¥55–¥140/hr
+- Cloud costs: 5× higher at all times
 
+**Deadlines & Penalties:**
+- Each job has a deadline $d_j$ and delay penalty weight $w_j$
+
+### Constraints
+
+1. **Job precedence:** Operations must execute in order
+2. **Machine capacity:** Each machine processes one operation at a time (local); unlimited parallel (cloud)
+3. **Machine compatibility:** Operations can only run on compatible machine types
+4. **Non-preemption:** Operations run to completion without interruption
+5. **Availability:** Operations cannot start before job arrival
+
+### Objective Function
+
+$$\min \left(
+\alpha \sum_{j,i} \sum_{t=s_{ji}}^{s_{ji}+p_{ji}-1} c_{m(j,i)}(t)
+\;+\;
+\beta \sum_j w_j \cdot \max(0, C_j - d_j)
+\right)$$
+
+Where:
+- $s_{ji}$ = start time of operation $o_{ji}$
+- $m(j,i)$ = assigned server
+- $C_j$ = completion time of job $j$
+- $\alpha, \beta$ = policy weights balancing cost vs. delay
+
+---
+
+## Simulation Architecture
+
+### Shock Failure Model
+
+The PoC emphasizes **realistic shock failures** that severely impact data center operations. Unlike gradual wear, shocks are sudden capacity loss followed by recovery:
+
+**Shock Failure Patterns:**
+- **Instant Shock** ($\text{failure rate} = 1.0$): Capacity drops to zero immediately at failure start time
+- **Gradual Onset** ($\text{failure rate} = 0.5$): Capacity degrades exponentially over ~2 hours (e.g., earthquake aftershocks, cascading failures)
+- **Exponential Recovery** ($\text{recovery rate} = 0.5$): Capacity restores gradually over ~2 hours (system repairs, redundancy activation)
+
+**Example: Earthquake at t=10**
 ```
-Earthquake Scenario Example:
-t=10: Earthquake strikes! → J1, J2, J3 arrive (damage assessment, shelters, evacuation)
-t=11: → J4, J5, J9 arrive (infrastructure, medical, power grid)
-t=12: → J6, J7 arrive (communications, casualty estimates)
-t=13: → J8, J10 arrive (supply chain, inspections)
-```
-
-**Queuing dynamics:**
-- Jobs can't be scheduled before they arrive
-- Early-arriving jobs may block resources needed by later high-priority jobs
-- Scheduler must decide: use expensive cloud to free local resources, or wait?
-
-### Resources
-
-**Local Machines (limited capacity):**
-- **M1**: 1x GPU machine (capacity=20) 
-- **M2**: 1x CPU machine (capacity=40) 
-- **M3**: 1x High-Memory machine (capacity=10) 
-- **M4**: 1x Secure machine (capacity=5) 
-- **M5**: 1x Ingest machine (capacity=30) 
-
-Each local machine can run multiple operations simultaneously up to its capacity limit.
-
-**Cloud Machines (infinite capacity, 5x cost):**
-- **C1-C5**: Cloud equivalents of each type
-- Can run unlimited parallel operations
-- Cost 5x more than local machines
-- Used for overflow when local machines are busy or failed
-
-##### Costs
-
-Server costs change by hour to reflect demand-based pricing:
-
-| Time Period | Example: GPU (M1) | Example: CPU (M2) | Reason |
-|-------------|-------------------|-------------------|--------|
-| 0-5 (night) | ¥80/hr | ¥20/hr | Off-peak |
-| 6-9 (morning) | ¥120/hr | ¥45/hr | Morning rush |
-| 10-16 (midday) | ¥100/hr | ¥30/hr | Business hours |
-| 17-21 (evening) | ¥140/hr | ¥55/hr | **Peak hours** |
-| 22-23 (late) | ¥90/hr | ¥25/hr | Winding down |
-
-**Cloud costs are 5x higher** at all times.
-
-- Delay non-urgent jobs to off-peak hours (if deadline allows)
-- Critical jobs may need expensive evening slots
-- Cloud overflow is very expensive but sometimes necessary
-
-##### Failures
-
-Failures are **predetermined** from `data/machine_failures.csv` and random:
-
-**Exponential Failure Model:**
-Failures don't happen instantly—they follow exponential curves:
-
-1. **Failure onset** (gradual capacity reduction):
-   - `failure_rate = 1.0`: Instant capacity reduction at start time
-   - `failure_rate = 0.5`: Gradual capacity reduction over ~2 hours
-   - Capacity reduces: `max_reduction * (1 - e^(-failure_rate * time))`
-
-2. **Recovery** (gradual restoration):
-   - `recovery_rate = 1.0`: Instant recovery at end time
-   - `recovery_rate = 0.5`: Gradual restoration over ~2 hours
-   - Capacity restores: `max_reduction * e^(-recovery_rate * time_since_end)`
-
-### **How Jobs Are Scheduled**
-
-The scheduler (in `initial.py` or evolved versions) determines:
-1. **Which machine** to use for each operation (local vs cloud)
-2. **When** to start each operation (considering arrival, precedence, capacity)
-
-**Job Structure Example:**
-```
-J2: Tax fraud detection
-├─ Operation 1: Ingest (1 hour, needs M5/C5)
-├─ Operation 2: GPU (3 hours, needs M1/C1)
-└─ Operation 3: CPU (1 hour, needs M2/C2)
+Machine M2 (CPU) under Earthquake Scenario:
+t=10:  Earthquake strikes. Capacity: 40 → 0 (instant or gradual)
+t=10–12: Capacity reduced: 0 + (40 × e^(-0.5 × Δt))  [recovery begins]
+t=12:  Capacity ≈ 10 (50% recovered)
+t=14:  Capacity ≈ 25 (62% recovered)
+t=16:  Capacity ≈ 36 (90% recovered)
 ```
 
-**Constraints the scheduler must satisfy:**
-1. Op2 can't start before Op1 finishes
-2. Can't start before job arrives
-3. Each operation needs specific machine type
-4. Total concurrent operations can't exceed machine capacity
-5. Once started, operations run to completion
+![Shock Failure Scenarios](figs/Shock%20Failure%20Scenarios.png)
 
-### **Evaluation**: Multi-Scenario Weighted Evaluation
+*Figure: Visualization of shock failure patterns and their exponential recovery dynamics. Shows how different failure modes (instant drop, gradual onset, exponential recovery) impact machine capacity over time.*
 
-The algorithm is tested on **two scenarios simultaneously** with weighted scoring:
+**Why this matters:**
+- Trivial solutions like "always use cloud" become suboptimal once costs dominate
+- Scheduler must predict when local capacity will recover and batch jobs strategically
+- Forces genuine optimization: balance holding jobs vs. expensive cloud overflow
 
-**Scenarios:**
-- **Normal Day (80% weight)**: 12 jobs spread across 24 hours, realistic daily operations
-- **Earthquake Emergency (20% weight)**: 10 CRITICAL/HIGH priority jobs + earthquake_moderate failures
+### Test Scenarios
 
-**Weighted Fitness Function:**
-```python
-total_score = 0.8 × normal_score + 0.2 × earthquake_score
+Two complementary scenarios evaluate scheduler robustness:
 
-where each scenario_score = compute_cost × weight + delay_penalty × weight
+| Scenario | Weight | Characteristics |
+|----------|--------|-----------------|
+| **Normal Day** | 80% | 12 jobs across 24 hours; realistic cost-driven scheduling |
+| **Earthquake Emergency** | 20% | 10 CRITICAL/HIGH priority jobs; shock failures at t=10 on all machines |
+
+**Weighted evaluation strategy:**
+- Ensures practical performance on typical operations (80% focus)
+- Still handles disasters gracefully without over-optimization (20% focus)
+- More realistic than single-scenario testing
+
+### Job Arrival & Queuing Dynamics
+
+Jobs do **not** arrive simultaneously. Each has an `arrival_time`:
+
+```
+Earthquake Scenario Timeline:
+t=10:  Earthquake strikes → J1, J2, J3 arrive (damage assessment, shelters, evacuation)
+t=11:  → J4, J5, J9 arrive (infrastructure, medical, power grid)
+t=12:  → J6, J7 arrive (communications, casualty estimates)
+t=13:  → J8, J10 arrive (supply chain, inspections)
 ```
 
-**Why weighted?**
-- Ensures good performance on typical workloads (80% focus)  
-- Still handles disaster scenarios gracefully (20% focus)
-- Prevents over-optimization for rare emergencies
-- More realistic evaluation than single-scenario testing
+**Queuing effects:**
+- Early-arriving jobs may block resources needed by high-priority later jobs
+- Scheduler must decide: use expensive cloud to free resources or hold and wait for recovery?
+- This creates genuine optimization tradeoffs beyond static scheduling
 
-The evolutionary algorithm evolves schedulers that balance both scenarios.
+### Resource Configuration
+
+**Local Machines (capacity-limited):**
+- M1 (GPU): capacity = 20
+- M2 (CPU): capacity = 40
+- M3 (High-Memory): capacity = 10
+- M4 (Secure): capacity = 5
+- M5 (Ingest): capacity = 30
+
+Each can run multiple operations in parallel up to capacity limit.
+
+**Cloud Machines (infinite capacity):**
+- C1–C5: Cloud equivalents, 5× cost multiplier
+- Unlimited parallel operations
+- Used for overflow when local machines are congested or failed
+
+### Failure Dynamics
+
+**Failure Onset (capacity reduction during shock):**
+
+$$\text{capacity}(t) = \text{original} - \text{reduction} \times \left(1 - e^{-\text{failure\_rate} \times (t - t_{\text{start}})}\right)$$
+
+**Recovery (capacity restoration after shock):**
+
+$$\text{capacity}(t) = \text{original} - \text{reduction} \times e^{-\text{recovery\_rate} \times (t - t_{\text{end}})}$$
+
+**Parameters:**
+- `failure_rate = 1.0`: Instant capacity loss (switch to cloud immediately)
+- `failure_rate = 0.5`: Gradual degradation (opportunity to batch jobs before critical loss)
+- `recovery_rate = 1.0`: Instant recovery (unlikely in practice)
+- `recovery_rate = 0.5`: 2-hour recovery window (scheduler can predict when to resume local use)
+
+This realistic model prevents trivial greedy algorithms from solving the problem.
+
+---
+
+## Scheduler Design
+
+### Decision Logic
+
+The scheduler (baseline or evolved versions) determines:
+1. **Which machine** to use (local vs. cloud) for each operation
+2. **When** to start each operation (respecting precedence, arrival, capacity constraints)
+
+### Example Job Structure
+
+```
+J2: Tax Fraud Detection
+├─ Operation 1: Ingest (1 hr, requires M5/C5)
+├─ Operation 2: GPU (3 hrs, requires M1/C1)
+└─ Operation 3: CPU (1 hr, requires M2/C2)
+```
+
+### Scheduling Constraints
+
+1. Operation 2 cannot start before Operation 1 finishes
+2. No operation can start before job arrival time
+3. Each operation requires a specific machine type
+4. Total concurrent operations ≤ machine capacity
+5. Operations are non-preemptive (cannot be paused/resumed)
+
+---
+
+## Evolutionary Optimization (ShinkaEvolve)
+
+**ShinkaEvolve** is an LLM-driven evolutionary framework that:
+- **Generates** candidate scheduling strategies as executable Python code
+- **Evaluates** each strategy on both scenarios simultaneously using the weighted fitness function
+- **Mutates** high-performing solutions to discover novel improvements
+- **Converges** on robust schedulers that balance cost, latency, and resilience
+
+The evolutionary loop discovers scheduling policies that optimize competing objectives (minimize cost while meeting deadlines under failures) in ways classical heuristics struggle to achieve.
 
 ---
 
 ## File Structure
 
 ```
-PoC-JPNGOV-DataCenter/
-├── data/ # experiment configs
-│   ├── machines.csv              
-│   ├── machine_failures.csv      
-│   ├── scenario_baseline.csv     
-│   ├── scenario_earthquake.csv   
-├── initial.py                    # Baseline scheduler (FIFO + priority)
-├── evaluate.py                   # Evaluation
-├── run_evo.py                    # Evolutionary optimization
-├── scenario_loader.py            # Helper
-└── results_scheduling/           # Evolution outputs (for each test)
+PoC-DataCenter-EvolutionaryAlgorithm/
+├── data/                              # Experiment configurations
+│   ├── machines.csv                   # Machine specs and capacities
+│   ├── machine_failures.csv           # Shock failure scenarios
+│   ├── scenario_baseline.csv          # Normal day jobs
+│   └── scenario_earthquake.csv        # Emergency scenario
+├── initial.py                         # Baseline scheduler (FIFO + priority)
+├── evaluate.py                        # Evaluation engine
+├── run_evo.py                         # Evolutionary optimization loop
+├── scenario_loader.py                 # Configuration and data loading
+├── generate_figures.ipynb             # Figure generation notebook
+└── results_scheduling/                # Evolution outputs
     └── gen_N/
-        ├── main.py              # Evolved scheduler code
+        ├── main.py                    # Evolved scheduler code
         └── results/
-            ├── metrics.json     # Performance scores
-            └── extra.json       # Detailed schedule
+            ├── metrics.json           # Performance scores
+            └── extra.json             # Detailed schedule traces
 ```
 
 ---
 
----
+## Results & Performance
 
+### MIP Baseline vs. Evolved Solutions
 
-### Problem Formulation
+![MIP Solution under Earthquake Scenario](figs/MIP%20Solution%20under%20Earthquake%20Scenario.png)
 
-### Inputs
+*Left: Gantt chart showing job schedules and cloud resource utilization (C1, C3, C4) under earthquake scenario. Right: Resource capacity over time, highlighting shock failure periods and recovery dynamics.*
 
-- **Jobs (Workloads)**  
-  A set of jobs \( J = \{1, \dots, n\} \).  
-  Each job \( j \in J \) consists of an ordered sequence of operations:
-  \[
-  O_j = (o_{j1}, o_{j2}, \dots, o_{jk_j})
-  \]
+### Evolutionary Algorithm Convergence
 
-- **Operations**
-  Each operation \( o_{ji} \) has:
-  - a required server type
-  - a processing time (duration) \( p_{ji} \)
+![ShinkaEvolve Outperforms MIP Baseline](figs/ShinkaEvolve%20Outperforms%20MIP%20Baseline.png)
 
-- **Servers (Machines)**  
-  A set of servers \( M = \{1, \dots, m\} \), each with:
-  - a resource type (CPU, GPU, Storage)
-  - capacity 1 (can process only one operation at a time)
-  - time-varying cost per hour \( c_m(t) \)
+*ShinkaEvolve discovers solutions outperforming MIP baseline after approximately 70 generations, demonstrating effectiveness of LLM-driven code generation for scheduling optimization.*
 
-- **Cost Model**
-  - Time horizon \( T \) divided into discrete time slots (hours)
-  - Server cost \( c_m(t) \) for each server \( m \) at time \( t \)
-  - Cost varies by demand: off-peak (cheap), midday (moderate), peak hours (expensive)
+### Solution Stability
 
-- **Deadlines and Penalties**
-  - Each job \( j \) has a deadline \( d_j \)
-  - A delay penalty weight \( w_j \)
+![Convergence Analysis](figs/ShinkaEvolve%20Convergence.png)
+
+*Solution quality stabilizes and plateaus across generations after reaching near-optimal configuration, indicating convergence to a robust scheduling policy.*
 
 ---
 
-### Constraints
+## Usage
 
-1. **Job precedence constraints**  
-   Operations of a job must be executed in the given order.
+### Running the Baseline Scheduler
 
-2. **Machine capacity constraints**  
-   Each server can process at most one operation at a time.
+```bash
+python evaluate.py --scheduler initial
+```
 
-3. **Machine compatibility constraints**  
-   An operation can only be executed on servers of the required type.
+### Running Evolutionary Optimization
 
-4. **Non-preemption**  
-   Once started, an operation must run to completion without interruption.
+```bash
+python run_evo.py --generations 100 --population 20
+```
 
----
+### Analyzing Results
 
-### Objective Function
+```bash
+python evaluate.py --scheduler results_scheduling/gen_N/main.py
+```
 
-Minimize a weighted sum of server cost and delay penalties:
+### Generating Figures
 
-\[
-\min \left(
-\alpha \sum_{j,i} \sum_{t=s_{ji}}^{s_{ji}+p_{ji}-1} c_{m(j,i)}(t)
-\;+\;
-\beta \sum_j w_j \cdot \max(0, C_j - d_j)
-\right)
-\]
-
-Where:
-- \( s_{ji} \) is the start time of operation \( o_{ji} \)
-- \( m(j,i) \) is the server assigned to operation \( o_{ji} \)
-- \( c_m(t) \) is the cost of server \( m \) at time \( t \)
-- \( C_j \) is the completion time of job \( j \)
-- \( \alpha, \beta \) are policy weights
+```bash
+jupyter notebook generate_figures.ipynb
+```
 
 ---
 
-## AlphaEvolve / ShinkaEvolve Approach
+## Key Insights
 
-**AlphaEvolve / ShinkaEvolve** is a population-based evolutionary optimization framework tailored for scheduling tasks in complex, multi-scenario environments.
+1. **Shock failures dominate design**: Realistic exponential failure/recovery models rule out trivial greedy solutions
+2. **Weighted multi-scenario evaluation**: Prevents overfitting to rare disasters while maintaining practical baseline performance
+3. **Evolutionary discovery**: Finds scheduling policies balancing cost, latency, and resilience better than hand-crafted heuristics
+4. **Hybrid cloud strategy emerges**: Use local when cheap and available, cloud when local capacity is shocked or too expensive
+5. **Queuing dynamics matter**: Staggered job arrivals create genuine optimization tradeoffs that static models miss
 
 ---
 
-## Results
+## References
 
-### Shock Failure Scenarios
+- SakanaAI ShinkaEvolve: [GitHub](https://github.com/sakanaai/shinkaevolve)
+- Job-shop scheduling: classical NP-hard optimization with modern evolutionary approaches
+- Data center cost models: based on real time-of-use pricing patterns
+- Fault-tolerant scheduling: exponential recovery models common in systems literature
 
-![Shock Failure Scenarios](figs/Shock%20Failure%20Scenarios.png)
+---
 
-This figure illustrates different shock failure patterns that can affect data center operations. The visualization shows how various failure modes impact system performance and resource availability.
+## License
 
-### MIP Solution under Earthquake Scenario
-
-![MIP Solution under Earthquake Scenario](figs/MIP%20Solution%20under%20Earthquake%20Scenario%2C%20Left%3A%20Gantt%20chart%20of%20job%20schedules%2C%20including%20cloud%20usage%20%28C1%2C%20C3%2C%20C4%29%3B%20Right%3A%20Resource%20capacity%20over%20time%2C%20highlighting%20stochastic%20and%20shock%20failures%3B%20on-prem%20usage%20in%20orange%20and%20cloud%20fallback%20in%20red.png)
-
-The left panel shows the Gantt chart of job schedules under the earthquake scenario, including cloud resource utilization (C1, C3, C4). The right panel displays resource capacity over time, highlighting both stochastic and shock failures, with on-premises usage shown in orange and cloud fallback in red.
-
-### Evolutionary Algorithm Performance
-
-![ShinkaEvolve Outperforms MIP Baseline after ~70 Generations](figs/ShinkaEvolve%20Outperforms%20MIP%20Baseline%20after%20~70%20Generations.png)
-
-This graph demonstrates that ShinkaEvolve outperforms the MIP baseline solution after approximately 70 generations, showing the effectiveness of the evolutionary approach in finding high-quality scheduling solutions.
-
-### Convergence Analysis
-
-![ShinkaEvolve's Discovered Solution is Nearly Stagnant throughout Generations](figs/ShinkaEvolve%27s%20Discovered%20Solution%20is%20Nearly%20Stagnant%20throughout%20Generations.png)
-
-This figure shows convergence behavior of ShinkaEvolve, illustrating how the solution quality stabilizes and becomes nearly stagnant across generations after reaching the optimal configuration.
+MIT
