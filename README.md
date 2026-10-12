@@ -2,7 +2,7 @@
 
 ## Overview
 
-This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization** to solve dynamic job-shop scheduling in data centers. The system uses **SakanaAI's ShinkaEvolve** to evolve schedul[...]
+This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization** to solve dynamic job-shop scheduling in data centers. The system uses **SakanaAI's ShinkaEvolve** to evolve scheduling policies that handle:
 
 - **Time-varying costs** (cheaper at night, expensive during peak hours)
 - **Stochastic failures** (earthquakes, power outages, hardware degradation)
@@ -30,14 +30,14 @@ This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization*
 ### Input Elements
 
 **Jobs (Workloads):**
-- Set of jobs $J = \{1, \dots, n\}$
-- Each job $j$ contains an ordered sequence of operations $O_j = (o_{j1}, o_{j2}, \dots, o_{jk_j})$
-- Each operation has: required server type, processing duration $p_{ji}$
+- Set of jobs $`J = \{1, \dots, n\}`$
+- Each job $`j`$ contains an ordered sequence of operations $`O_j = (o_{j1}, o_{j2}, \dots, o_{jk_j})`$
+- Each operation has: required server type, processing duration $`p_{ji}`$
 
 **Servers (Machines):**
 - Local machines: M1 (GPU), M2 (CPU), M3 (High-Memory), M4 (Secure), M5 (Ingest)
 - Cloud equivalents: C1–C5 (infinite capacity, 5× cost)
-- Each machine has time-varying costs $c_m(t)$
+- Each machine has time-varying costs $`c_m(t)`$
 
 **Cost Model:**
 - Time-varying pricing by hour reflecting demand patterns
@@ -46,7 +46,7 @@ This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization*
 - Cloud costs: 5× higher at all times
 
 **Deadlines & Penalties:**
-- Each job has a deadline $d_j$ and delay penalty weight $w_j$
+- Each job has a deadline $`d_j`$ and delay penalty weight $`w_j`$
 
 ### Constraints
 
@@ -58,18 +58,15 @@ This proof-of-concept (PoC) demonstrates **LLM-driven evolutionary optimization*
 
 ### Objective Function
 
-$$\min \left(
-\alpha \sum_{j,i} \sum_{t=s_{ji}}^{s_{ji}+p_{ji}-1} c_{m(j,i)}(t)
-\;+
-\;
-\beta \sum_j w_j \cdot \max(0, C_j - d_j)
-\right)$$
+```math
+\min \left( \alpha \sum_{j,i} \sum_{t=s_{ji}}^{s_{ji}+p_{ji}-1} c_{m(j,i)}(t) \;+\; \beta \sum_j w_j \cdot \max(0,\, C_j - d_j) \right)
+```
 
 Where:
-- $s_{ji}$ = start time of operation $o_{ji}$
-- $m(j,i)$ = assigned server
-- $C_j$ = completion time of job $j$
-- $\alpha, \beta$ = policy weights balancing cost vs. delay
+- $`s_{ji}`$ = start time of operation $`o_{ji}`$
+- $`m(j,i)`$ = assigned server
+- $`C_j`$ = completion time of job $`j`$
+- $`\alpha, \beta`$ = policy weights balancing cost vs. delay
 
 ---
 
@@ -80,9 +77,9 @@ Where:
 The PoC emphasizes **realistic shock failures** that severely impact data center operations. Unlike gradual wear, shocks are sudden capacity loss followed by recovery:
 
 **Shock Failure Patterns:**
-- **Instant Shock** ($\text{failure rate} = 1.0$): Capacity drops to zero immediately at failure start time
-- **Gradual Onset** ($\text{failure rate} = 0.5$): Capacity degrades exponentially over ~2 hours (e.g., earthquake aftershocks, cascading failures)
-- **Exponential Recovery** ($\text{recovery rate} = 0.5$): Capacity restores gradually over ~2 hours (system repairs, redundancy activation)
+- **Instant Shock** (`failure_rate = 1.0`): Capacity drops to zero immediately at failure start time
+- **Gradual Onset** (`failure_rate = 0.5`): Capacity degrades exponentially over ~2 hours (e.g., earthquake aftershocks, cascading failures)
+- **Exponential Recovery** (`recovery_rate = 0.5`): Capacity restores gradually over ~2 hours (system repairs, redundancy activation)
 
 **Example: Earthquake at t=10**
 ```
@@ -94,7 +91,7 @@ t=14:  Capacity ≈ 25 (62% recovered)
 t=16:  Capacity ≈ 36 (90% recovered)
 ```
 
-![Shock Failure Scenarios](figs/Shock%20Failure%20Scenarios.png)
+![Shock Failure Scenarios](<figs/Shock Failure Scenarios.png>)
 
 *Figure: Visualization of shock failure patterns and their exponential recovery dynamics. Shows how different failure modes (instant drop, gradual onset, exponential recovery) impact machine capacity over time.*
 
@@ -154,11 +151,15 @@ Each can run multiple operations in parallel up to capacity limit.
 
 **Failure Onset (capacity reduction during shock):**
 
-$$\text{capacity}(t) = \text{original} - \text{reduction} \times \left(1 - e^{-\text{failure\_rate} \times (t - t_{\text{start}})}\right)$$
+```math
+\text{capacity}(t) = \text{original} - \text{reduction} \times \left(1 - e^{-\text{failure\_rate} \times (t - t_{\text{start}})}\right)
+```
 
 **Recovery (capacity restoration after shock):**
 
-$$\text{capacity}(t) = \text{original} - \text{reduction} \times e^{-\text{recovery\_rate} \times (t - t_{\text{end}})}$$
+```math
+\text{capacity}(t) = \text{original} - \text{reduction} \times e^{-\text{recovery\_rate} \times (t - t_{\text{end}})}
+```
 
 **Parameters:**
 - `failure_rate = 1.0`: Instant capacity loss (switch to cloud immediately)
@@ -237,19 +238,19 @@ PoC-DataCenter-EvolutionaryAlgorithm/
 
 ### MIP Baseline vs. Evolved Solutions
 
-![MIP Solution under Earthquake Scenario](figs/MIP%20Solution%20under%20Earthquake%20Scenario,%20Left:%20Gantt%20chart%20of%20job%20schedules,%20including%20cloud%20usage%20(C1,%20C3,%20C4);%20Right:%20Resource%20capacity%20over%20time,%20highlighting%20stochastic%20and%20shock%20failures;%20on-prem%20usage%20in%20orange%20and%20cloud%20fallback%20in%20red.png)
+![MIP Solution under Earthquake Scenario](<figs/MIP Solution under Earthquake Scenario, Left: Gantt chart of job schedules, including cloud usage (C1, C3, C4); Right: Resource capacity over time, highlighting stochastic and shock failures; on-prem usage in orange and cloud fallback in red.png>)
 
 *Left: Gantt chart showing job schedules and cloud resource utilization (C1, C3, C4) under earthquake scenario. Right: Resource capacity over time, highlighting shock failure periods and recovery.*
 
 ### Evolutionary Algorithm Convergence
 
-![ShinkaEvolve Outperforms MIP Baseline](figs/ShinkaEvolve%20Outperforms%20MIP%20Baseline%20after%20~70%20Generations.png)
+![ShinkaEvolve Outperforms MIP Baseline](<figs/ShinkaEvolve Outperforms MIP Baseline after ~70 Generations.png>)
 
 *ShinkaEvolve discovers solutions outperforming MIP baseline after approximately 70 generations, demonstrating effectiveness of LLM-driven code generation for scheduling optimization.*
 
 ### Solution Stability
 
-![Convergence Analysis](figs/ShinkaEvolve's%20Discovered%20Solution%20is%20Nearly%20Stagnant%20throughout%20Generations.png)
+![Convergence Analysis](<figs/ShinkaEvolve's Discovered Solution is Nearly Stagnant throughout Generations.png>)
 
 *Solution quality stabilizes and plateaus across generations after reaching near-optimal configuration, indicating convergence to a robust scheduling policy.*
 
